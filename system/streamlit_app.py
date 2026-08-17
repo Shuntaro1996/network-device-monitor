@@ -41,8 +41,7 @@ st.markdown("""
     iframe {
         border: none !important;
         width: 100% !important;
-        height: 100vh !important;
-        min-height: 980px !important;
+        min-height: 100vh !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -343,13 +342,26 @@ def build_bundled_html():
         '<link rel="stylesheet" href="style.css?v=33">',
         f'<style>\n{css_content}\n</style>'
     )
+
+    # Wrap app.js to ensure execution even if DOMContentLoaded already fired in iframe
+    app_js_executable = app_js.replace(
+        "document.addEventListener('DOMContentLoaded', () => {",
+        "function __initAppMain__() {"
+    )
+    app_js_executable += """
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', __initAppMain__);
+    } else {
+        __initAppMain__();
+    }
+    """
     
-    # Inject Inline Libraries & Mock API & App JS
+    # Inject Inline Libraries & Mock API & Executable App JS
     injected_scripts = f"""
     <script>{chart_js}</script>
     <script>{vis_js}</script>
     {mock_api_js}
-    <script>{app_js}</script>
+    <script>{app_js_executable}</script>
     """
     
     # Replace external script tags with bundled inline code
@@ -364,4 +376,4 @@ def build_bundled_html():
 # Render Full Screen Component
 # ==========================================
 bundled_html = build_bundled_html()
-components.html(bundled_html, height=1080, scrolling=True)
+components.html(bundled_html, height=1200, scrolling=True)
