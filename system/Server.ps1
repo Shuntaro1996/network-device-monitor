@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 # =========================================================================
 # 【初心者向けの簡単な解説】
@@ -3501,6 +3501,11 @@ try {
         }
         else {
             # Static files
+            if ($urlPath -eq "/favicon.ico") {
+                $response.StatusCode = 204
+                try { $response.Close() } catch {}
+                continue
+            }
             if ($urlPath -eq "/") { $urlPath = "/index.html" }
             $safePath = $urlPath -replace "^/", "" -replace "/", "\"
             $filePath = Join-Path $publicDir $safePath
