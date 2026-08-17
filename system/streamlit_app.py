@@ -92,13 +92,19 @@ st.markdown("""
 # ==========================================
 @st.cache_data
 def load_devices():
-    json_path = os.path.join(os.path.dirname(__file__), "system", "devices.json")
-    if os.path.exists(json_path):
-        try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            st.warning(f"devices.json 読み込み失敗: {e}")
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(current_dir, "devices.json"),
+        os.path.join(current_dir, "system", "devices.json"),
+        os.path.join(os.path.dirname(current_dir), "system", "devices.json")
+    ]
+    for json_path in candidates:
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                pass
     
     # Fallback default devices
     return [

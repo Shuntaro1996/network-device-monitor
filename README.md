@@ -9,7 +9,7 @@
 > 🚀 **Live Demo:** [https://network-device-monitor.streamlit.app/](https://network-device-monitor.streamlit.app/) （ブラウザから今すぐ動作確認できます）
 
 **PowerShell製バックエンドHTTPサーバーとモダンSPAフロントエンド（Vis-Network / Chart.js / Web Audio）で構成された、エージェントレス型のオールインワン・ネットワーク機器監視＆診断ツールです。**
-ブラウザ上で動作を確認できる **Streamlit Webデモ版 (`streamlit_app.py`)** も同梱しています。
+ブラウザ上で動作を確認できる **Streamlit Webデモ版 (`system/streamlit_app.py`)** も同梱しています。
 
 ---
 
@@ -50,17 +50,16 @@ graph TD
 ```
 NetworkDeviceMonitor/
 ├── Start-Monitor.bat              # 🚀 起動用バッチファイル（Windows監視サーバー一発起動）
-├── streamlit_app.py               # 🎈 Streamlit Webデモアプリ（Cloud / ローカル対応）
-├── requirements.txt               # 📦 Python 依存ライブラリ一覧
 ├── 利用手順書.md                  # 📘 エンドユーザー・運用担当者向け利用マニュアル
 ├── README.md                      # 📖 プロジェクト概要・仕様書
 ├── LICENSE                        # 📄 MIT License
-├── .streamlit/                    # ⚙️ Streamlit テーマ・実行設定
-│   └── config.toml
 ├── Reports/                       # 📑 実行時ログ・CSVレポート出力先（自動生成）
 │   └── .gitkeep
-└── system/                        # 🛠️ 監視システム本体
-    ├── README.md                  # 管理者・開発者向け詳細設計書
+└── system/                        # 🛠️ 監視システム本体 & Webデモ
+    ├── streamlit_app.py           # 🎈 Streamlit Webデモアプリ（Cloud / ローカル対応）
+    ├── requirements.txt           # 📦 Python 依存ライブラリ一覧
+    ├── .streamlit/                # ⚙️ Streamlit テーマ・実行設定
+    │   └── config.toml
     ├── Server.ps1                 # メインバックエンドHTTPサーバー
     ├── Measure-Bandwidth.ps1      # SNMPによる帯域計算ロジック
     ├── Launcher.ps1               # 個別デバイス監視ランチャー
@@ -68,6 +67,7 @@ NetworkDeviceMonitor/
     ├── Start-BandwidthServer.ps1  # 帯域監視補助サーバー
     ├── devices.json               # 監視対象デバイス設定
     ├── config.json                # システム全体設定
+    ├── README.md                  # 管理者・開発者向け詳細設計書
     ├── iperf3.18_64/              # iperf3 実行バイナリ & NOTICE.md
     └── public/                    # フロントエンド静的アセット (SPA)
         ├── index.html             # メインSPA画面
@@ -102,14 +102,14 @@ Python 環境があれば、Streamlit 単体でシミュレーション稼働す
 
 ```bash
 # 1. 依存ライブラリのインストール
-pip install -r requirements.txt
+pip install -r system/requirements.txt
 
 # 2. Streamlit デモアプリの起動
-streamlit run streamlit_app.py
+streamlit run system/streamlit_app.py
 ```
 
 > **Streamlit Community Cloud への公開**:
-> GitHub リポジトリ（`Shuntaro1996/network-device-monitor`）を [Streamlit Community Cloud](https://share.streamlit.io/) に連携し、Main file path を `streamlit_app.py` に指定するだけで、世界中誰でもブラウザから動作デモを体験できます。
+> GitHub リポジトリ（`Shuntaro1996/network-device-monitor`）を [Streamlit Community Cloud](https://share.streamlit.io/) に連携し、**Main file path** を **`system/streamlit_app.py`** に指定するだけで、世界中誰でもブラウザから動作デモを体験できます。
 
 ---
 
