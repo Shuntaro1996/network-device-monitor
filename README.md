@@ -1,11 +1,13 @@
 # 🌐 Network Device Monitor & Diagnostic Tool
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%2F%207%2B-blue.svg?logo=powershell)](https://microsoft.com/powershell)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/)
 [![Frontend](https://img.shields.io/badge/Frontend-HTML5%20%2F%20CSS3%20%2F%20JavaScript-yellow.svg)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6.svg?logo=windows)](https://www.microsoft.com/windows)
 
 **PowerShell製バックエンドHTTPサーバーとモダンSPAフロントエンド（Vis-Network / Chart.js / Web Audio）で構成された、エージェントレス型のオールインワン・ネットワーク機器監視＆診断ツールです。**
+ブラウザ上で動作を確認できる **Streamlit Webデモ版 (`streamlit_app.py`)** も同梱しています。
 
 ---
 
@@ -76,13 +78,30 @@ NetworkDeviceMonitor/
 * **PowerShell**: Windows PowerShell 5.1 または PowerShell 7+
 * **ブラウザ**: Google Chrome / Microsoft Edge / Firefox
 
-### 手順
+### 手順 (Windows 本番・ローカル監視)
 1. 本リポジトリをクローンまたはダウンロードします。
    ```bash
    git clone https://github.com/Shuntaro1996/network-device-monitor.git
    ```
 2. フォルダ内の **`Start-Monitor.bat`** をダブルクリックします。
 3. 自動的にブラウザが起動し、監視ダッシュボード（`http://localhost:8081`）が表示されます。
+
+---
+
+### 🎈 Streamlit Webデモ版の起動方法 (Python / クラウド公開)
+
+Python 環境があれば、Streamlit 単体でシミュレーション稼働する Web デモを即座に立ち上げられます：
+
+```bash
+# 1. 依存ライブラリのインストール
+pip install -r requirements.txt
+
+# 2. Streamlit デモアプリの起動
+streamlit run streamlit_app.py
+```
+
+> **Streamlit Community Cloud への公開**:
+> GitHub リポジトリ（`Shuntaro1996/network-device-monitor`）を [Streamlit Community Cloud](https://share.streamlit.io/) に連携し、Main file path を `streamlit_app.py` に指定するだけで、世界中誰でもブラウザから動作デモを体験できます。
 
 ---
 
