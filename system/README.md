@@ -50,10 +50,6 @@ NetworkDeviceMonitor/
 │   └── .gitkeep
 └── system/
     ├── README.md                  # ★本ドキュメント
-    ├── streamlit_app.py           # 🎈 Streamlit Webデモアプリ（Cloud / ローカル対応）
-    ├── requirements.txt           # 📦 Python 依存ライブラリ一覧
-    ├── .streamlit/                # ⚙️ Streamlit テーマ・実行設定
-    │   └── config.toml
     ├── Server.ps1                 # ★メインバックエンドサーバー（Runspace並列処理）
     ├── Measure-Bandwidth.ps1      # SNMPによる帯域計算ロジック
     ├── Launcher.ps1               # 個別デバイス監視ランチャー
