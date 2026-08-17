@@ -39,87 +39,42 @@
         <aside class="glass-sidebar">
             <div class="sidebar-brand">
                 <h1>ネットワーク監視</h1>
+                <div id="sidebar-status-summary" class="status-summary-bar">
+                    <span class="summary-chip chip-online" id="summary-online-chip" title="正常稼働中の機器数">🟢 <span id="summary-online-count">0</span> 台</span>
+                    <span class="summary-chip chip-offline" id="summary-offline-chip" title="障害・オフラインの機器数">🔴 <span id="summary-offline-count">0</span> 台</span>
+                    <span class="summary-chip chip-paused" id="summary-paused-chip" title="監視停止中の機器数">⏸ <span id="summary-paused-count">0</span> 台</span>
+                </div>
             </div>
             <div class="tab-navigation">
-                <button id="tab-dashboard" class="tab-btn active">ダッシュボード</button>
-                <button id="tab-topology" class="tab-btn">システム構成図</button>
-                <button id="tab-iperf" class="tab-btn">Iperf3 計測</button>
-                <button id="tab-manage" class="tab-btn">機器追加 / 管理</button>
+                <button id="tab-dashboard" class="tab-btn active">📊 ダッシュボード</button>
+                <button id="tab-topology" class="tab-btn">🌐 システム構成図</button>
+                <button id="tab-iperf" class="tab-btn">🚀 Iperf3 計測</button>
+                <button id="tab-manage" class="tab-btn">🖥 機器追加 / 管理</button>
             </div>
             <div class="sidebar-actions">
-                <!-- Auto-Refresh Interval -->
-                <div class="threshold-controls">
-                    <div class="threshold-item">
-                        <label for="thresh-latency">🔔 遅延アラート閾値</label>
-                        <div class="input-group">
-                            <input type="number" id="thresh-latency" value="100" min="0" max="9999"
-                                title="数値を入力してEnterで確定" placeholder="100">
-                            <span class="unit-label">ms 超過で通知</span>
-                        </div>
-                    </div>
-                    <div class="threshold-item border-top">
-                        <label for="config-ping-size">📡 Pingデータ伝送量</label>
-                        <div class="input-group">
-                            <input type="number" id="config-ping-size" value="1" min="1" max="65500"
-                                title="数値を入力してEnterで確定" placeholder="32">
-                            <span class="unit-label">bytes</span>
-                        </div>
-                        <span id="config-ping-size-hint" class="hint-text">Enter または Tab で確定</span>
-                    </div>
-                    <div class="threshold-item border-top">
-                        <label for="config-poll-interval">⏱ 監視頻度 (Interval)</label>
-                        <select id="config-poll-interval" class="form-select">
-                            <option value="100">0.1s ⚡ 超高頻度 (2台限定)</option>
-                            <option value="500">0.5s (高頻度)</option>
-                            <option value="1000" selected>1.0s (標準)</option>
-                            <option value="5000">5.0s (低負荷)</option>
-                        </select>
-                    </div>
-                    <!-- 0.1s mode: dual-target device selectors (shown only when 0.1s selected) -->
-                    <div id="highfreq-target-container" class="threshold-item" style="display:none; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.35); border-radius:10px; padding:10px 12px; margin-top:4px;">
-                        <label style="color:#fbbf24; font-size:0.8rem; font-weight:700;">⚡ 超高頻度モード: 監視対象 (最大2台)</label>
-                        <div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <span style="font-size:0.75rem; color:#fbbf24; min-width:36px; font-weight:600;">対象①</span>
-                                <select id="highfreq-target-select-1" class="form-select" style="flex:1; font-size:0.82rem;"></select>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:6px;">
-                                <span style="font-size:0.75rem; color:#fbbf24; min-width:36px; font-weight:600;">対象②</span>
-                                <select id="highfreq-target-select-2" class="form-select" style="flex:1; font-size:0.82rem;"></select>
-                            </div>
-                        </div>
-                        <p style="font-size:0.72rem; color:#fbbf24; margin-top:6px; margin-bottom:0; opacity:0.85;">⚠ 選択した最大2台のみ 0.1s 間隔で監視。PC負荷軽減のため他の機器は一時停止扱いとなります。対象②は「なし」も選択可能です。</p>
-                    </div>
-                    <div class="threshold-item border-top">
-                        <label>⚡ 瞬断カウント閾値</label>
-                        <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
-                            <div class="input-group">
-                                <span style="font-size:0.75rem; color:var(--text-muted); min-width:20px;">①</span>
-                                <input type="number" id="config-outage-thresh1" value="600" min="100" max="60000"
-                                    title="瞬断カウント閾値①（ms）。この時間以上の瞬断を回数としてカウント" placeholder="600">
-                                <span class="unit-label">ms 以上</span>
-                            </div>
-                            <div class="input-group">
-                                <span style="font-size:0.75rem; color:var(--text-muted); min-width:20px;">②</span>
-                                <input type="number" id="config-outage-thresh2" value="5000" min="100" max="600000"
-                                    title="瞬断カウント閾値②（ms）。この時間以上の瞬断を回数としてカウント" placeholder="5000">
-                                <span class="unit-label">ms 以上</span>
-                            </div>
-                        </div>
-                        <span class="hint-text">Enter または Tab で確定</span>
-                    </div>
-                </div>
-                <div class="theme-toggle-container">
+                <button id="open-system-config-btn" class="btn secondary-btn config-btn" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px; padding:10px 14px; font-weight:600; font-size:0.88rem; border-radius:10px;">
+                    <span>⚙️ システム設定</span>
+                </button>
+                
+                <div class="theme-toggle-container" style="margin-top: 10px;">
                     <span class="label">表示モード</span>
                     <button id="theme-toggle-btn" class="btn secondary-btn theme-btn">
                         <span id="theme-icon">🌙</span>
                         <span id="theme-text">ナイト</span>
                     </button>
                 </div>
-                <div class="logging-toggle-container" style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+                
+                <div class="logging-toggle-container" style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
                     <span class="label" style="font-size: 0.85rem; font-weight: 500; color: var(--text-main);">📝 ログ記録 (CSV)</span>
                     <button id="logging-toggle-btn" class="btn secondary-btn" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; font-weight: 600; min-width: 60px;">ON</button>
                 </div>
+                
+                <!-- Hidden inputs for backward compatibility -->
+                <input type="hidden" id="thresh-latency" value="100">
+                <input type="hidden" id="config-ping-size" value="1">
+                <input type="hidden" id="config-poll-interval" value="1000">
+                <input type="hidden" id="config-outage-thresh1" value="600">
+                <input type="hidden" id="config-outage-thresh2" value="5000">
                 <input type="hidden" id="thresh-bandwidth" value="10">
             </div>
         </aside>
@@ -127,6 +82,22 @@
         <!-- Main Content Area -->
         <main class="dashboard">
             <div id="view-dashboard" class="tab-view active">
+                <!-- Heatmap / Timeline Component -->
+                <div id="dashboard-heatmap-card" class="glass-card heatmap-card">
+                    <div class="heatmap-header">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <h3 style="font-size:0.85rem; font-weight:600; margin:0; color:var(--text-main);">⏱ 稼働タイムライン (直近ステータス)</h3>
+                        </div>
+                        <div class="heatmap-legend">
+                            <span class="legend-item"><span class="legend-dot dot-online"></span>正常 (&lt;100ms)</span>
+                            <span class="legend-item"><span class="legend-dot dot-warn"></span>高遅延</span>
+                            <span class="legend-item"><span class="legend-dot dot-error"></span>障害 / 瞬断</span>
+                            <span class="legend-item"><span class="legend-dot dot-paused"></span>停止</span>
+                        </div>
+                    </div>
+                    <div id="dashboard-heatmap-container" class="heatmap-grid"></div>
+                </div>
+
                 <div id="dashboard-group-tabs" class="group-tabs"></div>
                 <div id="dashboard-unified-chart-container"></div>
                 <div class="device-list" id="device-list">
@@ -646,7 +617,181 @@
         <button id="bulk-clear-btn" class="btn secondary-btn small">✖ クリア</button>
     </div>
     
+    <!-- System Configuration Modal -->
+    <div id="system-config-modal" class="modal-overlay hidden">
+        <div class="glass-modal config-modal-box">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span style="font-size:1.4rem;">⚙️</span>
+                    <h2 class="modal-title">システム設定</h2>
+                </div>
+                <button id="close-system-config-btn" class="modal-close-btn">&times;</button>
+            </div>
+
+            <!-- Config Tabs -->
+            <div class="config-tab-bar">
+                <button class="config-tab-btn active" data-cfg-tab="cfg-tab-monitoring">📡 監視・閾値</button>
+                <button class="config-tab-btn" data-cfg-tab="cfg-tab-notifications">🔔 通知・音声</button>
+                <button class="config-tab-btn" data-cfg-tab="cfg-tab-backup">💾 バックアップ・復元</button>
+                <button class="config-tab-btn" data-cfg-tab="cfg-tab-maintenance">🧹 ログ保守</button>
+            </div>
+
+            <div class="modal-body-scroll config-modal-body">
+                <!-- Tab 1: Monitoring & Thresholds -->
+                <div id="cfg-tab-monitoring" class="config-tab-content active">
+                    <div class="config-section">
+                        <h4 class="config-section-title">⏱ 監視頻度 (Interval)</h4>
+                        <div class="form-group">
+                            <select id="modal-config-poll-interval" class="form-select">
+                                <option value="100">0.1s ⚡ 超高頻度 (デュアルレート: 対象2台のみ0.1s / 他5.0s)</option>
+                                <option value="500">0.5s (高頻度)</option>
+                                <option value="1000" selected>1.0s (標準)</option>
+                                <option value="5000">5.0s (低負荷)</option>
+                            </select>
+                        </div>
+                        
+                        <!-- 0.1s mode target devices -->
+                        <div id="modal-highfreq-target-container" style="display:none; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.35); border-radius:10px; padding:12px; margin-top:8px;">
+                            <label style="color:#fbbf24; font-size:0.82rem; font-weight:700; display:block; margin-bottom:6px;">⚡ 超高頻度対象機器 (最大2台)</label>
+                            <div style="display:flex; flex-direction:column; gap:8px;">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:0.75rem; color:#fbbf24; min-width:40px; font-weight:600;">対象①</span>
+                                    <select id="modal-highfreq-target-select-1" class="form-select" style="flex:1; font-size:0.82rem;"></select>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:0.75rem; color:#fbbf24; min-width:40px; font-weight:600;">対象②</span>
+                                    <select id="modal-highfreq-target-select-2" class="form-select" style="flex:1; font-size:0.82rem;"></select>
+                                </div>
+                            </div>
+                            <p style="font-size:0.72rem; color:#fbbf24; margin:6px 0 0 0; opacity:0.85;">※ 対象外の機器は 5.0 秒間隔の低速レートで監視を継続（デュアルレート監視）します。</p>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h4 class="config-section-title">📡 Ping データ伝送量</h4>
+                        <div class="form-group inline-group">
+                            <input type="number" id="modal-config-ping-size" class="form-input" value="1" min="1" max="65500" style="max-width:140px;">
+                            <span class="unit-label">bytes (パケットサイズ)</span>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h4 class="config-section-title">🔔 遅延アラート閾値</h4>
+                        <div class="form-group inline-group">
+                            <input type="number" id="modal-thresh-latency" class="form-input" value="100" min="1" max="9999" style="max-width:140px;">
+                            <span class="unit-label">ms 超過で警告トースト & アラート発火</span>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h4 class="config-section-title">⚡ 瞬断カウント閾値</h4>
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div class="form-group inline-group">
+                                <span style="font-size:0.8rem; color:var(--text-muted); min-width:30px; font-weight:600;">閾値①</span>
+                                <input type="number" id="modal-config-outage-thresh1" class="form-input" value="600" min="100" max="60000" style="max-width:140px;">
+                                <span class="unit-label">ms 以上の断でカウント</span>
+                            </div>
+                            <div class="form-group inline-group">
+                                <span style="font-size:0.8rem; color:var(--text-muted); min-width:30px; font-weight:600;">閾値②</span>
+                                <input type="number" id="modal-config-outage-thresh2" class="form-input" value="5000" min="100" max="600000" style="max-width:140px;">
+                                <span class="unit-label">ms 以上の断でカウント</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Notifications & Audio -->
+                <div id="cfg-tab-notifications" class="config-tab-content">
+                    <div class="config-section">
+                        <h4 class="config-section-title">🔊 Web Audio 音声アラート</h4>
+                        <p class="config-desc">障害発生時（オフライン化・遅延超過時）にブラウザ上で警告音を発声します。</p>
+                        <div class="form-group" style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="modal-sound-enabled" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">音声アラートを有効化</span>
+                        </div>
+                        <div id="sound-settings-sub" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <span style="font-size:0.8rem; color:var(--text-muted); min-width:40px;">音量</span>
+                                <input type="range" id="modal-sound-volume" min="0" max="1" step="0.05" value="0.5" style="flex:1;">
+                                <span id="modal-sound-vol-label" style="font-size:0.8rem; min-width:36px; font-weight:600;">50%</span>
+                                <button type="button" id="btn-test-sound" class="btn secondary-btn small" style="white-space:nowrap;">🔊 テスト再生</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h4 class="config-section-title">📢 Webhook 外部通知 (Slack / Teams / Discord)</h4>
+                        <p class="config-desc">障害検知時および復旧時に Webhook URL へ自動通知 JSON を POST します。</p>
+                        <div class="form-group" style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="modal-webhook-enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">Webhook 通知を有効化</span>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+                            <div class="form-group">
+                                <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px; display:block;">Webhook URL</label>
+                                <input type="text" id="modal-webhook-url" class="form-input" placeholder="https://hooks.slack.com/services/... または Discord Webhook URL">
+                            </div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-top:4px;">
+                                <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-muted); cursor:pointer;">
+                                    <input type="checkbox" id="modal-webhook-offline-only" checked>
+                                    <span>オフライン障害時のみ通知 (遅延超過時は除外)</span>
+                                </label>
+                                <button type="button" id="btn-test-webhook" class="btn secondary-btn small">🔔 テスト送信</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Backup & Restore -->
+                <div id="cfg-tab-backup" class="config-tab-content">
+                    <div class="config-section">
+                        <h4 class="config-section-title">📥 設定・機器リストのバックアップ (エクスポート)</h4>
+                        <p class="config-desc">現在の監視対象機器リスト、トポロジー配置座標、各種設定を 1 つの JSON バックアップファイルとしてダウンロードします。</p>
+                        <button type="button" id="btn-export-backup" class="btn primary-btn" style="margin-top:8px;">
+                            <span>📥 バックアップファイルを保存 (.json)</span>
+                        </button>
+                    </div>
+
+                    <div class="config-section" style="margin-top:16px;">
+                        <h4 class="config-section-title">📤 バックアップからの復元 (インポート)</h4>
+                        <p class="config-desc">以前保存した JSON バックアップファイルを選択して、機器構成と設定を一括復元します。</p>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+                            <input type="file" id="backup-file-input" accept=".json" class="form-input" style="flex:1;">
+                            <button type="button" id="btn-import-backup" class="btn secondary-btn" style="white-space:nowrap;">
+                                <span>適用・復元</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Maintenance & Log Purge -->
+                <div id="cfg-tab-maintenance" class="config-tab-content">
+                    <div class="config-section">
+                        <h4 class="config-section-title">🧹 ログ自動クリーンアップ (TTL 保持日数)</h4>
+                        <p class="config-desc">ディスク容量の枯渇を防ぐため、指定した日数を経過した Reports フォルダ内の過去セッションログをサーバーが自動的に安全削除します。</p>
+                        <div class="form-group inline-group" style="margin-top:8px;">
+                            <input type="number" id="modal-config-log-retention" class="form-input" value="30" min="0" max="365" style="max-width:120px;">
+                            <span class="unit-label">日間保持 (0 に設定すると自動削除は無効)</span>
+                        </div>
+                        <p style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;">※ サーバー起動時および設定保存時に古いセッションログ（`Reports/YYYYMMDD_HHMMSS`）がチェック・パージされます。</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn secondary-btn" id="cancel-system-config-btn">キャンセル</button>
+                <button type="button" class="btn primary-btn" id="save-system-config-btn">💾 設定を保存</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container"></div>
-    <script src="app.js?v=50"></script>
+    <script src="app.js?v=51"></script>
 </body>
 </html>

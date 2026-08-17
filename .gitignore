@@ -12,10 +12,10 @@ Thumbs.db
 .tmp.driveupload/
 
 # Runtime Generated Reports & Logs
-Reports/*.csv
-Reports/*.html
+Reports/*
 !Reports/.gitkeep
 
 # Temporary / Cache
 *.log
 *.tmp
+

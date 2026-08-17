@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 # =========================================================================
 # 【初心者向けの簡単な解説】
@@ -71,23 +71,105 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.HighFreqTargetIps = ""   # When PollInterval<=100ms, up to 2 IPs (comma-separated) are polled at high frequency
     $syncHash.OutageThresh1Ms   = 600  # Threshold 1 for outage count (ms)
     $syncHash.OutageThresh2Ms   = 5000 # Threshold 2 for outage count (ms)
+    $syncHash.LatencyThreshMs   = 100  # Threshold for latency alert (ms)
+    $syncHash.LogRetentionDays  = 30   # Auto-purge old reports older than N days (0=disabled)
+    $syncHash.WebhookUrl        = ""   # Webhook URL for external notifications (Slack/Teams/Discord)
+    $syncHash.WebhookEnabled    = $false
+    $syncHash.WebhookOfflineOnly= $true
+    $syncHash.SoundEnabled      = $true
+    $syncHash.SoundVolume       = 0.5
     
     # Load Config from file if exists
     if (Test-Path $configFileJson) {
         try {
             $savedConfig = Get-Content $configFileJson -Raw | ConvertFrom-Json
-            if ($null -ne $savedConfig.pollInterval)      { $syncHash.PollInterval     = [int]$savedConfig.pollInterval }
-            if ($null -ne $savedConfig.pingDataSize)      { $syncHash.PingDataSize     = [int]$savedConfig.pingDataSize }
-            if ($null -ne $savedConfig.loggingEnabled)    { $syncHash.LoggingEnabled   = [bool]$savedConfig.loggingEnabled }
-            # Support both new key (highFreqTargetIps) and legacy key (highFreqTargetIp)
-            if ($null -ne $savedConfig.highFreqTargetIps) { $syncHash.HighFreqTargetIps = [string]$savedConfig.highFreqTargetIps }
+            if ($null -ne $savedConfig.pollInterval)       { $syncHash.PollInterval       = [int]$savedConfig.pollInterval }
+            if ($null -ne $savedConfig.pingDataSize)       { $syncHash.PingDataSize       = [int]$savedConfig.pingDataSize }
+            if ($null -ne $savedConfig.loggingEnabled)     { $syncHash.LoggingEnabled     = [bool]$savedConfig.loggingEnabled }
+            if ($null -ne $savedConfig.highFreqTargetIps)  { $syncHash.HighFreqTargetIps  = [string]$savedConfig.highFreqTargetIps }
             elseif ($null -ne $savedConfig.highFreqTargetIp) { $syncHash.HighFreqTargetIps = [string]$savedConfig.highFreqTargetIp }
-            if ($null -ne $savedConfig.outageThresh1Ms)   { $syncHash.OutageThresh1Ms  = [int]$savedConfig.outageThresh1Ms }
-            if ($null -ne $savedConfig.outageThresh2Ms)   { $syncHash.OutageThresh2Ms  = [int]$savedConfig.outageThresh2Ms }
+            if ($null -ne $savedConfig.outageThresh1Ms)    { $syncHash.OutageThresh1Ms    = [int]$savedConfig.outageThresh1Ms }
+            if ($null -ne $savedConfig.outageThresh2Ms)    { $syncHash.OutageThresh2Ms    = [int]$savedConfig.outageThresh2Ms }
+            if ($null -ne $savedConfig.latencyThreshMs)    { $syncHash.LatencyThreshMs    = [int]$savedConfig.latencyThreshMs }
+            if ($null -ne $savedConfig.logRetentionDays)   { $syncHash.LogRetentionDays   = [int]$savedConfig.logRetentionDays }
+            if ($null -ne $savedConfig.webhookUrl)         { $syncHash.WebhookUrl         = [string]$savedConfig.webhookUrl }
+            if ($null -ne $savedConfig.webhookEnabled)     { $syncHash.WebhookEnabled     = [bool]$savedConfig.webhookEnabled }
+            if ($null -ne $savedConfig.webhookOfflineOnly) { $syncHash.WebhookOfflineOnly = [bool]$savedConfig.webhookOfflineOnly }
+            if ($null -ne $savedConfig.soundEnabled)       { $syncHash.SoundEnabled       = [bool]$savedConfig.soundEnabled }
+            if ($null -ne $savedConfig.soundVolume)        { $syncHash.SoundVolume        = [double]$savedConfig.soundVolume }
             Write-Host "Config loaded from $configFileJson" -ForegroundColor Green
         } catch {
             Write-Host "Failed to load config.json, using defaults." -ForegroundColor Yellow
         }
+    }
+
+    # Helper: Auto-purge old report session folders
+    function Purge-OldReports {
+        param([string]$reportsDir, [int]$retentionDays)
+        if (-not (Test-Path $reportsDir) -or $retentionDays -le 0) { return }
+        $cutoff = (Get-Date).AddDays(-$retentionDays)
+        Get-ChildItem -Path $reportsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Name -match '^\d{8}_\d{6}$' -and $_.CreationTime -lt $cutoff) {
+                try {
+                    Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                    Write-Host "Purged old report session: $($_.Name)" -ForegroundColor Gray
+                } catch {}
+            }
+        }
+    }
+
+    # Helper: Send Webhook notification (Async-friendly)
+    function Send-WebhookNotification {
+        param(
+            [string]$url,
+            [string]$deviceName,
+            [string]$ip,
+            [string]$eventType,
+            [string]$details = ""
+        )
+        if ([string]::IsNullOrWhiteSpace($url)) { return }
+        $emoji = switch ($eventType) {
+            "offline"   { "🔴" }
+            "online"    { "🟢" }
+            "latency"   { "⚠️" }
+            "test"      { "🔔" }
+            default     { "📢" }
+        }
+        $title = switch ($eventType) {
+            "offline"   { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("5qmf5Zmo44Kq44OV44Op44Kk44Oz5qSc55+l")) }
+            "online"    { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("5qmf5Zmo44Kq44Oz44Op44Kk44Oz5b6p5biw")) }
+            "latency"   { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("6YGF5bu244Ki44Op44O844OI6LaF6YGO")) }
+            "test"      { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("V2ViaG9va+ODhuOCueODiOmAnuefpQ==")) }
+            default     { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("55uj6KaW44Ki44Op44O844OI")) }
+        }
+        $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        $msgText = "$emoji **$title**`n[Target]: $deviceName ($ip)`n[Time]: $ts`n[Detail]: $details"
+        
+        $bodyObj = @{
+            text       = $msgText
+            content    = $msgText   # Discord compatibility
+            title      = "$emoji $title"
+            deviceName = $deviceName
+            ip         = $ip
+            eventType  = $eventType
+            timestamp  = $ts
+            details    = $details
+        }
+        $jsonPayload = $bodyObj | ConvertTo-Json -Depth 3
+        
+        try {
+            $webReq = [System.Net.WebRequest]::Create($url)
+            $webReq.Method = "POST"
+            $webReq.ContentType = "application/json; charset=utf-8"
+            $webReq.Timeout = 4000
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($jsonPayload)
+            $webReq.ContentLength = $bytes.Length
+            $reqStream = $webReq.GetRequestStream()
+            $reqStream.Write($bytes, 0, $bytes.Length)
+            $reqStream.Close()
+            $webResp = $webReq.GetResponse()
+            $webResp.Close()
+        } catch { }
     }
 
     # Iperf Session State
@@ -507,6 +589,11 @@ function Initialize-DeviceLog {
             MaxOutageSec     = 0.0    # 復帰完了した瞬断の中での最大時間（秒）
             Outage600msCount = 0      # 閾値1以上の瞬断回数
             Outage5sCount    = 0      # 閾値2以上の瞬断回数
+            RecentResults    = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new()) # 直近30回の結果(1/0)
+            RecentLatencies  = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new()) # 直近30回の遅延
+            PacketLossRate   = 0.0    # 直近パケットロス率 (%)
+            Jitter           = 0.0    # 直近ジッター (ms)
+            PreviousStatus   = "Initial"
         })
     }
     
@@ -564,7 +651,9 @@ $runspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
 
 $pingScript = {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $loopCount = 0
+    $lastFlushTime = [DateTime]::Now
+    $lastSlowPingTime = [DateTime]::MinValue
+    
     while ($syncHash.Running) {
         if ($syncHash.PollInterval -lt 0) {
             Start-Sleep -Seconds 2
@@ -577,49 +666,70 @@ $pingScript = {
             continue
         }
 
-        # Ultra-high-frequency mode (PollInterval <= 100ms): limit to max 2 target devices
+        # Ultra-high-frequency mode (PollInterval <= 100ms): Dual-Rate Monitoring
         $isUltraHighFreq = ($syncHash.PollInterval -gt 0 -and $syncHash.PollInterval -le 100)
-        # Parse comma-separated IPs into an array (max 2)
         $ultraTargets = if ($isUltraHighFreq -and $syncHash.HighFreqTargetIps) {
             @($syncHash.HighFreqTargetIps -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' } | Select-Object -First 2)
         } else { @() }
 
-        # Initiate asynchronous ping for all devices
+        $now = [DateTime]::Now
+        # In ultra-high-freq mode, non-target devices are polled at low-rate interval (5.0 seconds = 5000ms)
+        $isSlowPingDue = ($isUltraHighFreq -and ($now - $lastSlowPingTime).TotalMilliseconds -ge 5000)
+        if ($isSlowPingDue -or -not $isUltraHighFreq) {
+            $lastSlowPingTime = $now
+        }
+
+        # Initiate asynchronous ping for devices
         $dataSize = if ($syncHash.PingDataSize) { [int]$syncHash.PingDataSize } else { 32 }
         $pingBuffer = New-Object byte[] $dataSize
         for ($i=0; $i -lt $dataSize; $i++) { $pingBuffer[$i] = 0 }
-        # Use shorter ping timeout in ultra-high-freq mode to avoid blocking the loop
-        $pingTimeoutMs = if ($isUltraHighFreq) { [math]::Max(80, $syncHash.PollInterval) } else { 1000 }
 
         $tasks = foreach ($ip in $devices) {
-            # In ultra-high-freq mode, skip every device except the selected targets (max 2)
-            if ($isUltraHighFreq -and ($ultraTargets.Count -eq 0 -or $ip -notin $ultraTargets)) {
-                [PSCustomObject]@{
-                    IP = $ip; Ping = $null; Task = $null; Error = $false; Skipped = $true
-                }
-                continue
-            }
+            # Disabled by user in configuration
             if ($syncHash.IsMonitored.ContainsKey($ip) -and -not $syncHash.IsMonitored[$ip]) {
                 [PSCustomObject]@{
-                    IP = $ip; Ping = $null; Task = $null; Error = $false; Skipped = $true
+                    IP = $ip; Ping = $null; Task = $null; Error = $false; Skipped = $true; KeepExisting = $false
                 }
                 continue
             }
+
+            # Dual-rate filtering in ultra-high-frequency mode
+            if ($isUltraHighFreq) {
+                $isTarget = ($ultraTargets.Count -gt 0 -and $ip -in $ultraTargets)
+                if (-not $isTarget -and -not $isSlowPingDue) {
+                    # Non-target device not due for slow ping: keep existing state without rewriting as Paused
+                    [PSCustomObject]@{
+                        IP = $ip; Ping = $null; Task = $null; Error = $false; Skipped = $true; KeepExisting = $true
+                    }
+                    continue
+                }
+            }
+
+            $pingTimeoutMs = if ($isUltraHighFreq) {
+                if ($ultraTargets.Count -gt 0 -and $ip -in $ultraTargets) {
+                    [math]::Max(80, $syncHash.PollInterval)
+                } else {
+                    1000
+                }
+            } else {
+                [math]::Min(1000, [math]::Max(200, $syncHash.PollInterval))
+            }
+
             $ping = New-Object System.Net.NetworkInformation.Ping
             try {
                 $task = $ping.SendPingAsync($ip, $pingTimeoutMs, $pingBuffer)
                 [PSCustomObject]@{
-                    IP = $ip; Ping = $ping; Task = $task; Error = $false; Skipped = $false
+                    IP = $ip; Ping = $ping; Task = $task; Error = $false; Skipped = $false; KeepExisting = $false
                 }
             } catch {
                 [PSCustomObject]@{
-                    IP = $ip; Ping = $ping; Task = $null; Error = $true; Skipped = $false
+                    IP = $ip; Ping = $ping; Task = $null; Error = $true; Skipped = $false; KeepExisting = $false
                 }
             }
         }
 
-        # Wait for all pings to complete (max PollInterval or 1000ms)
-        $waitTimeout = if ($syncHash.PollInterval -gt 0) { $syncHash.PollInterval } else { 1000 }
+        # Wait for all active pings to complete (up to PollInterval or 1000ms)
+        $waitTimeout = if ($isUltraHighFreq) { [math]::Max(80, $syncHash.PollInterval) } else { if ($syncHash.PollInterval -gt 0) { $syncHash.PollInterval } else { 1000 } }
         $validTasks = @($tasks | Where-Object { $null -ne $_.Task })
         if ($validTasks.Count -gt 0) {
             try {
@@ -631,8 +741,12 @@ $pingScript = {
         # Process results
         foreach ($t in $tasks) {
             $ip = $t.IP
+            if ($t.KeepExisting) {
+                # Non-target during dual-rate intermediate cycle: keep last status without modification
+                continue
+            }
+
             $reply = $null
-            
             if ($t.Skipped) {
                 $syncHash.Status[$ip] = @{ status = "Paused"; latency = $null; timestamp = (Get-Date).ToUniversalTime().ToString("o") }
                 continue
@@ -653,7 +767,7 @@ $pingScript = {
                 }
             }
 
-            # Record per-second history as plain CSV string (safe across runspaces)
+            # Record history as plain CSV string
             $ts  = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
             $st  = if ($syncHash.Status[$ip].status)  { [string]$syncHash.Status[$ip].status  } else { 'Unknown' }
             $lat = if ($syncHash.Status[$ip].latency -ne $null) { [string]$syncHash.Status[$ip].latency } else { '' }
@@ -676,7 +790,31 @@ $pingScript = {
                 [System.Threading.Monitor]::Enter($stats.SyncRoot)
                 try {
                     $stats.Total = $stats.Total + 1
+                    $devName = if ($syncHash.DeviceName.ContainsKey($ip)) { $syncHash.DeviceName[$ip] } else { $ip }
+                    
+                    # Track Recent Results (max 30 samples)
+                    $resVal = if ($st -eq "Success") { 1 } else { 0 }
+                    $null = $stats.RecentResults.Add($resVal)
+                    while ($stats.RecentResults.Count -gt 30) { $stats.RecentResults.RemoveAt(0) }
+                    
+                    # Calculate Packet Loss Rate %
+                    if ($stats.RecentResults.Count -gt 0) {
+                        $failedRecent = 0
+                        foreach ($r in $stats.RecentResults) { if ($r -eq 0) { $failedRecent++ } }
+                        $stats.PacketLossRate = [math]::Round(($failedRecent / $stats.RecentResults.Count) * 100, 1)
+                    }
+
                     if ($st -eq "Success") {
+                        # Webhook on recovery (Offline -> Online)
+                        if ($stats.PreviousStatus -eq "Failed" -and $syncHash.WebhookEnabled) {
+                            $webhookUrl = $syncHash.WebhookUrl
+                            [powershell]::Create().AddScript({
+                                param($url, $name, $devIp, $helper)
+                                Send-WebhookNotification -url $url -deviceName $name -ip $devIp -eventType "online" -details "正常に応答が復旧しました。"
+                            }).AddArgument($webhookUrl).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                        }
+                        $stats.PreviousStatus = "Success"
+
                         # Device recovered from offline: finalize outage duration & check thresholds
                         if ($null -ne $stats.OutageStartTime -or $stats.CurrentOutageSec -gt 0) {
                             $outageDurationSec = if ($null -ne $stats.OutageStartTime) {
@@ -711,8 +849,29 @@ $pingScript = {
                             }
                             $stats.SumLat = $stats.SumLat + $latVal
                             $stats.LatCount = $stats.LatCount + 1
+
+                            # Track Recent Latencies for Jitter calculation (RFC 3550)
+                            $null = $stats.RecentLatencies.Add($latVal)
+                            while ($stats.RecentLatencies.Count -gt 30) { $stats.RecentLatencies.RemoveAt(0) }
+                            if ($stats.RecentLatencies.Count -ge 2) {
+                                $diffSum = 0.0
+                                for ($idx = 1; $idx -lt $stats.RecentLatencies.Count; $idx++) {
+                                    $diffSum += [math]::Abs([double]$stats.RecentLatencies[$idx] - [double]$stats.RecentLatencies[$idx - 1])
+                                }
+                                $stats.Jitter = [math]::Round($diffSum / ($stats.RecentLatencies.Count - 1), 2)
+                            }
                         }
                     } elseif ($st -eq "Failed" -or $st -eq "Error") {
+                        # Webhook on failure (Online -> Offline)
+                        if ($stats.PreviousStatus -eq "Success" -and $syncHash.WebhookEnabled) {
+                            $webhookUrl = $syncHash.WebhookUrl
+                            [powershell]::Create().AddScript({
+                                param($url, $name, $devIp)
+                                Send-WebhookNotification -url $url -deviceName $name -ip $devIp -eventType "offline" -details "Ping応答が途絶しました。"
+                            }).AddArgument($webhookUrl).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                        }
+                        $stats.PreviousStatus = "Failed"
+
                         $stats.Failed = $stats.Failed + 1
                         
                         # Start or accumulate outage duration (do not update MaxOutageSec until recovery)
@@ -733,10 +892,9 @@ $pingScript = {
             }
         }
 
-        # 10-second log flush to disk
-        $loopCount++
-        if ($loopCount -ge 10) {
-            $loopCount = 0
+        # Real-time 10-second log flush to disk (reduces disk I/O significantly for up to 50 devices)
+        if (([DateTime]::Now - $lastFlushTime).TotalSeconds -ge 10.0) {
+            $lastFlushTime = [DateTime]::Now
             $devicesToFlush = $syncHash.Devices
             if ($syncHash.LoggingEnabled -eq $false) {
                 # If logging is disabled, clear memory queues to prevent growth
@@ -788,15 +946,11 @@ $pingScript = {
                             $contentToAppend = ($linesToSave -join "`r`n") + "`r`n"
                             [System.IO.File]::AppendAllText($csvPath, $contentToAppend, [System.Text.Encoding]::GetEncoding(932))
                             $writeSuccess = $true
-                        } catch {
-                            # If write fails (e.g. file locked), we do NOT clear historyList
-                            # It will be retried in the next 10s loop with more data
-                        }
+                        } catch { }
 
                         if ($writeSuccess) {
                             [System.Threading.Monitor]::Enter($historyList.SyncRoot)
                             try {
-                                # Remove ONLY the lines we successfully saved
                                 if ($historyList.Count -ge $linesToSave.Count) {
                                     $historyList.RemoveRange(0, $linesToSave.Count)
                                 }
@@ -1448,7 +1602,7 @@ $snmpDetailAsyncResult = $snmpDetailPipeline.InvokeAsync()
 function Write-JsonResponse($response, $data, $statusCode=200) {
     if ($response.OutputStream.CanWrite) {
         $response.StatusCode  = $statusCode
-        $response.ContentType = "application/json"
+        $response.ContentType = "application/json; charset=utf-8"
         $response.Headers.Add("Access-Control-Allow-Origin", "*")
         $json   = ($data | ConvertTo-Json -Depth 5 -Compress) -join "`n"
         $buffer = [System.Text.Encoding]::UTF8.GetBytes($json)
@@ -1628,9 +1782,12 @@ try {
                             $st.currentOutageSec = if ($curOutage -gt 0) { [math]::Round($curOutage, 1) } else { 0 }
                             $st.outage600msCount = $s.Outage600msCount
                             $st.outage5sCount    = $s.Outage5sCount
+                            $st.packetLossRate   = if ($null -ne $s.PacketLossRate) { $s.PacketLossRate } else { 0.0 }
+                            $st.jitter           = if ($null -ne $s.Jitter) { $s.Jitter } else { 0.0 }
                         } else {
                             $st.maxOutageSec = 0; $st.currentOutageSec = 0
                             $st.outage600msCount = 0; $st.outage5sCount = 0
+                            $st.packetLossRate = 0.0; $st.jitter = 0.0
                         }
                         $statusCopy[$key] = $st
                     }
@@ -2565,6 +2722,13 @@ try {
                         highFreqTargetIps  = $syncHash.HighFreqTargetIps
                         outageThresh1Ms    = $syncHash.OutageThresh1Ms
                         outageThresh2Ms    = $syncHash.OutageThresh2Ms
+                        latencyThreshMs    = $syncHash.LatencyThreshMs
+                        logRetentionDays   = $syncHash.LogRetentionDays
+                        webhookUrl         = $syncHash.WebhookUrl
+                        webhookEnabled     = $syncHash.WebhookEnabled
+                        webhookOfflineOnly = $syncHash.WebhookOfflineOnly
+                        soundEnabled       = $syncHash.SoundEnabled
+                        soundVolume        = $syncHash.SoundVolume
                     }
                 }
                 elseif ($urlPath -eq "/api/config" -and $method -eq "POST") {
@@ -2582,7 +2746,6 @@ try {
                         $syncHash.LoggingEnabled = [bool]$payload.loggingEnabled
                     }
                     if ($null -ne $payload.highFreqTargetIps) {
-                        # Sanitize: allow only IP addresses and commas/spaces
                         $rawIps = [string]$payload.highFreqTargetIps
                         $safeIps = ($rawIps -split ',' | ForEach-Object {
                             $trimmed = $_.Trim()
@@ -2598,30 +2761,192 @@ try {
                         $v = [int]$payload.outageThresh2Ms
                         if ($v -ge 100 -and $v -le 600000) { $syncHash.OutageThresh2Ms = $v }
                     }
+                    if ($null -ne $payload.latencyThreshMs) {
+                        $v = [int]$payload.latencyThreshMs
+                        if ($v -ge 1 -and $v -le 10000) { $syncHash.LatencyThreshMs = $v }
+                    }
+                    if ($null -ne $payload.logRetentionDays) {
+                        $v = [int]$payload.logRetentionDays
+                        if ($v -ge 0 -and $v -le 365) { 
+                            $syncHash.LogRetentionDays = $v 
+                            if ($v -gt 0) { Purge-OldReports -reportsDir $ReportsDir -retentionDays $v }
+                        }
+                    }
+                    if ($null -ne $payload.webhookUrl) {
+                        $syncHash.WebhookUrl = [string]$payload.webhookUrl
+                    }
+                    if ($null -ne $payload.webhookEnabled) {
+                        $syncHash.WebhookEnabled = [bool]$payload.webhookEnabled
+                    }
+                    if ($null -ne $payload.webhookOfflineOnly) {
+                        $syncHash.WebhookOfflineOnly = [bool]$payload.webhookOfflineOnly
+                    }
+                    if ($null -ne $payload.soundEnabled) {
+                        $syncHash.SoundEnabled = [bool]$payload.soundEnabled
+                    }
+                    if ($null -ne $payload.soundVolume) {
+                        $syncHash.SoundVolume = [double]$payload.soundVolume
+                    }
                     
                     Write-JsonResponse $response @{ 
-                        status            = "success"
-                        pollInterval      = $syncHash.PollInterval
-                        pingDataSize      = $syncHash.PingDataSize
-                        loggingEnabled    = $syncHash.LoggingEnabled
-                        highFreqTargetIps = $syncHash.HighFreqTargetIps
-                        outageThresh1Ms   = $syncHash.OutageThresh1Ms
-                        outageThresh2Ms   = $syncHash.OutageThresh2Ms
+                        status             = "success"
+                        pollInterval       = $syncHash.PollInterval
+                        pingDataSize       = $syncHash.PingDataSize
+                        loggingEnabled     = $syncHash.LoggingEnabled
+                        highFreqTargetIps  = $syncHash.HighFreqTargetIps
+                        outageThresh1Ms    = $syncHash.OutageThresh1Ms
+                        outageThresh2Ms    = $syncHash.OutageThresh2Ms
+                        latencyThreshMs    = $syncHash.LatencyThreshMs
+                        logRetentionDays   = $syncHash.LogRetentionDays
+                        webhookUrl         = $syncHash.WebhookUrl
+                        webhookEnabled     = $syncHash.WebhookEnabled
+                        webhookOfflineOnly = $syncHash.WebhookOfflineOnly
+                        soundEnabled       = $syncHash.SoundEnabled
+                        soundVolume        = $syncHash.SoundVolume
                     }
 
                     # Save to file for persistence
                     try {
                         $configObj = @{
-                            pollInterval      = $syncHash.PollInterval
-                            pingDataSize      = $syncHash.PingDataSize
-                            loggingEnabled    = $syncHash.LoggingEnabled
-                            highFreqTargetIps = $syncHash.HighFreqTargetIps
-                            outageThresh1Ms   = $syncHash.OutageThresh1Ms
-                            outageThresh2Ms   = $syncHash.OutageThresh2Ms
+                            pollInterval       = $syncHash.PollInterval
+                            pingDataSize       = $syncHash.PingDataSize
+                            loggingEnabled     = $syncHash.LoggingEnabled
+                            highFreqTargetIps  = $syncHash.HighFreqTargetIps
+                            outageThresh1Ms    = $syncHash.OutageThresh1Ms
+                            outageThresh2Ms    = $syncHash.OutageThresh2Ms
+                            latencyThreshMs    = $syncHash.LatencyThreshMs
+                            logRetentionDays   = $syncHash.LogRetentionDays
+                            webhookUrl         = $syncHash.WebhookUrl
+                            webhookEnabled     = $syncHash.WebhookEnabled
+                            webhookOfflineOnly = $syncHash.WebhookOfflineOnly
+                            soundEnabled       = $syncHash.SoundEnabled
+                            soundVolume        = $syncHash.SoundVolume
                         }
                         $configObj | ConvertTo-Json | Out-File -FilePath $configFileJson -Encoding UTF8
                     } catch {
                         Write-Host "Failed to save config.json: $_" -ForegroundColor Red
+                    }
+                }
+                elseif ($urlPath -eq "/api/config/export" -and $method -eq "GET") {
+                    # One-click full backup JSON (devices + config + positions)
+                    $devicesJsonContent = if (Test-Path $devicesFileJson) { Get-Content $devicesFileJson -Raw | ConvertFrom-Json } else { @() }
+                    $configJsonContent  = if (Test-Path $configFileJson)  { Get-Content $configFileJson -Raw | ConvertFrom-Json } else { @{} }
+                    
+                    $backupObj = @{
+                        version      = "2.0"
+                        exportDate   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                        systemConfig = $configJsonContent
+                        devices      = $devicesJsonContent
+                    }
+                    
+                    $exportJson = $backupObj | ConvertTo-Json -Depth 10
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($exportJson)
+                    $fileName = "NetworkMonitor_Backup_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".json"
+                    
+                    $response.ContentType = "application/json; charset=utf-8"
+                    $response.Headers.Add("Content-Disposition", "attachment; filename=`"$fileName`"")
+                    $response.ContentLength64 = $bytes.Length
+                    $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    $response.OutputStream.Close()
+                    continue
+                }
+                elseif ($urlPath -eq "/api/config/import" -and $method -eq "POST") {
+                    # Restore from full backup JSON
+                    $reader  = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                    $jsonBody = $reader.ReadToEnd()
+                    $payload = $jsonBody | ConvertFrom-Json
+                    
+                    if ($null -ne $payload -and ($null -ne $payload.devices -or $null -ne $payload.systemConfig)) {
+                        # 1. Restore config.json if present
+                        if ($null -ne $payload.systemConfig) {
+                            $cfg = $payload.systemConfig
+                            if ($null -ne $cfg.pollInterval)       { $syncHash.PollInterval       = [int]$cfg.pollInterval }
+                            if ($null -ne $cfg.pingDataSize)       { $syncHash.PingDataSize       = [int]$cfg.pingDataSize }
+                            if ($null -ne $cfg.loggingEnabled)     { $syncHash.LoggingEnabled     = [bool]$cfg.loggingEnabled }
+                            if ($null -ne $cfg.highFreqTargetIps)  { $syncHash.HighFreqTargetIps  = [string]$cfg.highFreqTargetIps }
+                            if ($null -ne $cfg.outageThresh1Ms)    { $syncHash.OutageThresh1Ms    = [int]$cfg.outageThresh1Ms }
+                            if ($null -ne $cfg.outageThresh2Ms)    { $syncHash.OutageThresh2Ms    = [int]$cfg.outageThresh2Ms }
+                            if ($null -ne $cfg.latencyThreshMs)    { $syncHash.LatencyThreshMs    = [int]$cfg.latencyThreshMs }
+                            if ($null -ne $cfg.logRetentionDays)   { $syncHash.LogRetentionDays   = [int]$cfg.logRetentionDays }
+                            if ($null -ne $cfg.webhookUrl)         { $syncHash.WebhookUrl         = [string]$cfg.webhookUrl }
+                            if ($null -ne $cfg.webhookEnabled)     { $syncHash.WebhookEnabled     = [bool]$cfg.webhookEnabled }
+                            if ($null -ne $cfg.webhookOfflineOnly) { $syncHash.WebhookOfflineOnly = [bool]$cfg.webhookOfflineOnly }
+                            if ($null -ne $cfg.soundEnabled)       { $syncHash.SoundEnabled       = [bool]$cfg.soundEnabled }
+                            if ($null -ne $cfg.soundVolume)        { $syncHash.SoundVolume        = [double]$cfg.soundVolume }
+                            
+                            $cfg | ConvertTo-Json | Out-File -FilePath $configFileJson -Encoding UTF8
+                        }
+                        
+                        # 2. Restore devices.json if present
+                        if ($null -ne $payload.devices -and $payload.devices.Count -gt 0) {
+                            $validPayload = [System.Collections.Generic.List[object]]::new()
+                            $ipRegex = '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+                            foreach ($item in $payload.devices) {
+                                if ($item.ip -and $item.ip.Trim() -match $ipRegex) {
+                                    $validPayload.Add($item)
+                                }
+                            }
+                            
+                            if ($validPayload.Count -gt 0) {
+                                [System.Threading.Monitor]::Enter($syncHash)
+                                try {
+                                    $syncHash.Devices = @()
+                                    $syncHash.DeviceName.Clear(); $syncHash.Community.Clear(); $syncHash.Group.Clear()
+                                    $syncHash.IsMonitored.Clear(); $syncHash.Image.Clear(); $syncHash.ConnectedTo.Clear()
+                                    $syncHash.X.Clear(); $syncHash.Y.Clear()
+                                    $syncHash.SnmpVersion.Clear(); $syncHash.SnmpUser.Clear(); $syncHash.SnmpAuthProto.Clear()
+                                    $syncHash.SnmpAuthPass.Clear(); $syncHash.SnmpPrivProto.Clear(); $syncHash.SnmpPrivPass.Clear()
+                                    $syncHash.Status.Clear(); $syncHash.Stats.Clear(); $syncHash.Bandwidth.Clear()
+                                    $syncHash.Traffic.Clear(); $syncHash.SnmpDetail.Clear(); $syncHash.History.Clear()
+
+                                    $newArr = [System.Collections.Generic.List[string]]::new()
+                                    foreach ($item in $validPayload) {
+                                        $ip = $item.ip.Trim()
+                                        $newArr.Add($ip)
+                                        $syncHash.Community[$ip]     = if ($item.community) { $item.community.Trim() } else { "public" }
+                                        $syncHash.DeviceName[$ip]    = if ($item.name) { $item.name.Trim() } else { $ip }
+                                        $syncHash.Group[$ip]         = if ($null -ne $item.group) { $item.group.Trim() } else { "" }
+                                        $syncHash.IsMonitored[$ip]   = if ($null -ne $item.enabled) { [bool]$item.enabled } else { $true }
+                                        $syncHash.Image[$ip]         = if ($item.image) { $item.image.Trim() } else { "" }
+                                        $syncHash.ConnectedTo[$ip]   = if ($item.connectedTo) { $item.connectedTo.Trim() } else { "" }
+                                        $syncHash.SnmpVersion[$ip]   = if ($item.snmpVersion) { $item.snmpVersion.Trim() } else { "v2c" }
+                                        $syncHash.SnmpUser[$ip]      = if ($item.snmpUser) { $item.snmpUser.Trim() } else { "" }
+                                        $syncHash.SnmpAuthProto[$ip] = if ($item.snmpAuthProto) { $item.snmpAuthProto.Trim() } else { "none" }
+                                        $syncHash.SnmpAuthPass[$ip]  = if ($item.snmpAuthPass) { $item.snmpAuthPass } else { "" }
+                                        $syncHash.SnmpPrivProto[$ip] = if ($item.snmpPrivProto) { $item.snmpPrivProto.Trim() } else { "none" }
+                                        $syncHash.SnmpPrivPass[$ip]  = if ($item.snmpPrivPass) { $item.snmpPrivPass } else { "" }
+                                        if ($null -ne $item.x) { $syncHash.X[$ip] = $item.x }
+                                        if ($null -ne $item.y) { $syncHash.Y[$ip] = $item.y }
+                                        if ($syncHash.IsMonitored[$ip]) { Initialize-DeviceLog -ip $ip }
+                                    }
+                                    $syncHash.Devices = $newArr.ToArray()
+                                } finally {
+                                    [System.Threading.Monitor]::Exit($syncHash)
+                                }
+                                Save-DevicesJson
+                            }
+                        }
+                        Write-JsonResponse $response @{ status = "success"; message = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("6Kit5a6a44Go5qmf5Zmo5oOF5aCx44KS5q2j5bi444Gr5b6p5YWD44GX44G+44GX44Gf44CC")) }
+                    } else {
+                        Write-JsonResponse $response @{ error = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("54Sh5Yq544Gq44OQ44OD44Kv44Ki44OD44OX44OV44Kh44Kk44Or5b2i5byP44Gn44GZ44CC")) } 400
+                    }
+                }
+                elseif ($urlPath -eq "/api/webhook/test" -and $method -eq "POST") {
+                    # Test Webhook endpoint
+                    $reader  = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                    $jsonBody = $reader.ReadToEnd()
+                    $payload = $jsonBody | ConvertFrom-Json
+                    $targetUrl = if ($payload.url) { [string]$payload.url } else { $syncHash.WebhookUrl }
+                    
+                    if ([string]::IsNullOrWhiteSpace($targetUrl)) {
+                        Write-JsonResponse $response @{ error = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("V2ViaG9vayBVUkwg44GM6Kit5a6a44GV44KM44Gm44GE44G+44Gb44KT44CC")) } 400
+                    } else {
+                        try {
+                            Send-WebhookNotification -url $targetUrl -deviceName [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44K344K544OG44Og55uj6KaW44Oe44ON44O844K444O8")) -ip "127.0.0.1" -eventType "test" -details [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44OG44K544OI6YCa55+l44GM5q2j5bi444Gr5Y+X5L+h44GV44KM44G+44GX44Gf44CC"))
+                            Write-JsonResponse $response @{ status = "success"; message = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("V2ViaG9vayDjg4bjgrnjg4jpgJrnsp7jgpLpgIHkv6HjgZfjgb7jgZfjgZ/jgII=")) }
+                        } catch {
+                            Write-JsonResponse $response @{ error = "送信失敗: $($_.Exception.Message)" } 500
+                        }
                     }
                 }
                 elseif ($urlPath -eq "/api/mtr" -and $method -eq "GET") {
@@ -3269,8 +3594,11 @@ try {
                 $thresh1Label = "$($syncHash.OutageThresh1Ms)ms"
                 $thresh2Label = if ($syncHash.OutageThresh2Ms -ge 1000) { "$([int]($syncHash.OutageThresh2Ms/1000))s" } else { "$($syncHash.OutageThresh2Ms)ms" }
 
+                $packetLossRate = if ($total -gt 0) { [math]::Round(($failed / $total) * 100, 1) } else { 0 }
+                $jitterVal = if ($null -ne $stats.Jitter -and $stats.Jitter -gt 0) { $stats.Jitter } else { 'N/A' }
+
                 # Japanese labels via Base64 (avoids PS5 source-encoding issues)
-                $pingB64 = "eyJoZWFkZXIiOiAiLS0tIOioiOa4rOOCteODnuODquODvCAtLS0iLCAic2Vzc2lvbiI6ICLjgrvjg4Pjgrfjg6fjg7PvvIjoqIjmuKzlm57vvIkiLCAiaXAiOiAiSVDjgqLjg4njg6zjgrkiLCAidG90YWxQaW5ncyI6ICLnt49QaW5n6YCB5L+h5pWw77yI6Kmm6KGM5Zue5pWw77yJIiwgInN1Y2Nlc3MiOiAi5oiQ5Yqf5pWw77yI5b+c562U44GC44KK77yJIiwgImZhaWxlZCI6ICLlpLHmlZfmlbDvvIjlv5znrZTjgarjgZfjg7vjgr/jgqTjg6DjgqLjgqbjg4jvvIkiLCAicmVhY2giOiAi5Yiw6YGU546HIC8g5o6l57aa5oCnICglKSIsICJsYXRNaW4iOiAi5pyA5bCP6YGF5bu2IChtcykiLCAibGF0TWF4IjogIuacgOWkp+mBheW7tiAobXMpIiwgImxhdEF2ZyI6ICLlubPlnYfpgYXlu7YgKG1zKSIsICJtYXhPdXRhZ2UiOiAi5pyA5aSn556s5pat5pmC6ZaT77yI5pyA5aSn6YCa5L+h5YGc5q2i5pmC6ZaT77yJ77yI56eS77yJIiwgIm91dGFnZUFib3ZlIjogIuS7peS4iuOBrueerOaWreWbnuaVsO+8iOaWreOBjOeZuueUn+OBl+OBn+WbnuaVsO+8iSIsICJub3RlIjogIuWCmeiAg++8iOeerOaWreWbnuaVsOOBrumbhuioiOOBq+OBpOOBhOOBpu+8iSIsICJub3RlVmFsIjogIuOCquODleODqeOCpOODs+OBi+OCiuOCquODs+ODqeOCpOODs+OBuOW+qeW4sOOBl+OBn+aZgueCueOBp+OCq+OCpuODs+ODiOOAguOCu+ODg+OCt+ODp+ODs+e1guS6huaZgueCueOBp+e2mee2muS4reOBrueerOaWreOBr+WQq+OBvuOBquOBhCJ9"
+                $pingB64 = "eyJoZWFkZXIiOiAiLS0tIOioiOa4rOOCteODnuODquODvCAtLS0iLCAic2Vzc2lvbiI6ICLjgrvjg4Pjgrfjg6fjg7PvvIjoqIjmuKzlm57vvIkiLCAiaXAiOiAiSVDjgqLjg4njg6zjgrkiLCAidG90YWxQaW5ncyI6ICLnt49QaW5n6YCB5L+h5pWw77yI6Kmm6KGM5Zue5pWw77yJIiwgInN1Y2Nlc3MiOiAi5oiQ5Yqf5pWw77yI5b+c562U44GC44KK77yJIiwgImZhaWxlZCI6ICLlpLHmlZfmlbDvvIjlv5znrZTjgarjgZfjg7vjgr/jgqTjg6DjgqLjgqbjg4jvvIkiLCAicmVhY2giOiAi5Yiw6YGU546HIC8g5o6l57aa5oCnICglKSIsICJwYWNrZXRMb3NzIjogIuODkeOCseODg+ODiOaQjeWkseeOhyAoJSkiLCAiaml0dGVyIjogIuW5s+Wdh+OCuOODg+OCv+ODvCAobXMpIiwgImxhdE1pbiI6ICLmnIDlsI/pgYXlu7YgKG1zKSIsICJsYXRNYXgiOiAi5pyA5aSn6YGF5bu2IChtcykiLCAibGF0QXZnIjogIuW5s+Wdh+mBheW7tiAobXMpIiwgImxhdE91dGFnZSI6ICLmnIDlpKfnnqzmlq3mmYLplpPvvIjmnIDlpKfpgJrkv6HlgZzmraLmmYLplpPvvInvvIjnp5LvvIkiLCAib3V0YWdlQWJvdmUiOiAi5Lul5LiK44Gu556s5pat5Zue5pWw77yI5pat44GM55m655Sf44GX44Gf5Zue5pWw77yJIiwgIm5vdGUiOiAi5YKZ6ICD77yI556s5pat5Zue5pWw44Gu6ZuG6KiI44Gr44Gk44GE44Gm77yJIiwgIm5vdGVWYWwiOiAi44Kq44OV44Op44Kk44Oz44GL44KJ44Kq44Oz44Op44Kk44Oz44G45b6p5biw44GX44Gf5pmC54K544Gn44Kr44Km44Oz44OI44CC44K744OD44K344On44Oz57WC5LqG5pmC54K544Gn57aZ57aa5Lit44Gu556s5pat44Gv5ZCr44G/44G+44Gb44KTIn0="
                 $pL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($pingB64)) | ConvertFrom-Json
 
                 $lines = [System.Collections.Generic.List[string]]::new()
@@ -3282,6 +3610,8 @@ try {
                 $lines.Add($pL.success + "," + $success)
                 $lines.Add($pL.failed + "," + $failed)
                 $lines.Add($pL.reach + "," + $reachRate)
+                $lines.Add($pL.packetLoss + "," + $packetLossRate)
+                $lines.Add($pL.jitter + "," + $jitterVal)
                 $lines.Add($pL.latMin + "," + $minLat)
                 $lines.Add($pL.latMax + "," + $maxLat)
                 $lines.Add($pL.latAvg + "," + $avgLat)

@@ -290,8 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const threshLatencyEl = document.getElementById('thresh-latency');
     const threshBandwidthEl = document.getElementById('thresh-bandwidth');
     const threshLatencyHint = document.getElementById('thresh-latency-hint');
-
-    // ---- Latency threshold: keyboard input support ----
+// ---- Latency threshold: keyboard input support ----
     if (threshLatencyEl) {
         // Show hint when focused
         threshLatencyEl.addEventListener('focus', () => {
@@ -314,6 +313,401 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.preventDefault();
                 threshLatencyEl.blur();
             }
+        });
+    }
+
+    // ── Global System Config State ──────────────────────────────────────────
+    let systemConfig = {
+        pollInterval: 1000,
+        pingDataSize: 1,
+        loggingEnabled: true,
+        highFreqTargetIps: '',
+        outageThresh1Ms: 600,
+        outageThresh2Ms: 5000,
+        latencyThreshMs: 100,
+        logRetentionDays: 30,
+        webhookUrl: '',
+        webhookEnabled: false,
+        webhookOfflineOnly: true,
+        soundEnabled: true,
+        soundVolume: 0.5
+    };
+
+    // ── Web Audio API Alert Engine ──────────────────────────────────────────
+    let audioCtx = null;
+    function getAudioContext() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        return audioCtx;
+    }
+
+    function playAlertSound(type = 'error') {
+        if (!systemConfig.soundEnabled) return;
+        try {
+            const ctx = getAudioContext();
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            const gain = ctx.createGain();
+            const vol = (typeof systemConfig.soundVolume === 'number') ? systemConfig.soundVolume : 0.5;
+            gain.gain.setValueAtTime(vol * 0.35, now);
+            gain.connect(ctx.destination);
+
+            if (type === 'error') {
+                // High-low-high urgent beep
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(880, now);
+                osc.frequency.setValueAtTime(440, now + 0.1);
+                osc.frequency.setValueAtTime(880, now + 0.2);
+                osc.connect(gain);
+                osc.start(now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                osc.stop(now + 0.35);
+            } else {
+                // Gentle dual chime
+                const osc = ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, now);
+                osc.frequency.setValueAtTime(880, now + 0.12);
+                osc.connect(gain);
+                osc.start(now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+                osc.stop(now + 0.28);
+            }
+        } catch (e) {
+            console.warn('Web Audio error:', e);
+        }
+    }
+
+    // Sound Test Button
+    const btnTestSound = document.getElementById('btn-test-sound');
+    if (btnTestSound) {
+        btnTestSound.addEventListener('click', () => {
+            const vol = parseFloat(document.getElementById('modal-sound-volume').value) || 0.5;
+            systemConfig.soundVolume = vol;
+            systemConfig.soundEnabled = true;
+            playAlertSound('error');
+        });
+    }
+
+    const modalSoundVol = document.getElementById('modal-sound-volume');
+    const modalSoundVolLabel = document.getElementById('modal-sound-vol-label');
+    if (modalSoundVol && modalSoundVolLabel) {
+        modalSoundVol.addEventListener('input', () => {
+            modalSoundVolLabel.textContent = `${Math.round(modalSoundVol.value * 100)}%`;
+        });
+    }
+
+    // ── Global Config DOM Elements ──────────────────────────────────────────
+    const loggingToggleBtn = document.getElementById('logging-toggle-btn');
+    let isLoggingEnabled = true;
+
+    // ── Ultra-high-frequency mode state (Dual-rate monitoring) ──────────────
+    let ultraHighFreqActive    = false;   // true when poll interval <= 100ms
+    let ultraHighFreqTargetSet = new Set(); // IPs that are actively monitored at 0.1s
+    const topologyLastValidStatus = {};
+
+    function updateUltraHighFreqState(pollInterval, targetIpsStr) {
+        ultraHighFreqActive = (parseInt(pollInterval) <= 100);
+        ultraHighFreqTargetSet.clear();
+        if (ultraHighFreqActive && targetIpsStr) {
+            targetIpsStr.split(',').map(s => s.trim()).filter(Boolean)
+                .forEach(ip => ultraHighFreqTargetSet.add(ip));
+        }
+    }
+
+    function populateHighFreqTargetDropdown(savedIps) {
+        const sel1 = document.getElementById('modal-highfreq-target-select-1');
+        const sel2 = document.getElementById('modal-highfreq-target-select-2');
+        if (!sel1 || !sel2) return;
+        const optionsHtml = devices.map(d => {
+            const label = (d.name && d.name !== d.ip) ? `${d.name} (${d.ip})` : d.ip;
+            return `<option value="${d.ip}">${label}</option>`;
+        }).join('');
+        sel1.innerHTML = optionsHtml;
+        sel2.innerHTML = `<option value="">オプション②なし</option>` + optionsHtml;
+
+        const savedArr = savedIps ? savedIps.split(',').map(s => s.trim()).filter(Boolean) : [];
+        if (savedArr[0]) sel1.value = savedArr[0];
+        sel2.value = savedArr[1] || '';
+    }
+
+    function updateLoggingToggleUI(enabled) {
+        isLoggingEnabled = enabled;
+        if (!loggingToggleBtn) return;
+        if (isLoggingEnabled) {
+            loggingToggleBtn.textContent = 'ON';
+            loggingToggleBtn.style.background = '#10b981';
+            loggingToggleBtn.style.color = '#ffffff';
+            loggingToggleBtn.style.border = 'none';
+        } else {
+            loggingToggleBtn.textContent = 'OFF';
+            loggingToggleBtn.style.background = '#4b5563';
+            loggingToggleBtn.style.color = '#d1d5db';
+            loggingToggleBtn.style.border = 'none';
+        }
+    }
+
+    async function fetchConfig() {
+        try {
+            const res = await fetch('/api/config');
+            if (res.ok) {
+                const config = await res.json();
+                systemConfig = { ...systemConfig, ...config };
+                if (threshLatencyEl && config.latencyThreshMs) {
+                    threshLatencyEl.value = config.latencyThreshMs;
+                }
+                if (config.loggingEnabled !== undefined) {
+                    updateLoggingToggleUI(config.loggingEnabled);
+                }
+                const savedIps = config.highFreqTargetIps || '';
+                populateHighFreqTargetDropdown(savedIps);
+                updateUltraHighFreqState(config.pollInterval || 1000, savedIps);
+            }
+        } catch (err) {
+            console.error('Failed to fetch config:', err);
+        }
+    }
+
+    // ── System Configuration Modal Handler ──────────────────────────────────
+    const systemConfigModal = document.getElementById('system-config-modal');
+    const openSystemConfigBtn = document.getElementById('open-system-config-btn');
+    const closeSystemConfigBtn = document.getElementById('close-system-config-btn');
+    const cancelSystemConfigBtn = document.getElementById('cancel-system-config-btn');
+    const saveSystemConfigBtn = document.getElementById('save-system-config-btn');
+
+    function openSystemConfigModal() {
+        if (!systemConfigModal) return;
+        // Populate inputs with current systemConfig values
+        const intervalSel = document.getElementById('modal-config-poll-interval');
+        if (intervalSel) intervalSel.value = systemConfig.pollInterval || 1000;
+        
+        const highFreqContainer = document.getElementById('modal-highfreq-target-container');
+        if (highFreqContainer) {
+            highFreqContainer.style.display = (parseInt(systemConfig.pollInterval) <= 100) ? 'block' : 'none';
+        }
+        populateHighFreqTargetDropdown(systemConfig.highFreqTargetIps || '');
+
+        const pingSizeInp = document.getElementById('modal-config-ping-size');
+        if (pingSizeInp) pingSizeInp.value = systemConfig.pingDataSize || 1;
+
+        const latThreshInp = document.getElementById('modal-thresh-latency');
+        if (latThreshInp) latThreshInp.value = systemConfig.latencyThreshMs || 100;
+
+        const out1Inp = document.getElementById('modal-config-outage-thresh1');
+        if (out1Inp) out1Inp.value = systemConfig.outageThresh1Ms || 600;
+
+        const out2Inp = document.getElementById('modal-config-outage-thresh2');
+        if (out2Inp) out2Inp.value = systemConfig.outageThresh2Ms || 5000;
+
+        const soundEnabledInp = document.getElementById('modal-sound-enabled');
+        if (soundEnabledInp) soundEnabledInp.checked = (systemConfig.soundEnabled !== false);
+
+        const soundVolInp = document.getElementById('modal-sound-volume');
+        if (soundVolInp) {
+            soundVolInp.value = (typeof systemConfig.soundVolume === 'number') ? systemConfig.soundVolume : 0.5;
+            if (modalSoundVolLabel) modalSoundVolLabel.textContent = `${Math.round(soundVolInp.value * 100)}%`;
+        }
+
+        const webhookEnabledInp = document.getElementById('modal-webhook-enabled');
+        if (webhookEnabledInp) webhookEnabledInp.checked = !!systemConfig.webhookEnabled;
+
+        const webhookUrlInp = document.getElementById('modal-webhook-url');
+        if (webhookUrlInp) webhookUrlInp.value = systemConfig.webhookUrl || '';
+
+        const webhookOfflineOnlyInp = document.getElementById('modal-webhook-offline-only');
+        if (webhookOfflineOnlyInp) webhookOfflineOnlyInp.checked = (systemConfig.webhookOfflineOnly !== false);
+
+        const logRetentionInp = document.getElementById('modal-config-log-retention');
+        if (logRetentionInp) logRetentionInp.value = (systemConfig.logRetentionDays != null) ? systemConfig.logRetentionDays : 30;
+
+        systemConfigModal.classList.remove('hidden');
+    }
+
+    function closeSystemConfigModal() {
+        if (systemConfigModal) systemConfigModal.classList.add('hidden');
+    }
+
+    if (openSystemConfigBtn) openSystemConfigBtn.addEventListener('click', openSystemConfigModal);
+    if (closeSystemConfigBtn) closeSystemConfigBtn.addEventListener('click', closeSystemConfigModal);
+    if (cancelSystemConfigBtn) cancelSystemConfigBtn.addEventListener('click', closeSystemConfigModal);
+
+    // Modal Poll Interval change handler
+    const modalPollIntervalSel = document.getElementById('modal-config-poll-interval');
+    if (modalPollIntervalSel) {
+        modalPollIntervalSel.addEventListener('change', () => {
+            const isUltra = parseInt(modalPollIntervalSel.value) <= 100;
+            const container = document.getElementById('modal-highfreq-target-container');
+            if (container) container.style.display = isUltra ? 'block' : 'none';
+        });
+    }
+
+    // Modal Config Tabs switching
+    document.querySelectorAll('.config-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.config-tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.config-tab-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            const targetId = btn.dataset.cfgTab;
+            const targetContent = document.getElementById(targetId);
+            if (targetContent) targetContent.classList.add('active');
+        });
+    });
+
+    // Save System Config
+    if (saveSystemConfigBtn) {
+        saveSystemConfigBtn.addEventListener('click', async () => {
+            const newInterval = parseInt(document.getElementById('modal-config-poll-interval').value) || 1000;
+            const isUltra = newInterval <= 100;
+            const sel1 = document.getElementById('modal-highfreq-target-select-1');
+            const sel2 = document.getElementById('modal-highfreq-target-select-2');
+            const ip1 = (sel1 && isUltra) ? (sel1.value || '') : '';
+            const ip2 = (sel2 && isUltra) ? (sel2.value || '') : '';
+            const highFreqIps = [ip1, ip2].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(',');
+
+            const payload = {
+                pollInterval:       newInterval,
+                pingDataSize:       parseInt(document.getElementById('modal-config-ping-size').value) || 1,
+                loggingEnabled:     isLoggingEnabled,
+                highFreqTargetIps:  highFreqIps,
+                outageThresh1Ms:    parseInt(document.getElementById('modal-config-outage-thresh1').value) || 600,
+                outageThresh2Ms:    parseInt(document.getElementById('modal-config-outage-thresh2').value) || 5000,
+                latencyThreshMs:    parseInt(document.getElementById('modal-thresh-latency').value) || 100,
+                logRetentionDays:   parseInt(document.getElementById('modal-config-log-retention').value) || 30,
+                webhookUrl:         (document.getElementById('modal-webhook-url').value || '').trim(),
+                webhookEnabled:     document.getElementById('modal-webhook-enabled').checked,
+                webhookOfflineOnly: document.getElementById('modal-webhook-offline-only').checked,
+                soundEnabled:       document.getElementById('modal-sound-enabled').checked,
+                soundVolume:        parseFloat(document.getElementById('modal-sound-volume').value) || 0.5
+            };
+
+            try {
+                saveSystemConfigBtn.disabled = true;
+                saveSystemConfigBtn.textContent = '保存中...';
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    systemConfig = { ...systemConfig, ...data };
+                    if (threshLatencyEl) threshLatencyEl.value = systemConfig.latencyThreshMs;
+                    updateUltraHighFreqState(systemConfig.pollInterval, systemConfig.highFreqTargetIps);
+                    showToast('info', '✅ 設定を保存しました', '監視設定と通知設定を正常に更新しました。', 3500);
+                    closeSystemConfigModal();
+                    fetchDevices();
+                } else {
+                    showToast('error', '❌ 保存失敗', '設定の保存に失敗しました。');
+                }
+            } catch (err) {
+                console.error('Config save error:', err);
+                showToast('error', '❌ 通信エラー', 'サーバーとの通信に失敗しました。');
+            } finally {
+                saveSystemConfigBtn.disabled = false;
+                saveSystemConfigBtn.textContent = '💾 設定を保存';
+            }
+        });
+    }
+
+    // Webhook Test Button
+    const btnTestWebhook = document.getElementById('btn-test-webhook');
+    if (btnTestWebhook) {
+        btnTestWebhook.addEventListener('click', async () => {
+            const url = (document.getElementById('modal-webhook-url').value || '').trim();
+            if (!url) {
+                showToast('warning', '⚠ URL 未入力', 'Webhook URL を入力してください。', 4000);
+                return;
+            }
+            btnTestWebhook.disabled = true;
+            btnTestWebhook.textContent = '送信中...';
+            try {
+                const res = await fetch('/api/webhook/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast('info', '🔔 送信成功', data.message || 'Webhook テスト通知を送信しました。', 4000);
+                } else {
+                    showToast('error', '❌ 送信失敗', data.error || 'Webhook 送信に失敗しました。', 5000);
+                }
+            } catch (err) {
+                showToast('error', '❌ 通信エラー', err.message, 5000);
+            } finally {
+                btnTestWebhook.disabled = false;
+                btnTestWebhook.textContent = '🔔 テスト送信';
+            }
+        });
+    }
+
+    // ── Backup Export / Import Handlers ──────────────────────────────────────
+    const btnExportBackup = document.getElementById('btn-export-backup');
+    if (btnExportBackup) {
+        btnExportBackup.addEventListener('click', () => {
+            window.location.href = '/api/config/export';
+            showToast('info', '📥 バックアップダウンロード', 'バックアップ JSON ファイルの保存を開始しました。', 3000);
+        });
+    }
+
+    const btnImportBackup = document.getElementById('btn-import-backup');
+    const backupFileInput = document.getElementById('backup-file-input');
+    if (btnImportBackup && backupFileInput) {
+        btnImportBackup.addEventListener('click', async () => {
+            const file = backupFileInput.files[0];
+            if (!file) {
+                showToast('warning', '⚠ ファイル未選択', '復元する JSON バックアップファイルを選択してください。', 4000);
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const jsonPayload = JSON.parse(e.target.result);
+                    btnImportBackup.disabled = true;
+                    btnImportBackup.textContent = '復元中...';
+                    const res = await fetch('/api/config/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(jsonPayload)
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        showToast('info', '✅ 復元完了', '機器リストとシステム設定を正常に復元しました。', 4000);
+                        backupFileInput.value = '';
+                        closeSystemConfigModal();
+                        await fetchConfig();
+                        await fetchDevices();
+                    } else {
+                        showToast('error', '❌ 復元失敗', data.error || '復元に失敗しました。', 5000);
+                    }
+                } catch (err) {
+                    showToast('error', '❌ JSON 解析エラー', '無効な JSON バックアップファイルです。', 5000);
+                } finally {
+                    btnImportBackup.disabled = false;
+                    btnImportBackup.textContent = '適用・復元';
+                }
+            };
+            reader.readAsText(file);
+        });
+    }
+
+    // Logging Toggle Button in Sidebar
+    if (loggingToggleBtn) {
+        loggingToggleBtn.addEventListener('click', async () => {
+            const newLogging = !isLoggingEnabled;
+            updateLoggingToggleUI(newLogging);
+            systemConfig.loggingEnabled = newLogging;
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ loggingEnabled: newLogging })
+            });
+            showToast('info', '📝 ログ記録設定', `CSVログ記録を ${newLogging ? 'ON' : 'OFF'} に設定しました。`, 2500);
         });
     }
 
@@ -340,46 +734,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const highFreqTargetContainer  = document.getElementById('highfreq-target-container');
     const highFreqTargetSelect1    = document.getElementById('highfreq-target-select-1');
     const highFreqTargetSelect2    = document.getElementById('highfreq-target-select-2');
-    const loggingToggleBtn = document.getElementById('logging-toggle-btn');
     const configOutageThresh1 = document.getElementById('config-outage-thresh1');
     const configOutageThresh2 = document.getElementById('config-outage-thresh2');
-    let isLoggingEnabled = true;
-
-    // ── Ultra-high-frequency mode state ─────────────────────────────────────
-    // Tracks which devices are actively monitored at 0.1s, so non-targets
-    // can be shown as "Paused" in the dashboard UI.
-    let ultraHighFreqActive    = false;   // true when poll interval <= 100ms
-    let ultraHighFreqTargetSet = new Set(); // IPs that are actively monitored
-    // Cache the last active/valid status data for topology display during high-frequency mode
-    const topologyLastValidStatus = {};
-
-    function updateUltraHighFreqState(pollInterval, targetIpsStr) {
-        ultraHighFreqActive = (parseInt(pollInterval) <= 100);
-        ultraHighFreqTargetSet.clear();
-        if (ultraHighFreqActive && targetIpsStr) {
-            targetIpsStr.split(',').map(s => s.trim()).filter(Boolean)
-                .forEach(ip => ultraHighFreqTargetSet.add(ip));
-        }
-    }
-
-    // ── Ultra-high-frequency mode helpers ──────────────────────────────────
-    function populateHighFreqTargetDropdown(savedIps) {
-        if (!highFreqTargetSelect1 || !highFreqTargetSelect2) return;
-        const monitored = devices; // Allow selecting all registered devices
-        const optionsHtml = monitored.map(d => {
-            const label = (d.name && d.name !== d.ip) ? `${d.name} (${d.ip})` : d.ip;
-            return `<option value="${d.ip}">${label}</option>`;
-        }).join('');
-        // Select-1: no empty option (must select at least 1)
-        highFreqTargetSelect1.innerHTML = optionsHtml;
-        // Select-2: has "(なし)" option so 2nd target is optional
-        highFreqTargetSelect2.innerHTML = `<option value="">オプション②なし</option>` + optionsHtml;
-
-        // Restore previously selected IPs (comma-separated, up to 2)
-        const savedArr = savedIps ? savedIps.split(',').map(s => s.trim()).filter(Boolean) : [];
-        if (savedArr[0]) highFreqTargetSelect1.value = savedArr[0];
-        highFreqTargetSelect2.value = savedArr[1] || '';
-    }
 
     function updateHighFreqUI() {
         if (!configPollIntervalInput || !highFreqTargetContainer) return;
@@ -390,55 +746,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const ip2 = highFreqTargetSelect2 ? highFreqTargetSelect2.value : '';
             const currentlySelectedIps = [ip1, ip2].filter(Boolean).join(',');
             populateHighFreqTargetDropdown(currentlySelectedIps);
-        }
-    }
-
-    function updateLoggingToggleUI(enabled) {
-        isLoggingEnabled = enabled;
-        if (!loggingToggleBtn) return;
-        if (isLoggingEnabled) {
-            loggingToggleBtn.textContent = 'ON';
-            loggingToggleBtn.style.background = '#10b981'; // Green
-            loggingToggleBtn.style.color = '#ffffff';
-            loggingToggleBtn.style.border = 'none';
-        } else {
-            loggingToggleBtn.textContent = 'OFF';
-            loggingToggleBtn.style.background = '#4b5563'; // Gray
-            loggingToggleBtn.style.color = '#d1d5db';
-            loggingToggleBtn.style.border = 'none';
-        }
-    }
-
-    async function fetchConfig() {
-        try {
-            const res = await fetch('/api/config');
-            if (res.ok) {
-                const config = await res.json();
-                if (config.pingDataSize && configPingSizeInput) {
-                    configPingSizeInput.value = config.pingDataSize;
-                }
-                if (config.pollInterval && configPollIntervalInput) {
-                    configPollIntervalInput.value = config.pollInterval;
-                }
-                if (config.loggingEnabled !== undefined) {
-                    updateLoggingToggleUI(config.loggingEnabled);
-                }
-                if (config.outageThresh1Ms != null && configOutageThresh1) {
-                    configOutageThresh1.value = config.outageThresh1Ms;
-                }
-                if (config.outageThresh2Ms != null && configOutageThresh2) {
-                    configOutageThresh2.value = config.outageThresh2Ms;
-                }
-                const savedIps = config.highFreqTargetIps || config.highFreqTargetIp || '';
-                if (savedIps !== undefined) {
-                    populateHighFreqTargetDropdown(savedIps);
-                }
-                // Sync ultra-high-freq state for dashboard Paused display
-                updateUltraHighFreqState(config.pollInterval || 1000, savedIps);
-                updateHighFreqUI();
-            }
-        } catch (err) {
-            console.error('Failed to fetch config:', err);
         }
     }
 
@@ -1537,34 +1844,40 @@ document.addEventListener('DOMContentLoaded', () => {
             grid.style.display = 'flex'; grid.style.flexDirection = 'column'; grid.style.gap = '8px';
             groupDevices.forEach(d => {
                 const ip = d.ip, safeIpId = ip.replace(/\./g, '-');
-                
-                // ── Ultra-high-freq mode check ──
-                const isUltraSkipped = ultraHighFreqActive
-                    && ultraHighFreqTargetSet.size > 0
-                    && !ultraHighFreqTargetSet.has(ip);
-
-                const isPausedState = (d.enabled === false || isUltraSkipped);
+                // ── Dual-rate mode check ──
+                const isUltraTarget = ultraHighFreqActive && ultraHighFreqTargetSet.has(ip);
+                const isPausedState = (d.enabled === false);
 
                 const row = document.createElement('div');
                 row.className = 'device-card glass-card' + (isPausedState ? ' paused' : '');
+                row.id = `card-${safeIpId}`;
                 row.style.position = 'relative';
                 const color = !isPausedState ? CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] : 'transparent';
                 const displayName = escapeHTML(d.name || ip);
+                const rateBadge = ultraHighFreqActive ? (isUltraTarget ? '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(251,191,36,0.2); color:#fbbf24; font-weight:700; margin-left:4px;">0.1s</span>' : '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(148,163,184,0.15); color:#94a3b8; margin-left:4px;">5.0s</span>') : '';
+                
                 row.innerHTML = `
                     ${!isPausedState ? `<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:${color};border-radius:8px 0 0 8px;"></div>` : ''}
-                    <div style="display:flex;align-items:center;gap:8px;flex:2.4;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:8px;flex:2.2;min-width:0;">
                         <div class="status-dot" id="dot-${safeIpId}"></div>
                         <div style="display:flex;flex-direction:column;overflow:hidden;">
-                            <span style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${displayName}">${displayName}</span>
+                            <div style="display:flex;align-items:center;">
+                                <span style="font-weight:600; font-size:0.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${displayName}">${displayName}</span>
+                                ${rateBadge}
+                            </div>
                             <span style="font-size:0.72rem;color:var(--text-muted);">${escapeHTML(ip)}<span id="mac-${safeIpId}" style="font-family:monospace;">${d.mac ? ` / MAC: ${escapeHTML(d.mac)}` : ''}</span></span>
                         </div>
                     </div>
-                    <div style="flex:1.3; min-width:0; display:flex; flex-direction:column; gap:1px;">
+                    <div style="flex:1.1; min-width:0; display:flex; flex-direction:column; gap:1px;">
                         <span id="traffic-tx-${safeIpId}" style="font-size:0.71rem; color:#60a5fa; white-space:nowrap;">↑ TX: -</span>
                         <span id="traffic-rx-${safeIpId}" style="font-size:0.71rem; color:#34d399; white-space:nowrap;">↓ RX: -</span>
                     </div>
+                    <div style="flex:1.1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+                        <span id="loss-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;">ロス: 0.0%</span>
+                        <span id="jitter-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;">揺らぎ: -</span>
+                    </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;min-width:110px;">
-                        <span class="header-latency" id="latency-${safeIpId}" style="min-width:50px;text-align:right;font-weight:600;">-</span>
+                        <span class="header-latency" id="latency-${safeIpId}" style="min-width:50px;text-align:right;font-weight:700;">-</span>
                         <span id="minmax-${safeIpId}" style="font-size:0.7rem;white-space:nowrap;"><span style="color:#f97316;">最大-</span> / <span style="color:#06b6d4;">最小-</span></span>
                         <span id="outage-${safeIpId}" style="font-size:0.68rem;white-space:nowrap;color:#94a3b8;" title="最大瞬断時間（連続オフラインの最長時間）">瞬断最大: -</span>
                     </div>
@@ -1574,12 +1887,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 grid.appendChild(row);
                 if (!latencyHistory[ip]) { latencyHistory[ip] = Array(15).fill(null); timeHistory[ip] = Array(15).fill(''); }
                 if (!latencyStats[ip]) { latencyStats[ip] = { min: null, max: null }; }
+                
+                // Hover focus highlight on unified chart
+                row.addEventListener('mouseenter', () => highlightChartDevice(ip));
+                row.addEventListener('mouseleave', () => resetChartHighlight());
+
                 row.querySelector('.toggle-monitor-btn').addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    if (isUltraSkipped) {
-                        showToast('warning', '⚠ 計測開始できません', '超高頻度モード中は、指定した最大2台以外の監視は開始できません。監視間隔を1.0秒以上に変更するか、超高頻度モードの対象に指定してください。', 5000);
-                        return;
-                    }
                     const res = await fetch('/api/device/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip: ip }) });
                     if (res.ok) fetchDevices();
                 });
@@ -1598,7 +1912,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 unifiedChartDiv.className = 'dashboard-unified-chart';
                 unifiedChartDiv.innerHTML = `<div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:10px;">${activeTab === 'all' ? '全デバイス' : 'グループ ['+activeTab+']'} の遅延推移 (ms)</div><div style="flex:1;position:relative;width:100%;height:calc(100% - 25px);"><canvas id="dashboard-unified-canvas"></canvas></div>`;
                 unifiedChartContainer.appendChild(unifiedChartDiv);
-                const datasets = chartDevices.map(d => ({ label: d.name || d.ip, deviceIp: d.ip, data: latencyHistory[d.ip], borderColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length], backgroundColor: 'transparent', borderWidth: 2, pointRadius: 2, fill: false, tension: 0.4 }));
+                const datasets = chartDevices.map(d => ({ 
+                    label: d.name || d.ip, 
+                    deviceIp: d.ip, 
+                    data: latencyHistory[d.ip], 
+                    borderColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length], 
+                    originalColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length],
+                    backgroundColor: 'transparent', 
+                    borderWidth: 2, 
+                    pointRadius: 2, 
+                    fill: false, 
+                    tension: 0.4 
+                }));
                 dashboardUnifiedChart = new Chart(unifiedChartDiv.querySelector('canvas').getContext('2d'), {
                     type: 'line', data: { labels: timeHistory[chartDevices[0].ip] || Array(15).fill(''), datasets },
                     options: { responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
@@ -1615,11 +1940,49 @@ document.addEventListener('DOMContentLoaded', () => {
                                 border: { color: 'rgba(200,210,230,0.6)', width: 1 }
                             }
                         },
-                        plugins: { legend: { display: true, position: 'bottom', labels: { font: { size: 9 }, color: 'rgba(200,210,230,0.9)', usePointStyle: true, boxWidth: 15 } }, tooltip: { enabled: true, mode: 'index', intersect: false } }
+                        plugins: { 
+                            legend: { 
+                                display: true, 
+                                position: 'bottom', 
+                                labels: { font: { size: 9 }, color: 'rgba(200,210,230,0.9)', usePointStyle: true, boxWidth: 15 },
+                                onClick: (e, legendItem, legend) => {
+                                    const index = legendItem.datasetIndex;
+                                    const ci = legend.chart;
+                                    const meta = ci.getDatasetMeta(index);
+                                    meta.hidden = meta.hidden === null ? !ci.data.datasets[index].hidden : null;
+                                    ci.update();
+                                }
+                            }, 
+                            tooltip: { enabled: true, mode: 'index', intersect: false } 
+                        }
                     }
                 });
             }
         }
+    }
+
+    // Chart Focus Highlight Helpers
+    function highlightChartDevice(targetIp) {
+        if (!dashboardUnifiedChart) return;
+        dashboardUnifiedChart.data.datasets.forEach(ds => {
+            if (ds.deviceIp === targetIp) {
+                ds.borderColor = ds.originalColor || ds.borderColor;
+                ds.borderWidth = 3;
+            } else {
+                ds.borderColor = 'rgba(148, 163, 184, 0.12)';
+                ds.borderWidth = 1;
+            }
+        });
+        dashboardUnifiedChart.update();
+    }
+
+    function resetChartHighlight() {
+        if (!dashboardUnifiedChart) return;
+        dashboardUnifiedChart.data.datasets.forEach(ds => {
+            ds.borderColor = ds.originalColor || ds.borderColor;
+            ds.borderWidth = 2;
+        });
+        dashboardUnifiedChart.update();
     }
 
     // Helper to start iperf from Dashboard
@@ -1633,12 +1996,99 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    // ── Sidebar Status Summary Updater ─────────────────────────────────────
+    function updateSidebarSummary(statusData) {
+        let onlineCount = 0;
+        let offlineCount = 0;
+        let pausedCount = 0;
+
+        devices.forEach(d => {
+            if (d.enabled === false) {
+                pausedCount++;
+            } else {
+                const data = statusData[d.ip];
+                if (data && data.status === "Success") {
+                    onlineCount++;
+                } else if (data && (data.status === "Failed" || data.status === "Error")) {
+                    offlineCount++;
+                } else if (data && data.status === "Paused") {
+                    pausedCount++;
+                } else {
+                    onlineCount++; // Default optimistic state
+                }
+            }
+        });
+
+        const onlineEl = document.getElementById('summary-online-count');
+        const offlineEl = document.getElementById('summary-offline-count');
+        const pausedEl = document.getElementById('summary-paused-count');
+
+        if (onlineEl) onlineEl.textContent = onlineCount;
+        if (offlineEl) offlineEl.textContent = offlineCount;
+        if (pausedEl) pausedEl.textContent = pausedCount;
+    }
+
+    // ── Heatmap / Timeline Component Updater ────────────────────────────────
+    function updateHeatmapTimeline(statusData) {
+        const container = document.getElementById('dashboard-heatmap-container');
+        if (!container) return;
+
+        const monitoredDevices = devices.filter(d => d.enabled !== false);
+        if (monitoredDevices.length === 0) {
+            container.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); padding:4px;">監視中の機器はありません。</div>';
+            return;
+        }
+
+        const warnLat = parseFloat(threshLatencyEl ? threshLatencyEl.value : 100) || 100;
+
+        monitoredDevices.forEach(d => {
+            const ip = d.ip, safeIpId = ip.replace(/\./g, '-');
+            let itemEl = document.getElementById(`heatmap-item-${safeIpId}`);
+            if (!itemEl) {
+                itemEl = document.createElement('div');
+                itemEl.className = 'heatmap-device-item';
+                itemEl.id = `heatmap-item-${safeIpId}`;
+                itemEl.innerHTML = `
+                    <span class="heatmap-device-name" title="${escapeHTML(d.name || ip)}">${escapeHTML(d.name || ip)}</span>
+                    <div class="heatmap-bars" id="heatmap-bars-${safeIpId}"></div>
+                `;
+                container.appendChild(itemEl);
+            }
+
+            const barsEl = document.getElementById(`heatmap-bars-${safeIpId}`);
+            if (barsEl && latencyHistory[ip]) {
+                const history = latencyHistory[ip];
+                const barsHtml = history.map(lat => {
+                    let bg = '#64748b'; // paused / null
+                    let title = '停止 / データなし';
+                    if (lat !== null) {
+                        if (lat >= warnLat) {
+                            bg = '#f59e0b';
+                            title = `高遅延: ${lat}ms`;
+                        } else {
+                            bg = '#10b981';
+                            title = `正常: ${lat}ms`;
+                        }
+                    } else {
+                        const st = statusData[ip]?.status;
+                        if (st === 'Failed' || st === 'Error') {
+                            bg = '#ef4444';
+                            title = '障害 / オフライン';
+                        }
+                    }
+                    return `<div class="heatmap-bar-seg" style="background:${bg};" title="${title}"></div>`;
+                }).join('');
+                barsEl.innerHTML = barsHtml;
+            }
+        });
+    }
+
     function updateDeviceData(statusData) {
         devices.forEach(d => {
             const ip = d.ip, safeIpId = ip.replace(/\./g, '-');
             let data = statusData[ip];
             
-            // Backup valid status data for topology before applying high-frequency pause representation
+            // Backup valid status data for topology
             if (data && data.status && data.status !== "Paused") {
                 topologyLastValidStatus[ip] = { ...data };
             }
@@ -1646,28 +2096,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const dotEl = document.getElementById(`dot-${safeIpId}`), latencyEl = document.getElementById(`latency-${safeIpId}`);
             if (!dotEl || !latencyEl) return;
 
-            // ── Ultra-high-freq mode: force non-target devices to show as Paused ──
-            const isUltraSkipped = ultraHighFreqActive
-                && ultraHighFreqTargetSet.size > 0
-                && !ultraHighFreqTargetSet.has(ip);
-
-            if (isUltraSkipped) {
-                data = {
-                    status: "Paused",
-                    latency: null,
-                    tx: '-',
-                    rx: '-',
-                    mac: (data ? data.mac : null)
-                };
-            }
-
             if (data) {
                 dotEl.className = 'status-dot ' + (data.status === "Success" ? 'success' : data.status === "Failed" ? 'error' : 'paused');
-                if (data.status === "Failed" && canAlert(ip, 'offline') && !isAlertSuppressed(ip)) showToast('error', `🔴 ${data.name || ip} オフライン`, `IP: ${ip} 応答なし`, 5000);
+                if (data.status === "Failed" && canAlert(ip, 'offline') && !isAlertSuppressed(ip)) {
+                    showToast('error', `🔴 ${data.name || ip} オフライン`, `IP: ${ip} 応答なし`, 5000);
+                    playAlertSound('error');
+                }
                 const warnLat = parseFloat(threshLatencyEl.value) || 100;
                 if (data.status === "Success" && data.latency !== null) {
                     latencyEl.textContent = `${data.latency} ms`;
                     latencyEl.className = 'header-latency' + (data.latency >= warnLat ? ' bad' : '');
+                    if (data.latency >= warnLat && canAlert(ip, 'latency') && !isAlertSuppressed(ip)) {
+                        showToast('warning', `⚠️ ${data.name || ip} 高遅延検知`, `IP: ${ip} 遅延: ${data.latency}ms (閾値: ${warnLat}ms)`, 5000);
+                        playAlertSound('warning');
+                    }
                     // Update per-session min/max
                     if (!latencyStats[ip]) latencyStats[ip] = { min: null, max: null };
                     if (latencyStats[ip].min === null || data.latency < latencyStats[ip].min) latencyStats[ip].min = data.latency;
@@ -1682,6 +2124,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     const mn = latencyStats[ip].min, mx = latencyStats[ip].max;
                     minmaxEl.innerHTML = `<span style="color:#f97316;">最大${mx !== null ? mx + ' ms' : '-'}</span> / <span style="color:#06b6d4;">最小${mn !== null ? mn + ' ms' : '-'}</span>`;
                 }
+                // Refresh Packet Loss & Jitter display
+                const lossEl = document.getElementById(`loss-${safeIpId}`);
+                const jitterEl = document.getElementById(`jitter-${safeIpId}`);
+                if (lossEl) {
+                    const lossRate = (data.packetLossRate != null) ? data.packetLossRate : 0.0;
+                    lossEl.textContent = `ロス: ${lossRate.toFixed(1)}%`;
+                    lossEl.style.color = (lossRate > 0) ? '#f87171' : 'var(--text-muted)';
+                }
+                if (jitterEl) {
+                    const jit = (data.jitter != null && data.jitter > 0) ? data.jitter : null;
+                    jitterEl.textContent = `揺らぎ: ${jit !== null ? jit.toFixed(1) + 'ms' : '-'}`;
+                    jitterEl.style.color = (jit !== null && jit > 20) ? '#fbbf24' : 'var(--text-muted)';
+                }
+
                 // Update max outage display
                 const outageEl = document.getElementById(`outage-${safeIpId}`);
                 if (outageEl) {
@@ -1691,9 +2147,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const cnt5s    = (data.outage5sCount    != null) ? data.outage5sCount    : 0;
                     const fmtSec   = s => s >= 60 ? `${Math.floor(s/60)}分${(s%60).toFixed(0)}秒` : `${s.toFixed(1)}秒`;
                     
-                    // Build threshold labels from current config inputs
-                    const t1ms = parseInt(configOutageThresh1 ? configOutageThresh1.value : 600) || 600;
-                    const t2ms = parseInt(configOutageThresh2 ? configOutageThresh2.value : 5000) || 5000;
+                    // Build threshold labels from current config
+                    const t1ms = (systemConfig.outageThresh1Ms) || 600;
+                    const t2ms = (systemConfig.outageThresh2Ms) || 5000;
                     const fmtMs = ms => ms >= 1000 ? `${(ms/1000).toFixed(ms%1000===0?0:1)}秒` : `${ms}ms`;
                     const cntParts = [];
                     if (cnt600 > 0) cntParts.push(`${fmtMs(t1ms)}以上: ${cnt600}回`);
@@ -1703,7 +2159,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     const isOffline = (data.status === 'Failed' || data.status === 'Error') && curSec > 0;
 
                     if (isOffline) {
-                        // Currently offline: show active outage duration in red
                         outageEl.style.color = '#ef4444';
                         outageEl.textContent = `瞬断中: ${fmtSec(curSec)}`;
                         let tooltip = `現在オフライン継続中: ${fmtSec(curSec)}`;
@@ -1711,14 +2166,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (cntStr) tooltip += ` / ${cntStr}`;
                         outageEl.title = tooltip;
                     } else if (maxSec !== null) {
-                        // Online with past outage history: show finalized max outage
                         outageEl.style.color = '#f97316';
                         outageEl.textContent = `瞬断最大: ${fmtSec(maxSec)}`;
                         let tooltip = `最大瞬断時間: ${fmtSec(maxSec)}`;
                         if (cntStr) tooltip += ` / ${cntStr}`;
                         outageEl.title = tooltip;
                     } else {
-                        // No outage recorded
                         outageEl.style.color = '#94a3b8';
                         outageEl.textContent = '瞬断最大: -';
                         outageEl.title = data.status === 'Paused' ? '監視一時停止中' : '瞬断の発生なし（連続正常稼働中）';
@@ -1731,11 +2184,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     timeHistory[ip].push(`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`);
                     timeHistory[ip].shift();
                 }
-                // ── TX / RX display (always show both rows) ─────────────────
+                // ── TX / RX display ─────────────────
                 const txEl = document.getElementById(`traffic-tx-${safeIpId}`);
                 const rxEl = document.getElementById(`traffic-rx-${safeIpId}`);
                 if (txEl && rxEl) {
-                    // TX row: prefer SNMP tx, fall back to combined bandwidth
                     if (data.tx && data.tx !== '-') {
                         txEl.textContent = `↑ TX: ${data.tx} Mbps`;
                         txEl.style.color = '#60a5fa';
@@ -1747,12 +2199,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         txEl.style.color = '#60a5fa';
                     }
                     txEl.style.display = '';
-                    // RX row: always visible; show SNMP rx if available
                     rxEl.textContent = (data.rx && data.rx !== '-')
                         ? `↓ RX: ${data.rx} Mbps`
                         : '↓ RX: -';
                     rxEl.style.color  = '#34d399';
-                    rxEl.style.display = ''; // always show
+                    rxEl.style.display = '';
                 }
                 const macEl = document.getElementById(`mac-${safeIpId}`);
                 if (macEl && data.mac && !macEl.textContent) {
@@ -1760,6 +2211,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+
+        // Update Sidebar Summary Chips
+        updateSidebarSummary(statusData);
+
+        // Update Heatmap / Timeline Component
+        updateHeatmapTimeline(statusData);
+
         if (dashboardUnifiedChart) {
             const tab = localStorage.getItem('activeDashboardTab') || 'all';
             const mon = devices.filter(d => d.enabled !== false);
@@ -2302,16 +2760,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getDeviceStatusColor(ip) {
-        // For topology status color, prefer last valid status if current status is Paused due to ultra-high-freq mode
-        const isUltraSkipped = ultraHighFreqActive
-            && ultraHighFreqTargetSet.size > 0
-            && !ultraHighFreqTargetSet.has(ip);
-            
         let data = window.lastStatusData ? window.lastStatusData[ip] : null;
-        if (isUltraSkipped && topologyLastValidStatus[ip]) {
-            data = topologyLastValidStatus[ip];
-        }
-
         const threshLatency = parseFloat(threshLatencyEl.value) || 100;
         if (!data) return '#64748b';
         if (data.status === "Failed") return '#ef4444';
@@ -2348,31 +2797,34 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const isWireless = hasWifiBand || isApToAp || isApToBridge;
 
+        const warnLat = parseFloat(threshLatencyEl ? threshLatencyEl.value : 100) || 100;
+        const fromLat = fromStatus?.latency || 0;
+        const toLat = toStatus?.latency || 0;
+        const isHighLatency = (fromLat >= warnLat) || (toLat >= warnLat);
+
         if (isOffline) {
-            if (isWireless) {
-                return {
-                    color: { color: 'rgba(148, 163, 184, 0.45)', highlight: 'rgba(148, 163, 184, 0.65)', hover: 'rgba(148, 163, 184, 0.65)' },
-                    width: 1.5,
-                    dashes: [3, 5]
-                };
-            } else {
-                return {
-                    color: { color: 'rgba(148, 163, 184, 0.45)', highlight: 'rgba(148, 163, 184, 0.65)', hover: 'rgba(148, 163, 184, 0.65)' },
-                    width: 1.5,
-                    dashes: false
-                };
-            }
+            return {
+                color: { color: '#ef4444', highlight: '#f87171', hover: '#fca5a5' },
+                width: 2.5,
+                dashes: [4, 4]
+            };
+        } else if (isHighLatency) {
+            return {
+                color: { color: '#f59e0b', highlight: '#fbbf24', hover: '#fde047' },
+                width: 3,
+                dashes: isWireless ? [4, 4] : false
+            };
         } else {
             if (isWireless) {
                 return {
-                    color: { color: '#f59e0b', highlight: '#fbbf24', hover: '#fde047' },
-                    width: 3,
-                    dashes: [5, 5]
+                    color: { color: '#06b6d4', highlight: '#22d3ee', hover: '#67e8f9' },
+                    width: 2.5,
+                    dashes: [6, 4]
                 };
             } else {
                 return {
                     color: { color: '#3b82f6', highlight: '#60a5fa', hover: '#93c5fd' },
-                    width: 3,
+                    width: 2.5,
                     dashes: false
                 };
             }
@@ -2440,14 +2892,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const groupNodeCounts = {};
 
         activeDevices.forEach(d => {
-            const isUltraSkipped = ultraHighFreqActive
-                && ultraHighFreqTargetSet.size > 0
-                && !ultraHighFreqTargetSet.has(d.ip);
-
             let statusData = window.lastStatusData ? window.lastStatusData[d.ip] : null;
-            if (isUltraSkipped && topologyLastValidStatus[d.ip]) {
-                statusData = topologyLastValidStatus[d.ip];
-            }
 
             let txSvgText = '';
             let rxSvgText = '';
@@ -3207,14 +3652,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!networkInstance || !nodesDataSet || !viewTopology.classList.contains('active')) return;
         const activeDevices = devices.filter(d => d.enabled !== false);
         activeDevices.forEach(d => {
-            const isUltraSkipped = ultraHighFreqActive
-                && ultraHighFreqTargetSet.size > 0
-                && !ultraHighFreqTargetSet.has(d.ip);
-
             let statusData = window.lastStatusData ? window.lastStatusData[d.ip] : null;
-            if (isUltraSkipped && topologyLastValidStatus[d.ip]) {
-                statusData = topologyLastValidStatus[d.ip];
-            }
 
             let txSvgText = '';
             let rxSvgText = '';

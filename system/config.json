@@ -1,6 +1,15 @@
 ﻿{
+    "outageThresh2Ms":  5000,
+    "pollInterval":  1000,
+    "logRetentionDays":  30,
+    "pingDataSize":  1,
     "loggingEnabled":  true,
+    "webhookEnabled":  false,
+    "outageThresh1Ms":  600,
+    "soundVolume":  0.6,
+    "webhookOfflineOnly":  true,
+    "soundEnabled":  true,
+    "webhookUrl":  "",
     "highFreqTargetIps":  "",
-    "pollInterval":  500,
-    "pingDataSize":  1
+    "latencyThreshMs":  120
 }

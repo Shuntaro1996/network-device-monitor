@@ -953,3 +953,319 @@ body {
     height: 320px;
     position: relative;
 }
+
+/* =========================================================================
+   New Feature Styles: Summary Chips, Heatmap, Config Modal, Enhanced Contrast
+   ========================================================================= */
+
+/* Sidebar Status Summary Chips */
+.status-summary-bar {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.summary-chip {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+}
+
+.chip-online {
+    color: #34d399;
+    border-color: rgba(52, 211, 153, 0.25);
+    background: rgba(52, 211, 153, 0.08);
+}
+
+.chip-offline {
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.25);
+    background: rgba(248, 113, 113, 0.08);
+}
+
+.chip-paused {
+    color: #94a3b8;
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(148, 163, 184, 0.06);
+}
+
+/* Heatmap / Timeline Component */
+.heatmap-card {
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+
+.heatmap-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.dot-online { background: #10b981; }
+.dot-warn   { background: #f59e0b; }
+.dot-error  { background: #ef4444; }
+.dot-paused { background: #64748b; opacity: 0.4; }
+
+.heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.heatmap-device-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    gap: 8px;
+    font-size: 0.75rem;
+}
+
+.heatmap-device-name {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 110px;
+    color: var(--text-main);
+}
+
+.heatmap-bars {
+    display: flex;
+    gap: 2px;
+    flex: 1;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.heatmap-bar-seg {
+    width: 5px;
+    height: 14px;
+    border-radius: 1.5px;
+    transition: transform 0.15s ease;
+}
+
+.heatmap-bar-seg:hover {
+    transform: scaleY(1.3);
+}
+
+/* System Configuration Modal */
+.config-modal-box {
+    width: 640px;
+    max-width: 95vw;
+}
+
+.config-tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--glass-border);
+    background: rgba(0, 0, 0, 0.15);
+    overflow-x: auto;
+}
+
+.config-tab-btn {
+    padding: 10px 16px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.config-tab-btn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.config-tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.config-modal-body {
+    padding: 18px 22px;
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+.config-tab-content {
+    display: none;
+}
+
+.config-tab-content.active {
+    display: block;
+}
+
+.config-section {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.config-section:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.config-section-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 6px;
+}
+
+.config-desc {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+    margin-bottom: 8px;
+}
+
+.inline-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(148, 163, 184, 0.3);
+    transition: .3s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: var(--primary);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+}
+
+/* Enhanced Typography & Card Jump Rate */
+.device-card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.device-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.device-card .header-latency {
+    font-size: 1.15rem;
+    letter-spacing: -0.02em;
+}
+
+.device-card.dimmed {
+    opacity: 0.25;
+    filter: grayscale(0.5);
+}
+
+.device-card.highlighted {
+    border-color: var(--primary);
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.35);
+}
+
+/* Day Mode High Contrast Refinements */
+:root[data-theme="day"] .summary-chip {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme="day"] .chip-online {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+:root[data-theme="day"] .chip-offline {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+:root[data-theme="day"] .device-card {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(15, 23, 42, 0.12);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme="day"] .config-modal-box {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.15);
+}
+
+:root[data-theme="day"] .config-tab-bar {
+    background: #f8fafc;
+}
+
