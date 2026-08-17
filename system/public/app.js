@@ -421,19 +421,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function populateHighFreqTargetDropdown(savedIps) {
-        const sel1 = document.getElementById('modal-highfreq-target-select-1');
-        const sel2 = document.getElementById('modal-highfreq-target-select-2');
-        if (!sel1 || !sel2) return;
+        const selPairs = [
+            [document.getElementById('highfreq-target-select-1'), document.getElementById('highfreq-target-select-2')],
+            [document.getElementById('modal-highfreq-target-select-1'), document.getElementById('modal-highfreq-target-select-2')]
+        ];
+
         const optionsHtml = devices.map(d => {
             const label = (d.name && d.name !== d.ip) ? `${d.name} (${d.ip})` : d.ip;
             return `<option value="${d.ip}">${label}</option>`;
         }).join('');
-        sel1.innerHTML = optionsHtml;
-        sel2.innerHTML = `<option value="">オプション②なし</option>` + optionsHtml;
 
         const savedArr = savedIps ? savedIps.split(',').map(s => s.trim()).filter(Boolean) : [];
-        if (savedArr[0]) sel1.value = savedArr[0];
-        sel2.value = savedArr[1] || '';
+
+        selPairs.forEach(([s1, s2]) => {
+            if (s1 && s2) {
+                s1.innerHTML = optionsHtml;
+                s2.innerHTML = `<option value="">オプション②なし</option>` + optionsHtml;
+                if (savedArr[0]) s1.value = savedArr[0];
+                s2.value = savedArr[1] || '';
+            }
+        });
     }
 
     function updateLoggingToggleUI(enabled) {
@@ -461,12 +468,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (threshLatencyEl && config.latencyThreshMs) {
                     threshLatencyEl.value = config.latencyThreshMs;
                 }
+                if (configPingSizeInput && config.pingDataSize) {
+                    configPingSizeInput.value = config.pingDataSize;
+                }
+                if (configPollIntervalInput && config.pollInterval) {
+                    configPollIntervalInput.value = config.pollInterval;
+                }
+                if (configOutageThresh1 && config.outageThresh1Ms) {
+                    configOutageThresh1.value = config.outageThresh1Ms;
+                }
+                if (configOutageThresh2 && config.outageThresh2Ms) {
+                    configOutageThresh2.value = config.outageThresh2Ms;
+                }
                 if (config.loggingEnabled !== undefined) {
                     updateLoggingToggleUI(config.loggingEnabled);
                 }
                 const savedIps = config.highFreqTargetIps || '';
                 populateHighFreqTargetDropdown(savedIps);
                 updateUltraHighFreqState(config.pollInterval || 1000, savedIps);
+                updateHighFreqUI();
             }
         } catch (err) {
             console.error('Failed to fetch config:', err);
@@ -720,6 +740,7 @@ document.addEventListener('DOMContentLoaded', () => {
         Object.keys(alertCooldowns).forEach(ip => {
             if (alertCooldowns[ip]) alertCooldowns[ip].latency = 0;
         });
+        saveConfig();
         showToast('info',
             '✅ 遅延アラート閾値を更新しました',
             `新しい閾値: ${threshLatencyEl.value} ms`,
@@ -774,10 +795,11 @@ document.addEventListener('DOMContentLoaded', () => {
             .filter((v, i, a) => a.indexOf(v) === i) // deduplicate (avoid same IP twice)
             .join(',');
         const payload = {
-            pingDataSize:      parseInt(configPingSizeInput.value) || 32,
+            pingDataSize:      parseInt(configPingSizeInput.value) || 1,
             pollInterval:      newInterval,
             loggingEnabled:    isLoggingEnabled,
             highFreqTargetIps: highFreqIps,
+            latencyThreshMs:   parseInt(threshLatencyEl ? threshLatencyEl.value : 100) || 100,
             outageThresh1Ms:   parseInt(configOutageThresh1 ? configOutageThresh1.value : 600) || 600,
             outageThresh2Ms:   parseInt(configOutageThresh2 ? configOutageThresh2.value : 5000) || 5000
         };

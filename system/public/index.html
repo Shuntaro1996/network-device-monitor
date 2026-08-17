@@ -52,6 +52,69 @@
                 <button id="tab-manage" class="tab-btn">🖥 機器追加 / 管理</button>
             </div>
             <div class="sidebar-actions">
+                <!-- Direct Monitoring Controls (without 'システム設定' heading) -->
+                <div class="threshold-controls">
+                    <div class="threshold-item">
+                        <label for="thresh-latency">🔔 遅延アラート閾値</label>
+                        <div class="input-group">
+                            <input type="number" id="thresh-latency" value="100" min="0" max="9999"
+                                title="数値を入力してEnterで確定" placeholder="100">
+                            <span class="unit-label">ms 超過で通知</span>
+                        </div>
+                    </div>
+                    <div class="threshold-item border-top">
+                        <label for="config-ping-size">📡 Pingデータサイズ</label>
+                        <div class="input-group">
+                            <input type="number" id="config-ping-size" value="1" min="1" max="65500"
+                                title="数値を入力してEnterで確定" placeholder="1">
+                            <span class="unit-label">bytes</span>
+                        </div>
+                        <span id="config-ping-size-hint" class="hint-text">Enter または Tab で確定</span>
+                    </div>
+                    <div class="threshold-item border-top">
+                        <label for="config-poll-interval">⏱ 監視頻度 (Interval)</label>
+                        <select id="config-poll-interval" class="form-select">
+                            <option value="100">0.1s ⚡ 超高頻度 (2台限定)</option>
+                            <option value="500">0.5s (高頻度)</option>
+                            <option value="1000" selected>1.0s (標準)</option>
+                            <option value="5000">5.0s (低負荷)</option>
+                        </select>
+                    </div>
+                    <!-- 0.1s mode: dual-target device selectors (shown only when 0.1s selected) -->
+                    <div id="highfreq-target-container" class="threshold-item" style="display:none; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.35); border-radius:10px; padding:10px 12px; margin-top:4px;">
+                        <label style="color:#fbbf24; font-size:0.8rem; font-weight:700;">⚡ 超高頻度モード 監視対象 (最大2台)</label>
+                        <div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <span style="font-size:0.75rem; color:#fbbf24; min-width:36px; font-weight:600;">対象①</span>
+                                <select id="highfreq-target-select-1" class="form-select" style="flex:1; font-size:0.82rem;"></select>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <span style="font-size:0.75rem; color:#fbbf24; min-width:36px; font-weight:600;">対象②</span>
+                                <select id="highfreq-target-select-2" class="form-select" style="flex:1; font-size:0.82rem;"></select>
+                            </div>
+                        </div>
+                        <p style="font-size:0.72rem; color:#fbbf24; margin-top:6px; margin-bottom:0; opacity:0.85;">⚠ 選択した最大2台のみ 0.1s 間隔で監視。他機器は5.0s間隔で継続します。</p>
+                    </div>
+                    <div class="threshold-item border-top">
+                        <label>⚡ 瞬断カウント閾値</label>
+                        <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
+                            <div class="input-group">
+                                <span style="font-size:0.75rem; color:var(--text-muted); min-width:20px;">①</span>
+                                <input type="number" id="config-outage-thresh1" value="600" min="100" max="60000"
+                                    title="瞬断カウント閾値①（ms）。この時間以上の瞬断を回数としてカウント" placeholder="600">
+                                <span class="unit-label">ms 以上</span>
+                            </div>
+                            <div class="input-group">
+                                <span style="font-size:0.75rem; color:var(--text-muted); min-width:20px;">②</span>
+                                <input type="number" id="config-outage-thresh2" value="5000" min="100" max="600000"
+                                    title="瞬断カウント閾値②（ms）。この時間以上の瞬断を回数としてカウント" placeholder="5000">
+                                <span class="unit-label">ms 以上</span>
+                            </div>
+                        </div>
+                        <span class="hint-text">Enter または Tab で確定</span>
+                    </div>
+                </div>
+
                 <div class="theme-toggle-container" style="margin-top: 10px;">
                     <span class="label">表示モード</span>
                     <button id="theme-toggle-btn" class="btn secondary-btn theme-btn">
@@ -65,12 +128,6 @@
                     <button id="logging-toggle-btn" class="btn secondary-btn" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; font-weight: 600; min-width: 60px;">ON</button>
                 </div>
                 
-                <!-- Hidden inputs for backward compatibility -->
-                <input type="hidden" id="thresh-latency" value="100">
-                <input type="hidden" id="config-ping-size" value="1">
-                <input type="hidden" id="config-poll-interval" value="1000">
-                <input type="hidden" id="config-outage-thresh1" value="600">
-                <input type="hidden" id="config-outage-thresh2" value="5000">
                 <input type="hidden" id="thresh-bandwidth" value="10">
             </div>
         </aside>
