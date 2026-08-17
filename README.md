@@ -49,21 +49,27 @@ graph TD
 
 ```
 NetworkDeviceMonitor/
-├── Start-Monitor.bat              # 起動用バッチファイル（ダブルクリックで起動）
-├── 利用手順書.md                  # エンドユーザー・運用担当者向け利用マニュアル
-├── LICENSE                        # MIT License
-├── Reports/                       # 実行時ログ・CSVレポート出力先（自動生成）
-└── system/
+├── Start-Monitor.bat              # 🚀 起動用バッチファイル（Windows監視サーバー一発起動）
+├── streamlit_app.py               # 🎈 Streamlit Webデモアプリ（Cloud / ローカル対応）
+├── requirements.txt               # 📦 Python 依存ライブラリ一覧
+├── 利用手順書.md                  # 📘 エンドユーザー・運用担当者向け利用マニュアル
+├── README.md                      # 📖 プロジェクト概要・仕様書
+├── LICENSE                        # 📄 MIT License
+├── .streamlit/                    # ⚙️ Streamlit テーマ・実行設定
+│   └── config.toml
+├── Reports/                       # 📑 実行時ログ・CSVレポート出力先（自動生成）
+│   └── .gitkeep
+└── system/                        # 🛠️ 監視システム本体
     ├── README.md                  # 管理者・開発者向け詳細設計書
     ├── Server.ps1                 # メインバックエンドHTTPサーバー
-    ├── Launcher.ps1               # 個別デバイス監視ランチャー
     ├── Measure-Bandwidth.ps1      # SNMPによる帯域計算ロジック
+    ├── Launcher.ps1               # 個別デバイス監視ランチャー
     ├── Monitor-SingleDevice.ps1   # 単体デバイス監視スクリプト
     ├── Start-BandwidthServer.ps1  # 帯域監視補助サーバー
     ├── devices.json               # 監視対象デバイス設定
     ├── config.json                # システム全体設定
-    ├── iperf3.18_64/              # iperf3 実行バイナリ
-    └── public/                    # フロントエンド静的アセット
+    ├── iperf3.18_64/              # iperf3 実行バイナリ & NOTICE.md
+    └── public/                    # フロントエンド静的アセット (SPA)
         ├── index.html             # メインSPA画面
         ├── style.css              # カスタムスタイルシート
         ├── app.js                 # UIインタラクション・Web Audio・API通信
