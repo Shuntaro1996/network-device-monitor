@@ -1,13 +1,25 @@
-﻿<#
+<#
 .SYNOPSIS
     対象IPごとに個別の監視ウィンドウを立ち上げるランチャー（systemフォルダ配下用）
 #>
-# 入力ファイルは1つ上の階層（ルート）にある devices.txt
+# 入力ファイル（devices.txt または system/devices.json）
 $rootDir = (Resolve-Path "$PSScriptRoot\..").Path
 $InputFile = Join-Path $rootDir "devices.txt"
+$devicesJson = Join-Path $PSScriptRoot "devices.json"
 
-if (-not (Test-Path $InputFile)) {
-    Write-Warning "devices.txt が見つかりません。バッチファイルと同じ階層に作成してください。"
+$addresses = @()
+if (Test-Path $InputFile) {
+    $addresses = Get-Content $InputFile | Where-Object { $_.Trim() -ne "" } | ForEach-Object { $_.Trim() } | Select-Object -Unique
+}
+elseif (Test-Path $devicesJson) {
+    try {
+        $jsonObj = Get-Content $devicesJson -Raw -Encoding UTF8 | ConvertFrom-Json
+        $addresses = $jsonObj | Where-Object { $_.enabled -ne $false } | Select-Object -ExpandProperty ip
+    } catch {}
+}
+
+if ($addresses.Count -eq 0) {
+    Write-Warning "監視対象のIPアドレスが devices.txt または system/devices.json に見つかりません。"
     Start-Sleep -Seconds 3
     exit
 }
@@ -16,14 +28,6 @@ if (-not (Test-Path $InputFile)) {
 $stopSignal = Join-Path $rootDir ".stop_signal"
 if (Test-Path $stopSignal) {
     Remove-Item $stopSignal -Force
-}
-
-$addresses = Get-Content $InputFile | Where-Object { $_.Trim() -ne "" } | ForEach-Object { $_.Trim() } | Select-Object -Unique
-
-if ($addresses.Count -eq 0) {
-    Write-Warning "監視対象のIPアドレスが devices.txt に記載されていません。"
-    Start-Sleep -Seconds 3
-    exit
 }
 
 Write-Host "合計 $($addresses.Count) 個のアドレスの監視ウィンドウを立ち上げます..." -ForegroundColor Cyan

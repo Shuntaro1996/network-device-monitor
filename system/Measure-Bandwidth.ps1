@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.0
+#Requires -Version 5.0
 param(
     [string[]]$IpList,
     [switch]$Scan,
@@ -73,12 +73,24 @@ function Measure-Ping {
     return @{ Reachable=$true; Avg=[math]::Round(($results | Measure-Object -Average).Average, 2); Loss=[math]::Round(($lost/$Count)*100, 1) }
 }
 
+$DevicesJson = Join-Path $SystemDir "devices.json"
+
 $Iperf3Exe = Find-Iperf3
 $targets = @()
-if ($IpList) { $targets = $IpList }
-elseif (Test-Path $DevicesFile) { $targets = Get-Content $DevicesFile | Where-Object { $_ -match '^\d+\.' } }
+if ($IpList) { 
+    $targets = $IpList 
+}
+elseif (Test-Path $DevicesFile) { 
+    $targets = Get-Content $DevicesFile | Where-Object { $_ -match '^\d+\.' } 
+}
+elseif (Test-Path $DevicesJson) {
+    try {
+        $jsonObj = Get-Content $DevicesJson -Raw -Encoding UTF8 | ConvertFrom-Json
+        $targets = $jsonObj | Where-Object { $_.enabled -ne $false } | Select-Object -ExpandProperty ip
+    } catch {}
+}
 
-if ($targets.Count -eq 0) { Write-Log "No targets found." "Red"; exit 1 }
+if ($targets.Count -eq 0) { Write-Log "No targets found in devices.txt or devices.json." "Red"; exit 1 }
 
 $allResults = @()
 Write-Log "Starting bandwidth check for $($targets.Count) hosts..."

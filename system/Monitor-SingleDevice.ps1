@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     単一のネットワーク機器の連続疎通確認（1秒周期）、遅延計測、およびサマリー出力を行うスクリプト
 #>
@@ -23,8 +23,8 @@ $startTime = Get-Date
 $startStr = $startTime.ToString("yyyyMMdd_HHmmss")
 $safeAddr = $TargetAddress -replace '[\\/:*?"<>|]', '_'
 
-# カレントディレクトリ（ルート）にLogsディレクトリ作成
-$logDir = "Logs"
+# カレントディレクトリ（ルート）にReportsディレクトリ作成
+$logDir = "Reports"
 if (-not (Test-Path $logDir)) {
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 }
