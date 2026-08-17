@@ -47,20 +47,21 @@ NetworkDeviceMonitor/
 ├── README.md                      # プロジェクト概要
 ├── LICENSE                        # MIT License
 ├── Reports/                       # 実行時ログ・CSVレポート出力先（自動生成）
-│   └── <yyyyMMdd_HHmmss>/
-│       ├── ping_<IP>.csv          # Ping履歴（末尾に日本語サマリーブロック付与）
-│       └── iperf_<target>_<ts>.log # Iperf3計測ログ
+│   └── .gitkeep
 └── system/
     ├── README.md                  # ★本ドキュメント
+    ├── streamlit_app.py           # 🎈 Streamlit Webデモアプリ（Cloud / ローカル対応）
+    ├── requirements.txt           # 📦 Python 依存ライブラリ一覧
+    ├── .streamlit/                # ⚙️ Streamlit テーマ・実行設定
+    │   └── config.toml
     ├── Server.ps1                 # ★メインバックエンドサーバー（Runspace並列処理）
-    ├── Launcher.ps1               # 個別デバイス監視ランチャー
     ├── Measure-Bandwidth.ps1      # SNMPによる帯域計算ロジック
+    ├── Launcher.ps1               # 個別デバイス監視ランチャー
     ├── Monitor-SingleDevice.ps1   # 単体デバイス監視スクリプト
     ├── Start-BandwidthServer.ps1  # 帯域監視補助サーバー
     ├── devices.json               # 監視対象デバイス設定（自動保存）
     ├── config.json                # システム全体設定（自動保存）
-    ├── debug.log                  # エラーログ（Runspace例外を記録）
-    ├── iperf3.18_64/              # Iperf3バイナリ（同梱）
+    ├── iperf3.18_64/              # Iperf3バイナリ & NOTICE.md（同梱）
     └── public/                    # フロントエンド静的アセット
         ├── index.html             # メインUI（日本語化・グラスモーフィズム）
         ├── app.js                 # UIロジック・Web Audio・Chart制御・API通信
