@@ -1,10 +1,12 @@
 # 🌐 Network Device Monitor & Diagnostic Tool
 
+[![Live Demo](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://net-ops-toolkit.streamlit.app/)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%2F%207%2B-blue.svg?logo=powershell)](https://microsoft.com/powershell)
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/)
 [![Frontend](https://img.shields.io/badge/Frontend-HTML5%20%2F%20CSS3%20%2F%20JavaScript-yellow.svg)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6.svg?logo=windows)](https://www.microsoft.com/windows)
+
+> 🚀 **Live Demo:** [https://net-ops-toolkit.streamlit.app](https://net-ops-toolkit.streamlit.app/) （ブラウザから今すぐ動作確認できます）
 
 **PowerShell製バックエンドHTTPサーバーとモダンSPAフロントエンド（Vis-Network / Chart.js / Web Audio）で構成された、エージェントレス型のオールインワン・ネットワーク機器監視＆診断ツールです。**
 ブラウザ上で動作を確認できる **Streamlit Webデモ版 (`streamlit_app.py`)** も同梱しています。
