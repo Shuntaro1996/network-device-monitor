@@ -1269,3 +1269,78 @@ body {
     background: #f8fafc;
 }
 
+/* =========================================
+   OSS License Modal
+   ========================================= */
+#oss-license-btn:hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-main);
+    border-color: var(--primary);
+}
+
+.oss-entry {
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.oss-entry-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.oss-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-right: 8px;
+}
+
+.oss-file {
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.06);
+    padding: 2px 7px;
+    border-radius: 5px;
+    border: 1px solid var(--glass-border);
+}
+
+.oss-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+}
+
+.badge-bsd    { background: rgba(59,130,246,0.18);  color: #60a5fa; border: 1px solid rgba(59,130,246,0.35); }
+.badge-lgpl   { background: rgba(251,191,36,0.18);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); }
+.badge-apache { background: rgba(16,185,129,0.18);  color: #34d399; border: 1px solid rgba(16,185,129,0.35); }
+.badge-zlib   { background: rgba(167,139,250,0.18); color: #a78bfa; border: 1px solid rgba(167,139,250,0.35); }
+
+.oss-copyright {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin: 0 0 6px;
+    line-height: 1.5;
+}
+
+.oss-source-link {
+    font-size: 0.76rem;
+    color: var(--primary);
+    text-decoration: none;
+    opacity: 0.85;
+    transition: opacity 0.15s;
+}
+.oss-source-link:hover { opacity: 1; text-decoration: underline; }
+
+:root[data-theme="day"] .oss-file   { background: rgba(0,0,0,0.04); }
+:root[data-theme="day"] .badge-bsd    { color: #2563eb; }
+:root[data-theme="day"] .badge-lgpl   { color: #d97706; }
+:root[data-theme="day"] .badge-apache { color: #059669; }
+:root[data-theme="day"] .badge-zlib   { color: #7c3aed; }

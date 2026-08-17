@@ -5283,4 +5283,32 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+
+    // ---- OSS License Modal ----
+    const ossLicenseModal  = document.getElementById('oss-license-modal');
+    const ossLicenseBtn    = document.getElementById('oss-license-btn');
+    const closeOssBtn      = document.getElementById('close-oss-license-btn');
+    const closeOssFooter   = document.getElementById('close-oss-license-footer-btn');
+
+    function openOssModal() {
+        if (ossLicenseModal) {
+            ossLicenseModal.style.display = 'flex';
+            setTimeout(function() { ossLicenseModal.classList.add('active'); }, 10);
+        }
+    }
+    function closeOssModal() {
+        if (ossLicenseModal) {
+            ossLicenseModal.classList.remove('active');
+            setTimeout(function() { ossLicenseModal.style.display = 'none'; }, 250);
+        }
+    }
+
+    if (ossLicenseBtn)   ossLicenseBtn.addEventListener('click', openOssModal);
+    if (closeOssBtn)     closeOssBtn.addEventListener('click', closeOssModal);
+    if (closeOssFooter)  closeOssFooter.addEventListener('click', closeOssModal);
+    if (ossLicenseModal) {
+        ossLicenseModal.addEventListener('click', function(e) {
+            if (e.target === ossLicenseModal) closeOssModal();
+        });
+    }
 });

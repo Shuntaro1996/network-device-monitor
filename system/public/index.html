@@ -127,7 +127,30 @@
                     <span class="label" style="font-size: 0.85rem; font-weight: 500; color: var(--text-main);">📝 ログ記録 (CSV)</span>
                     <button id="logging-toggle-btn" class="btn secondary-btn" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; font-weight: 600; min-width: 60px;">ON</button>
                 </div>
-                
+
+                <!-- License Info Button -->
+                <button id="oss-license-btn" title="オープンソースライセンス情報" style="
+                    margin-top: 10px;
+                    width: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    background: transparent;
+                    border: 1px solid var(--glass-border);
+                    border-radius: 10px;
+                    padding: 7px 12px;
+                    color: var(--text-muted);
+                    font-size: 0.75rem;
+                    font-weight: 500;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    letter-spacing: 0.01em;
+                ">
+                    <span style="font-size:0.85rem;">📄</span>
+                    <span>オープンソースライセンス</span>
+                </button>
+
                 <input type="hidden" id="thresh-bandwidth" value="10">
             </div>
         </aside>
@@ -840,6 +863,84 @@
             <div class="modal-footer">
                 <button type="button" class="btn secondary-btn" id="cancel-system-config-btn">キャンセル</button>
                 <button type="button" class="btn primary-btn" id="save-system-config-btn">💾 設定を保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- OSS License Modal -->
+    <div id="oss-license-modal" class="modal-overlay" style="display:none; z-index: 9100;">
+        <div class="modal-content" style="max-width: 680px;">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span style="font-size:1.3rem;">📄</span>
+                    <h2 class="modal-title">オープンソースライセンス情報</h2>
+                </div>
+                <button class="modal-close-btn" id="close-oss-license-btn" aria-label="閉じる">✕</button>
+            </div>
+            <div class="modal-body-scroll" style="padding: 1.25rem 1.5rem;">
+                <p style="font-size:0.82rem; color:var(--text-muted); margin:0 0 1.25rem; line-height:1.6;">
+                    本ソフトウェアは以下のオープンソースコンポーネントを同梱・利用しています。<br>
+                    各ライセンス本文の全文は
+                    <a href="https://github.com/Shuntaro1996/network-device-monitor/blob/main/system/iperf3.18_64/NOTICE.md"
+                       target="_blank" rel="noopener noreferrer"
+                       style="color:var(--primary); text-decoration:none;">NOTICE.md (GitHub)</a>
+                    をご参照ください。
+                </p>
+
+                <!-- iperf3 -->
+                <div class="oss-entry">
+                    <div class="oss-entry-header">
+                        <div>
+                            <span class="oss-name">iperf3</span>
+                            <span class="oss-file">iperf3.exe</span>
+                        </div>
+                        <span class="oss-badge badge-bsd">BSD 3-Clause</span>
+                    </div>
+                    <p class="oss-copyright">Copyright &copy; 2014&ndash;2026, The Regents of the University of California, through Lawrence Berkeley National Laboratory (LBNL). All rights reserved.</p>
+                    <a href="https://github.com/esnet/iperf" target="_blank" rel="noopener noreferrer" class="oss-source-link">🔗 https://github.com/esnet/iperf</a>
+                </div>
+
+                <!-- Cygwin -->
+                <div class="oss-entry">
+                    <div class="oss-entry-header">
+                        <div>
+                            <span class="oss-name">Cygwin</span>
+                            <span class="oss-file">cygwin1.dll</span>
+                        </div>
+                        <span class="oss-badge badge-lgpl">LGPL v3+</span>
+                    </div>
+                    <p class="oss-copyright">Copyright &copy; Red Hat, Inc. and Cygwin Contributors. <code>cygwin1.dll</code> はシェアードライブラリとして動的リンクされており、ユーザーは互換バージョンへの差替えが可能です。</p>
+                    <a href="https://cygwin.com/git.html" target="_blank" rel="noopener noreferrer" class="oss-source-link">🔗 https://cygwin.com/git.html</a>
+                </div>
+
+                <!-- OpenSSL -->
+                <div class="oss-entry">
+                    <div class="oss-entry-header">
+                        <div>
+                            <span class="oss-name">OpenSSL</span>
+                            <span class="oss-file">cygcrypto-3.dll</span>
+                        </div>
+                        <span class="oss-badge badge-apache">Apache 2.0</span>
+                    </div>
+                    <p class="oss-copyright">Copyright &copy; 1998&ndash;2024 The OpenSSL Project Authors. Copyright &copy; 1995&ndash;1998 Eric A. Young, Tim J. Hudson.</p>
+                    <a href="https://github.com/openssl/openssl" target="_blank" rel="noopener noreferrer" class="oss-source-link">🔗 https://github.com/openssl/openssl</a>
+                </div>
+
+                <!-- zlib -->
+                <div class="oss-entry" style="border-bottom:none; margin-bottom:0; padding-bottom:0;">
+                    <div class="oss-entry-header">
+                        <div>
+                            <span class="oss-name">zlib</span>
+                            <span class="oss-file">cygz.dll</span>
+                        </div>
+                        <span class="oss-badge badge-zlib">zlib License</span>
+                    </div>
+                    <p class="oss-copyright">Copyright &copy; 1995&ndash;2024 Jean-loup Gailly and Mark Adler.</p>
+                    <a href="https://github.com/madler/zlib" target="_blank" rel="noopener noreferrer" class="oss-source-link">🔗 https://github.com/madler/zlib</a>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content:flex-end;">
+                <button class="btn secondary-btn" id="close-oss-license-footer-btn">閉じる</button>
             </div>
         </div>
     </div>
