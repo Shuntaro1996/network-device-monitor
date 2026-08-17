@@ -677,7 +677,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     const data = await res.json();
                     if (res.ok) {
-                        showToast('info', '✅ 復元完了', '機器リストとシステム設定を正常に復元しました。', 4000);
+                        showToast('info', '✅ 復元完了', '機器リストと設定パラメータを正常に復元しました。', 4000);
                         backupFileInput.value = '';
                         closeSystemConfigModal();
                         await fetchConfig();
