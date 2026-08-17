@@ -1,0 +1,6 @@
+﻿{
+    "loggingEnabled":  true,
+    "highFreqTargetIps":  "",
+    "pollInterval":  500,
+    "pingDataSize":  1
+}

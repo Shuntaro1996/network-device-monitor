@@ -1,0 +1,38 @@
+@echo off
+REM =========================================================================
+REM 【初心者向けの簡単な解説】
+REM このファイルは、この「ネットワーク機器監視システム」を一発起動するためのスイッチです。
+REM 
+REM ダブルクリックすると、以下のことを自動で行います：
+REM 1. 監視データを収集したり保存したりする「裏側のサーバー（PowerShell）」を起動します。
+REM 2. 画面を表示するための「Webブラウザ」を自動で立ち上げ、監視画面（http://localhost:8081）を開きます。
+REM 
+REM ※ 監視を止めたいときは、この起動した黒い画面（コマンドプロンプト）の中で
+REM    [Enter] キー（改行キー）を押すだけで安全にサーバーが停止し、ログが保存されます。
+REM =========================================================================
+
+setlocal
+cd /d "%~dp0"
+chcp 65001 >nul
+
+echo ==============================================
+echo   Network Monitor (Single UI Version - PS)
+echo ==============================================
+
+echo.
+echo [1/2] Starting local PowerShell server on port 8081...
+
+:: Give the server a moment to start, then launch browser
+start "Launch Browser" cmd /c "timeout /t 2 >nul & start http://localhost:8081"
+
+echo [2/2] Launching Web UI...
+echo.
+echo ==============================================
+echo   Server is running! 
+echo   Your browser will open automatically.
+echo.
+echo   Press [Enter] in this window to STOP the server
+echo   and save logs to the Reports folder.
+echo ==============================================
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "system\Server.ps1"

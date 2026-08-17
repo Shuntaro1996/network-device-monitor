@@ -1,0 +1,652 @@
+<!--
+=========================================================================
+【初心者向けの簡単な解説】
+このファイルは、ブラウザに表示される監視画面の「見た目の骨組み（HTML）」を定義しています。
+画面上のどの位置にボタン、文字、入力欄、ネットワーク図が表示されるかを決めています。
+
+このファイルに含まれる主なパーツ：
+1. 【左側サイドバー】: 画面左に固定されているナビゲーションエリア。
+   - 「Dashboard（一覧）」と「System Topology（構成図）」の画面切り替え
+   - 「遅延アラート閾値」の設定（何ミリ秒以上の遅延で警告を出すか）
+   - 「表示モード」（太陽マークで明るい昼モード、月マークで暗い夜モード）の切り替え
+   - 「+ Add Device」ボタン（新しい監視対象を追加するポップアップを呼び出す）
+2. 【メインダッシュボードエリア】: グループごとの機器カードが一覧表示され、
+   PING遅延の履歴がリアルタイムで線グラフとして描画される場所。
+3. 【一括操作バー（bulk-action-bar）】: 複数の機器を選択した時に画面下に浮き上がり、
+   一括で監視を停止・再開・グループ変更・削除するための共通バー。
+4. 【ポップアップ画面（Modal）】: 
+   - 機器をCSV/JSONファイルで一括で登録（インポート/エクスポート）する「機器管理モーダル」
+   - 各機器を詳しく調べたときにSNMPの詳細情報（CPU、メモリ、LANポート情報など）を映し出す「詳細モーダル」
+=========================================================================
+-->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ネットワーク機器監視システム</title>
+    <link rel="stylesheet" href="style.css?v=33">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-background">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+    
+    <div class="container">
+        <!-- Left Sidebar Navigation -->
+        <aside class="glass-sidebar">
+            <div class="sidebar-brand">
+                <h1>ネットワーク監視</h1>
+            </div>
+            <div class="tab-navigation">
+                <button id="tab-dashboard" class="tab-btn active">ダッシュボード</button>
+                <button id="tab-topology" class="tab-btn">システム構成図</button>
+                <button id="tab-iperf" class="tab-btn">Iperf3 計測</button>
+                <button id="tab-manage" class="tab-btn">機器追加 / 管理</button>
+            </div>
+            <div class="sidebar-actions">
+                <!-- Auto-Refresh Interval -->
+                <div class="threshold-controls">
+                    <div class="threshold-item">
+                        <label for="thresh-latency">🔔 遅延アラート閾値</label>
+                        <div class="input-group">
+                            <input type="number" id="thresh-latency" value="100" min="0" max="9999"
+                                title="数値を入力してEnterで確定" placeholder="100">
+                            <span class="unit-label">ms 超過で通知</span>
+                        </div>
+                    </div>
+                    <div class="threshold-item border-top">
+                        <label for="config-ping-size">📡 Pingデータ伝送量</label>
+                        <div class="input-group">
+                            <input type="number" id="config-ping-size" value="1" min="1" max="65500"
+                                title="数値を入力してEnterで確定" placeholder="32">
+                            <span class="unit-label">bytes</span>
+                        </div>
+                        <span id="config-ping-size-hint" class="hint-text">Enter または Tab で確定</span>
+                    </div>
+                    <div class="threshold-item border-top">
+                        <label for="config-poll-interval">⏱ 監視頻度 (Interval)</label>
+                        <select id="config-poll-interval" class="form-select">
+                            <option value="100">0.1s ⚡ 超高頻度 (2台限定)</option>
+                            <option value="500">0.5s (高頻度)</option>
+                            <option value="1000" selected>1.0s (標準)</option>
+                            <option value="5000">5.0s (低負荷)</option>
+                        </select>
+                    </div>
+                    <!-- 0.1s mode: dual-target device selectors (shown only when 0.1s selected) -->
+                    <div id="highfreq-target-container" class="threshold-item" style="display:none; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.35); border-radius:10px; padding:10px 12px; margin-top:4px;">
+                        <label style="color:#fbbf24; font-size:0.8rem; font-weight:700;">⚡ 超高頻度モード: 監視対象 (最大2台)</label>
+                        <div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <span style="font-size:0.75rem; color:#fbbf24; min-width:36px; font-weight:600;">対象①</span>
+                                <select id="highfreq-target-select-1" class="form-select" style="flex:1; font-size:0.82rem;"></select>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <span style="font-size:0.75rem; color:#fbbf24; min-width:36px; font-weight:600;">対象②</span>
+                                <select id="highfreq-target-select-2" class="form-select" style="flex:1; font-size:0.82rem;"></select>
+                            </div>
+                        </div>
+                        <p style="font-size:0.72rem; color:#fbbf24; margin-top:6px; margin-bottom:0; opacity:0.85;">⚠ 選択した最大2台のみ 0.1s 間隔で監視。PC負荷軽減のため他の機器は一時停止扱いとなります。対象②は「なし」も選択可能です。</p>
+                    </div>
+                    <div class="threshold-item border-top">
+                        <label>⚡ 瞬断カウント閾値</label>
+                        <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
+                            <div class="input-group">
+                                <span style="font-size:0.75rem; color:var(--text-muted); min-width:20px;">①</span>
+                                <input type="number" id="config-outage-thresh1" value="600" min="100" max="60000"
+                                    title="瞬断カウント閾値①（ms）。この時間以上の瞬断を回数としてカウント" placeholder="600">
+                                <span class="unit-label">ms 以上</span>
+                            </div>
+                            <div class="input-group">
+                                <span style="font-size:0.75rem; color:var(--text-muted); min-width:20px;">②</span>
+                                <input type="number" id="config-outage-thresh2" value="5000" min="100" max="600000"
+                                    title="瞬断カウント閾値②（ms）。この時間以上の瞬断を回数としてカウント" placeholder="5000">
+                                <span class="unit-label">ms 以上</span>
+                            </div>
+                        </div>
+                        <span class="hint-text">Enter または Tab で確定</span>
+                    </div>
+                </div>
+                <div class="theme-toggle-container">
+                    <span class="label">表示モード</span>
+                    <button id="theme-toggle-btn" class="btn secondary-btn theme-btn">
+                        <span id="theme-icon">🌙</span>
+                        <span id="theme-text">ナイト</span>
+                    </button>
+                </div>
+                <div class="logging-toggle-container" style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+                    <span class="label" style="font-size: 0.85rem; font-weight: 500; color: var(--text-main);">📝 ログ記録 (CSV)</span>
+                    <button id="logging-toggle-btn" class="btn secondary-btn" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; font-weight: 600; min-width: 60px;">ON</button>
+                </div>
+                <input type="hidden" id="thresh-bandwidth" value="10">
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="dashboard">
+            <div id="view-dashboard" class="tab-view active">
+                <div id="dashboard-group-tabs" class="group-tabs"></div>
+                <div id="dashboard-unified-chart-container"></div>
+                <div class="device-list" id="device-list">
+                    <!-- Device rows will be injected here via JS -->
+                </div>
+            </div>
+
+            <div id="view-iperf" class="tab-view">
+                <div class="glass-card iperf-container">
+                    <h2 class="view-title">🚀 Iperf3 帯域計測</h2>
+                    
+                    <div class="iperf-content">
+                        <div class="iperf-setup glass-card">
+                            <div class="setup-grid">
+                                <div class="target-field">
+                                    <div class="field-header">
+                                        <label>計測対象デバイス</label>
+                                        <button id="iperf-toggle-custom-target" class="text-link">カスタム入力に切替</button>
+                                    </div>
+                                    <select id="iperf-target-device" class="form-select-lg">
+                                        <option value="">デバイスを選択してください</option>
+                                    </select>
+                                    <input type="text" id="iperf-custom-target" placeholder="例: iperf.example.com または 8.8.8.8" class="form-input-lg hidden">
+                                </div>
+                                <div class="duration-field">
+                                    <label>計測時間 (秒)</label>
+                                    <input type="number" id="iperf-view-duration" value="5" min="1" max="60" class="form-input-lg centered">
+                                </div>
+                                <div class="options-field">
+                                    <label>カスタムオプション (例: -u -b 10M -P 4)</label>
+                                    <input type="text" id="iperf-view-options" placeholder="-u -b 10M" class="form-input-lg">
+                                </div>
+                                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+                                    <button id="run-iperf-view-btn" class="btn primary-btn run-btn">計測開始</button>
+                                    <button id="stop-iperf-view-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:0 22px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.95rem;">⏹ 計測停止</button>
+                                    <a id="download-iperf-log-btn" href="/api/iperf/log" download="iperf_results.log" class="btn secondary-btn" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:10px 16px; border-radius:10px; font-size:0.9rem; font-weight:600;" title="最新の計測結果ログ（iperf_results.log）をダウンロード">📥 ログ保存</a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="iperf-view-result-container" class="result-container hidden">
+                            <div id="iperf-view-loading" class="result-loading hidden">
+                                <div class="loading-info">
+                                    <div class="loading-spinner"></div>
+                                    <span class="loading-text">計測中... サーバーからログをリアルタイム取得しています</span>
+                                </div>
+                                <div class="countdown">残り <span id="iperf-view-countdown" class="warning-text">5</span> 秒</div>
+                            </div>
+                            
+                            <!-- Real-time Speed Display Card -->
+                            <div id="iperf-live-speed-card" class="iperf-live-speed-card hidden">
+                                <div class="speed-card-header">
+                                    <span class="pulse-live-dot"></span>
+                                    <span class="speed-card-title">リアルタイム伝送速度</span>
+                                </div>
+                                <div class="speed-val-group">
+                                    <span id="iperf-live-speed-val" class="speed-val">0.00</span>
+                                    <span id="iperf-live-speed-unit" class="speed-unit">Mbps</span>
+                                </div>
+                            </div>
+                            
+                            <div id="iperf-view-executed-command" class="executed-command hidden"></div>
+                            
+                            <!-- Real-time Chart Area -->
+                            <div id="iperf-chart-container" class="iperf-chart-container hidden" style="margin-top: 15px; margin-bottom: 15px; height: 240px; background: rgba(30, 41, 59, 0.4); border: 1px solid var(--glass-border); border-radius: 12px; padding: 15px; position: relative;">
+                                <canvas id="iperf-realtime-chart"></canvas>
+                            </div>
+                            
+                            <!-- Live Console Area -->
+                            <div id="iperf-live-console" class="live-console hidden"></div>
+                            
+                            <div id="iperf-view-summary" class="result-summary"></div>
+                        </div>
+
+                        <div class="iperf-guide">
+                            <div class="guide-title">📖 Iperf3 コマンド詳細解説</div>
+                            
+                            <div class="guide-section">
+                                <div class="section-subtitle">▼ 基本オプション</div>
+                                <div class="guide-grid">
+                                    <ul class="guide-list">
+                                        <li><code>-p [PORT]</code> : ポート番号 (デフォルト: 5201)</li>
+                                        <li><code>-t [SEC]</code> : 計測時間 (デフォルト: 10秒)</li>
+                                        <li><code>-i [SEC]</code> : 中間結果の表示間隔</li>
+                                    </ul>
+                                    <ul class="guide-list">
+                                        <li><code>-u</code> : UDPモードで計測 (デフォルトはTCP)</li>
+                                        <li><code>-b [N]</code> : 帯域制限 (UDP時はデフォルト1Mbps)</li>
+                                        <li><code>-P [NUM]</code> : 並列ストリーム数（同時セッション）</li>
+                                        <li><code>-R</code> : リバースモード（サーバー側から送信）</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="guide-section border-top">
+                                <div class="section-subtitle secondary">▼ 応用・詳細オプション</div>
+                                <div class="guide-grid-lg">
+                                    <div class="guide-group">
+                                        <div class="group-label">ネットワーク特性の調整</div>
+                                        <ul class="guide-list-sm">
+                                            <li><code class="secondary">--mss [N]</code> : TCP 最大セグメントサイズ (MSS) の指定</li>
+                                            <li><code class="secondary">-w [N]</code> : ウィンドウサイズ / ソケットバッファサイズの指定</li>
+                                            <li><code class="secondary">-M [N]</code> : MTU（最大伝送単位）の最大値を設定</li>
+                                            <li><code class="secondary">-N</code> : TCP 遲延なし (Nagleアルゴリズムの無効化)</li>
+                                        </ul>
+                                    </div>
+                                    <div class="guide-group">
+                                        <div class="group-label">実行・出力制御</div>
+                                        <ul class="guide-list-sm">
+                                            <li><code class="secondary">-J</code> : 結果を JSON 形式で出力（解析用）</li>
+                                            <li><code class="secondary">--logfile [F]</code> : 結果を指定したファイルに保存</li>
+                                            <li><code class="secondary">-f [K/M/G]</code> : 表示単位 (Kbits, Mbits, Gbitsなど)</li>
+                                            <li><code class="secondary">--get-server-output</code> : サーバー側の出力も取得する</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="iperf-footer">
+                            <div class="footer-notes">
+                                ※ 計測対象の機器で iperf3 がサーバーモード (`iperf3 -s`) で動作している必要があります。<br>
+                                ※ 計測中はネットワーク帯域を消費するため、業務通信への影響にご注意ください。
+                            </div>
+                            <div class="public-servers">
+                                <div class="servers-title">🌐 公開サーバーを探す</div>
+                                <div class="server-links">
+                                    <a href="https://iperf.fr/iperf-servers.php" target="_blank">iperf.fr (公式)</a>
+                                    <a href="https://iperf3serverlist.net/" target="_blank">iperf3serverlist.net</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-topology" class="tab-view">
+                <div class="topology-layout">
+                    <div class="topology-main">
+                        <div class="topology-controls glass-card">
+                            <button id="topo-link-btn" class="btn secondary-btn topo-btn">🔗 リンク追加</button>
+                            <button id="topo-unlink-btn" class="btn secondary-btn topo-btn">✖ リンク削除</button>
+                            <span id="topo-mode-text" class="topo-mode-indicator hidden">接続作成モード ON — 送信元から送信先へドラッグしてください</span>
+                            <div class="topo-hint">
+                                機器をドラッグして移動、スクロールでズーム。右クリックで詳細メニュー。
+                            </div>
+                        </div>
+                        <div class="topology-viewport">
+                            <div id="topology-container" class="glass-card topo-container"></div>
+
+
+                            <button id="topo-fit-btn" class="btn secondary-btn fit-btn">📐 全体表示 (Fit)</button>
+                            <div id="topo-context-menu" class="topo-context-menu">
+                                <button id="ctx-unlink" class="ctx-danger">🔌 接続を解除</button>
+                                <button id="ctx-edit">✏️ 機器の編集</button>
+                            </div>
+                        </div>
+
+                        <!-- 監視機器全体の通信遅延の折れ線グラフ -->
+                        <div class="glass-card topo-chart-card">
+                            <div class="chart-header">
+                                <h3 class="chart-title">📈 監視機器 全体の通信遅延推移 (ms)</h3>
+                                <span class="chart-unit">遅延時間 (ms)</span>
+                            </div>
+                            <div class="chart-wrapper">
+                                <canvas id="topology-latency-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="topology-edit-panel" class="glass-card topo-edit-panel hidden">
+                        <div class="panel-header">
+                            <h3 class="panel-title">機器設定</h3>
+                            <button id="topo-close-panel-btn" class="close-btn">&times;</button>
+                        </div>
+                        <form id="topo-node-form" class="vertical-form">
+                            <input type="hidden" id="topo-old-ip" value="">
+                            <div class="form-group">
+                                <label>IPアドレス</label>
+                                <input type="text" id="topo-ip" readonly class="form-input readonly">
+                            </div>
+                            <div class="form-group">
+                                <label>機器名</label>
+                                <input type="text" id="topo-name" placeholder="例: コアルーター" class="form-input">
+                            </div>
+                            <div class="form-group">
+                                <label>グループ</label>
+                                <input type="text" id="topo-group" placeholder="例: サーバー群" class="form-input">
+                            </div>
+                            <div class="form-group">
+                                <label>機器アイコン / 画像</label>
+                                <select id="topo-image-type" class="form-select-lg">
+                                    <option value="">なし</option>
+                                    <option value="router">ルーター / スイッチ</option>
+                                    <option value="ap">無線アクセスポイント (AP)</option>
+                                    <option value="bridge">Wi-Fi ブリッジ</option>
+                                    <option value="camera">ネットワークカメラ</option>
+                                    <option value="server">サーバー</option>
+                                    <option value="decoder">IP デコーダー</option>
+                                    <option value="pc">クライアント PC</option>
+                                    <option value="controller">リモートコントローラー</option>
+                                    <option value="cloud">インターネット / クラウド</option>
+                                    <option value="upload">カスタム画像アップロード...</option>
+                                </select>
+                                <div id="topo-image-upload-container" class="upload-container hidden">
+                                    <input type="file" id="topo-image-file" accept="image/*" class="file-input">
+                                    <input type="hidden" id="topo-image-url" value="">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn primary-btn full-width">設定を保存</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-manage" class="tab-view">
+                <div class="glass-card manage-container">
+                    <h2 class="view-title">機器の追加と管理</h2>
+                    
+                    <!-- Device Count / Capacity Indicator -->
+                    <div class="capacity-indicator">
+                        <div class="capacity-info">
+                            <span class="icon">📊</span>
+                            <div class="text">
+                                <div class="label">登録容量 (機器台数)</div>
+                                <div class="value"><span id="current-device-count">0</span> / <span id="max-device-limit">100</span> <span class="unit">台</span></div>
+                            </div>
+                        </div>
+                        <div class="progress-track">
+                            <div id="device-capacity-bar" class="progress-fill"></div>
+                        </div>
+                    </div>
+
+                    <div class="manage-split">
+                        <div class="device-list-container">
+                            
+                            <!-- Discovery Scan Section -->
+                            <div class="glass-card scan-section">
+                                <div class="section-header">
+                                    <h3 class="section-title">🔍 ネットワーク機器自動探索 (スキャン)</h3>
+                                    <button id="scan-start-btn" class="btn secondary-btn scan-btn">スキャン開始</button>
+                                </div>
+                                <div class="scan-inputs">
+                                    <input type="text" id="scan-start-ip" placeholder="192.168.10.1" class="form-input">
+                                    <span class="separator">~</span>
+                                    <input type="text" id="scan-end-ip" placeholder="192.168.10.254" class="form-input">
+                                </div>
+                                <div id="scan-status" class="scan-status"></div>
+                                <div id="scan-results-container" class="scan-results hidden">
+                                    <div id="scan-results-list" class="results-list"></div>
+                                    <button id="scan-add-selected-btn" class="btn primary-btn add-btn">選択した機器を一括追加</button>
+                                </div>
+                            </div>
+
+                            <h3 class="list-title">登録済み機器一覧</h3>
+                            <ul id="manage-device-list" class="manage-list"></ul>
+                            <button id="manage-new-device-btn" class="btn primary-btn full-width">＋ 新しい機器を登録</button>
+                            <div class="manage-actions-grid">
+                                <button id="export-devices-btn" class="btn secondary-btn small">📤 JSON エクスポート</button>
+                                <label id="import-devices-label" class="btn secondary-btn small" for="import-devices-file">📥 JSON インポート</label>
+                                <input type="file" id="import-devices-file" accept=".json" style="display: none;">
+                                <button id="export-devices-csv-btn" class="btn secondary-btn small">📤 CSV エクスポート</button>
+                                <label id="import-devices-csv-label" class="btn secondary-btn small" for="import-devices-csv-file">📥 CSV インポート</label>
+                                <input type="file" id="import-devices-csv-file" accept=".csv" style="display: none;">
+                            </div>
+                        </div>
+                        <div class="device-form-container">
+                            <h3 class="form-title">機器の登録 / 編集</h3>
+                            <form id="device-form" class="vertical-form">
+                                <div class="form-group">
+                                    <label>IPアドレス *</label>
+                                    <input type="text" id="dev-ip" required placeholder="例: 192.168.1.1 または 192.168.1.1, コアルーター" class="form-input">
+                                </div>
+                                <div class="form-group">
+                                    <label>機器名 <span class="label-hint">(表示名)</span></label>
+                                    <input type="text" id="dev-name" placeholder="例: コアルーター" class="form-input">
+                                </div>
+                                <div class="form-group">
+                                    <label>グループ <span class="label-hint">(任意)</span></label>
+                                    <div class="group-select-wrapper">
+                                        <select id="dev-group-select" class="form-select-lg">
+                                            <option value="">— グループなし —</option>
+                                            <!-- populated dynamically -->
+                                            <option value="__new__">＋ 新しいグループを追加</option>
+                                        </select>
+                                        <input type="text" id="dev-group-new" placeholder="新しいグループ名を入力" class="form-input hidden" style="margin-top:0.5rem;">
+                                        <!-- hidden real value used by submit handler -->
+                                        <input type="hidden" id="dev-group" value="">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>機器アイコン / 画像</label>
+                                    <select id="dev-image-type" class="form-select-lg">
+                                        <option value="">なし</option>
+                                        <option value="router">ルーター / スイッチ</option>
+                                        <option value="ap">無線アクセスポイント (AP)</option>
+                                        <option value="bridge">Wi-Fi ブリッジ</option>
+                                        <option value="camera">ネットワークカメラ</option>
+                                        <option value="server">サーバー</option>
+                                        <option value="decoder">IP デコーダー</option>
+                                        <option value="pc">クライアント PC</option>
+                                        <option value="controller">リモートコントローラー</option>
+                                        <option value="cloud">インターネット / クラウド</option>
+                                        <option value="upload">カスタム画像アップロード...</option>
+                                    </select>
+                                    <div id="dev-image-upload-container" class="upload-container hidden">
+                                        <input type="file" id="dev-image-file" accept="image/*" class="file-input">
+                                        <input type="hidden" id="dev-image-url" value="">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="dev-comm">SNMP コミュニティ名 (v1/v2c)</label>
+                                    <input type="text" id="dev-comm" class="form-input" placeholder="public" value="public">
+                                </div>
+                                <!-- SNMPv3 Fields -->
+                                <div class="form-group">
+                                    <label for="dev-snmp-version">SNMP バージョン</label>
+                                    <select id="dev-snmp-version" class="form-select-lg">
+                                        <option value="v2c">SNMPv2c</option>
+                                        <option value="v3">SNMPv3</option>
+                                    </select>
+                                </div>
+                                <div id="snmpv3-fields" class="snmpv3-container hidden">
+                                    <div class="field">
+                                        <label>ユーザー名 (Security Name)</label>
+                                        <input type="text" id="dev-snmp-user" placeholder="snmpv3user" class="form-input-sm">
+                                    </div>
+                                    <div class="field">
+                                        <label>認証プロトコル (Auth Protocol)</label>
+                                        <select id="dev-snmp-auth-proto" class="form-select-sm">
+                                            <option value="none">なし (noAuthNoPriv)</option>
+                                            <option value="MD5">MD5</option>
+                                            <option value="SHA">SHA</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label>認証パスフレーズ (Auth Passphrase)</label>
+                                        <input type="password" id="dev-snmp-auth-pass" placeholder="authpassphrase" class="form-input-sm">
+                                    </div>
+                                    <div class="field">
+                                        <label>暗号化プロトコル (Priv Protocol)</label>
+                                        <select id="dev-snmp-priv-proto" class="form-select-sm">
+                                            <option value="none">なし (authNoPriv)</option>
+                                            <option value="DES">DES</option>
+                                        </select>
+                                    </div>
+                                    <div id="snmpv3-priv-pass-group" class="field">
+                                        <label>暗号化パスフレーズ (Priv Passphrase)</label>
+                                        <input type="password" id="dev-snmp-priv-pass" placeholder="privpassphrase" class="form-input-sm">
+                                    </div>
+                                </div>
+                                <div class="form-checkbox">
+                                    <input type="checkbox" id="dev-enabled" checked>
+                                    <label for="dev-enabled">監視を有効にする</label>
+                                </div>
+                                
+                                <input type="hidden" id="edit-old-ip" value="">
+                                <button type="submit" id="submit-device-btn" class="btn primary-btn save-btn">機器を保存</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- SNMP Details Modal -->
+    <div class="modal-overlay" id="snmp-details-modal">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <div id="snmp-modal-status-dot" class="status-dot"></div>
+                    <h2 id="snmp-modal-title" class="modal-title">SNMP 機器詳細情報</h2>
+                </div>
+                <button id="close-snmp-btn" class="modal-close-btn">&times;</button>
+            </div>
+            
+            <div class="snmp-tab-bar">
+                <button class="snmp-tab-btn active" data-tab="snmp-tab-overview">概要</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-interfaces">インターフェース</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-network">ネットワーク</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-tcp">TCP ソケット</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-mtr">経路診断 (MTR)</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-history">履歴トレンド</button>
+                <button class="snmp-tab-btn" id="snmp-tab-btn-vendor" data-tab="snmp-tab-vendor">個別仕様</button>
+            </div>
+            
+            <div class="modal-body-scroll">
+                <div id="snmp-loading" class="loading-overlay hidden">
+                    <div class="loading-spinner"></div>
+                    <span class="loading-text">SNMP詳細情報を取得中...</span>
+                </div>
+                
+                <div id="snmp-error" class="error-overlay hidden">
+                    <div class="error-icon">⚠️</div>
+                    <span class="error-title">SNMP情報の取得に失敗しました</span>
+                    <span id="snmp-error-msg" class="error-msg"></span>
+                </div>
+
+                <div id="snmp-content" class="hidden">
+                    <div id="snmp-tab-overview" class="snmp-tab-content active">
+                        <div class="overview-grid">
+                            <div class="info-card glass-card">
+                                <h3 class="card-title">システム基本情報</h3>
+                                <div class="info-list">
+                                    <div class="info-row"><span class="label">ホスト名:</span><span id="snmp-sysName" class="value"></span></div>
+                                    <div class="info-row"><span class="label">IP アドレス:</span><span id="snmp-ip" class="value"></span></div>
+                                    <div class="info-row"><span class="label">稼働時間:</span><span id="snmp-sysUpTime" class="value"></span></div>
+                                    <div class="info-col"><span class="label">機器詳細:</span><div id="snmp-sysDescr" class="descr-box"></div></div>
+                                </div>
+                            </div>
+                            <div class="resource-card glass-card">
+                                <h3 class="card-title">システムリソース</h3>
+                                <div class="progress-list">
+                                    <div class="progress-item">
+                                        <div class="item-header"><span>CPU 使用率</span><span id="snmp-cpu-text">0%</span></div>
+                                        <div class="progress-bar"><div id="snmp-cpu-bar" class="fill cpu"></div></div>
+                                    </div>
+                                    <div class="progress-item">
+                                        <div class="item-header"><span>メモリ 使用率</span><span id="snmp-ram-text">0 / 0 GB (0%)</span></div>
+                                        <div class="progress-bar"><div id="snmp-ram-bar" class="fill ram"></div></div>
+                                    </div>
+                                    <div class="progress-item">
+                                        <div class="item-header"><span>ストレージ 使用率</span><span id="snmp-disk-text">0 / 0 GB (0%)</span></div>
+                                        <div class="progress-bar"><div id="snmp-disk-bar" class="fill disk"></div></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="snmp-tab-interfaces" class="snmp-tab-content">
+                        <div class="table-container glass-card">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>INDEX</th><th>ポート名</th><th>状態</th><th>最大速度</th>
+                                        <th>現在速度</th><th>受信 (In)</th><th>送信 (Out)</th><th>エラー</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="snmp-interfaces-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div id="snmp-tab-network" class="snmp-tab-content">
+                        <div class="network-grid">
+                            <div class="table-card glass-card">
+                                <h3 class="card-title">ARP テーブル</h3>
+                                <div class="table-scroll"><table class="data-table-sm"><thead><tr><th>IF</th><th>IPアドレス</th><th>MACアドレス</th></tr></thead><tbody id="snmp-arp-table-body"></tbody></table></div>
+                            </div>
+                            <div class="table-card glass-card">
+                                <h3 class="card-title">ルーティングテーブル</h3>
+                                <div class="table-scroll"><table class="data-table-sm"><thead><tr><th>宛先</th><th>NextHop</th><th>Mask</th><th>Type</th></tr></thead><tbody id="snmp-routes-table-body"></tbody></table></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="snmp-tab-tcp" class="snmp-tab-content">
+                        <div class="table-container glass-card">
+                            <h3 class="card-title">TCP 接続情報</h3>
+                            <div class="table-scroll-lg"><table class="data-table"><thead><tr><th>ローカル IP:ポート</th><th>リモート IP:ポート</th><th>状態</th></tr></thead><tbody id="snmp-tcp-table-body"></tbody></table></div>
+                        </div>
+                    </div>
+
+                    <div id="snmp-tab-mtr" class="snmp-tab-content">
+                        <div class="mtr-container glass-card">
+                            <div class="mtr-header">
+                                <h3 class="card-title">📍 経路診断 (MTR)</h3>
+                                <button id="run-mtr-btn" class="btn primary-btn small">診断開始</button>
+                            </div>
+                            <div id="mtr-loading" class="mtr-loading hidden">
+                                <div class="loading-spinner small"></div><span class="loading-text">診断中...</span>
+                            </div>
+                            <div id="mtr-console" class="terminal-console"></div>
+                        </div>
+                    </div>
+
+                    <div id="snmp-tab-history" class="snmp-tab-content">
+                        <div class="history-grid">
+                            <div class="history-card glass-card"><h3>📈 24時間 遅延推移 (ms)</h3><div class="chart-box"><canvas id="history-latency-chart"></canvas></div></div>
+                            <div class="history-card glass-card"><h3>📊 24時間 通信量 (Mbps)</h3><div class="chart-box"><canvas id="history-traffic-chart"></canvas></div></div>
+                        </div>
+                    </div>
+                    
+                    <div id="snmp-tab-vendor" class="snmp-tab-content">
+                        <div class="vendor-card glass-card">
+                            <div class="vendor-header"><h3 id="snmp-vendor-type-title">メーカー独自情報</h3></div>
+                            <div id="snmp-vendor-details-container" class="vendor-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn secondary-btn" id="close-snmp-footer-btn">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="chart.js"></script>
+    <script src="vis-network.min.js"></script>
+    <div id="bulk-action-bar" class="bulk-bar hidden">
+        <span id="bulk-count-label" class="bulk-label">0 台選択中</span>
+        <div class="divider"></div>
+        <button id="bulk-pause-btn" class="btn secondary-btn small">⏸ 一時停止</button>
+        <button id="bulk-resume-btn" class="btn secondary-btn small">▶ 再開</button>
+        <div class="popup-wrapper">
+            <button id="bulk-group-btn" class="btn secondary-btn small">📁 グループ変更</button>
+            <div id="bulk-group-popup" class="bulk-popup hidden">
+                <input type="text" id="bulk-group-input" placeholder="新しいグループ名" class="form-input-sm">
+                <button id="bulk-group-apply-btn" class="btn primary-btn small">適用</button>
+            </div>
+        </div>
+        <button id="bulk-delete-btn" class="btn secondary-btn small danger-text">🗑 削除</button>
+        <div class="divider"></div>
+        <button id="bulk-clear-btn" class="btn secondary-btn small">✖ クリア</button>
+    </div>
+    
+    <div id="toast-container"></div>
+    <script src="app.js?v=50"></script>
+</body>
+</html>

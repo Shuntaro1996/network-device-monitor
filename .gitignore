@@ -1,0 +1,21 @@
+# OS / Editor
+desktop.ini
+Thumbs.db
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# Google Drive temp
+.tmp.drivedownload/
+.tmp.driveupload/
+
+# Runtime Generated Reports & Logs
+Reports/*.csv
+Reports/*.html
+!Reports/.gitkeep
+
+# Temporary / Cache
+*.log
+*.tmp
