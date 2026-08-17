@@ -41,7 +41,8 @@ st.markdown("""
     iframe {
         border: none !important;
         width: 100% !important;
-        min-height: 100vh !important;
+        height: 100vh !important;
+        min-height: 1000px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -82,7 +83,7 @@ def build_bundled_html():
         with open(devices_path, "r", encoding="utf-8") as f:
             raw_devices = f.read()
 
-    # Raw Mock API script template (using standard replace to prevent Python f-string brace syntax issues)
+    # Raw Mock API script template (Zero external dependencies, 100% safe in about:srcdoc iframes)
     mock_api_template = """
     <script>
     // ==============================================================
@@ -142,15 +143,41 @@ def build_bundled_html():
         let iperfOutput = "";
         let iperfIntervalTimer = null;
 
+        // Safe query parameter extractor (never relies on new URL() which throws on about:srcdoc)
+        function getParam(urlStr, param) {
+            const qIdx = urlStr.indexOf('?');
+            if (qIdx === -1) return null;
+            const query = urlStr.substring(qIdx + 1);
+            const pairs = query.split('&');
+            for (let pair of pairs) {
+                const [k, v] = pair.split('=');
+                if (decodeURIComponent(k) === param) {
+                    return decodeURIComponent(v || '');
+                }
+            }
+            return null;
+        }
+
+        function getPathname(urlStr) {
+            let s = urlStr;
+            if (s.startsWith('http://') || s.startsWith('https://')) {
+                const afterProto = s.substring(s.indexOf('://') + 3);
+                const slashIdx = afterProto.indexOf('/');
+                s = slashIdx !== -1 ? afterProto.substring(slashIdx) : '/';
+            }
+            const qIdx = s.indexOf('?');
+            if (qIdx !== -1) s = s.substring(0, qIdx);
+            return s;
+        }
+
         const originalFetch = window.fetch;
         window.fetch = async function(url, options = {}) {
             const urlStr = typeof url === 'string' ? url : (url.url || '');
-            const urlObj = new URL(urlStr, window.location.href);
-            const path = urlObj.pathname;
+            const path = getPathname(urlStr);
             const method = (options.method || 'GET').toUpperCase();
 
             // 1. GET /api/devices
-            if (path === '/api/devices' && method === 'GET') {
+            if (path.endsWith('/api/devices') && method === 'GET') {
                 return new Response(JSON.stringify({ devices: loadedDevices }), {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' }
@@ -158,7 +185,7 @@ def build_bundled_html():
             }
 
             // 2. GET /api/config
-            if (path === '/api/config' && method === 'GET') {
+            if (path.endsWith('/api/config') && method === 'GET') {
                 return new Response(JSON.stringify(config), {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' }
@@ -166,7 +193,7 @@ def build_bundled_html():
             }
 
             // 3. GET /api/status
-            if (path === '/api/status' && method === 'GET') {
+            if (path.endsWith('/api/status') && method === 'GET') {
                 const resultStatus = {};
                 const now = new Date();
                 const ts = now.toTimeString().split(' ')[0];
@@ -235,11 +262,11 @@ def build_bundled_html():
             }
 
             // 4. /api/iperf
-            if (path === '/api/iperf') {
-                const action = urlObj.searchParams.get('action');
+            if (path.includes('/api/iperf')) {
+                const action = getParam(urlStr, 'action');
                 if (action === 'start') {
-                    iperfTargetIp = urlObj.searchParams.get('ip') || '192.168.10.14';
-                    iperfDuration = parseInt(urlObj.searchParams.get('t') || '5', 10);
+                    iperfTargetIp = getParam(urlStr, 'ip') || '192.168.10.14';
+                    iperfDuration = parseInt(getParam(urlStr, 't') || '5', 10);
                     iperfRunning = true;
                     iperfStartTime = Date.now();
                     iperfOutput = "Starting iperf3...\\nConnecting to host " + iperfTargetIp + ", port 5201\\n[  5] local 192.168.10.100 port 54321 connected to " + iperfTargetIp + " port 5201\\n[ ID] Interval           Transfer     Bitrate\\n";
@@ -286,7 +313,7 @@ def build_bundled_html():
             }
 
             // 5. POST /api/device/toggle
-            if (path === '/api/device/toggle' && method === 'POST') {
+            if (path.endsWith('/api/device/toggle') && method === 'POST') {
                 try {
                     const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
                     const dev = loadedDevices.find(d => d.ip === body.ip);
@@ -296,7 +323,7 @@ def build_bundled_html():
             }
 
             // 6. POST /api/config
-            if (path === '/api/config' && method === 'POST') {
+            if (path.endsWith('/api/config') && method === 'POST') {
                 try {
                     const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
                     config = { ...config, ...body };
@@ -305,7 +332,7 @@ def build_bundled_html():
             }
 
             // 7. SNMP details
-            if (path === '/api/snmp') {
+            if (path.endsWith('/api/snmp')) {
                 return new Response(JSON.stringify({
                     status: "success",
                     sysDescr: "Cisco IOS Software, C2960 Software (C2960-LANBASEK9-M), Version 15.0(2)SE4",
@@ -343,7 +370,7 @@ def build_bundled_html():
         f'<style>\n{css_content}\n</style>'
     )
 
-    # Wrap app.js to ensure execution even if DOMContentLoaded already fired in iframe
+    # Wrap app.js to guarantee immediate execution across any iframe ready state
     app_js_executable = app_js.replace(
         "document.addEventListener('DOMContentLoaded', () => {",
         "function __initAppMain__() {"
