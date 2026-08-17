@@ -41,7 +41,8 @@ st.markdown("""
     iframe {
         border: none !important;
         width: 100% !important;
-        min-height: 100vh !important;
+        height: 100vh !important;
+        min-height: 980px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -55,14 +56,13 @@ def build_bundled_html():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     public_dir = os.path.join(base_dir, "public")
     if not os.path.exists(public_dir):
-        # Fallback if executed from root
         public_dir = os.path.join(base_dir, "system", "public")
         
     devices_path = os.path.join(base_dir, "devices.json")
     if not os.path.exists(devices_path):
         devices_path = os.path.join(base_dir, "system", "devices.json")
         
-    # Read files
+    # Read HTML, CSS, and JS files
     with open(os.path.join(public_dir, "index.html"), "r", encoding="utf-8") as f:
         html_content = f.read()
         
@@ -83,7 +83,7 @@ def build_bundled_html():
         with open(devices_path, "r", encoding="utf-8") as f:
             raw_devices = f.read()
 
-    # Demo Mock API Interceptor
+    # Demo Mock API Interceptor (Strictly matches Server.ps1 endpoints & JSON contracts)
     mock_api_js = f"""
     <script>
     // ==============================================================
@@ -91,7 +91,27 @@ def build_bundled_html():
     // ==============================================================
     (function() {{
         console.log("🌐 Network Device Monitor - Demo Mock API Layer Initialized");
-        let devices = {raw_devices};
+        
+        let loadedDevices = {raw_devices};
+        if (!Array.isArray(loadedDevices) || loadedDevices.length === 0) {{
+            loadedDevices = [
+                {{"name": "2D用IPDecoder", "ip": "192.168.10.14", "group": "操作側", "x": 1034, "y": -128, "image": "decoder", "connectedTo": ""}},
+                {{"name": "3D用IPDecoder", "ip": "192.168.10.13", "group": "操作側", "x": 1035, "y": 132, "image": "decoder", "connectedTo": ""}},
+                {{"name": "RBTリモコン", "ip": "192.168.10.12", "group": "操作側", "x": 941, "y": -178, "image": "controller", "connectedTo": "192.168.10.35"}},
+                {{"name": "AP800", "ip": "192.168.10.35", "group": "操作側", "x": 777, "y": -108, "image": "ap", "connectedTo": "192.168.10.13"}},
+                {{"name": "OAP2(infra側)", "ip": "192.168.10.23", "group": "サイト側", "x": 604, "y": 149, "image": "ap", "connectedTo": "192.168.10.13,192.168.10.14"}},
+                {{"name": "カメラ2", "ip": "192.168.10.11", "group": "サイト側", "x": 725, "y": -152, "image": "camera", "connectedTo": "192.168.10.23"}},
+                {{"name": "PLC(サイト側)", "ip": "192.168.10.1", "group": "サイト側", "x": 520, "y": -30, "image": "server", "connectedTo": "192.168.10.23"}},
+                {{"name": "スイッチハブ", "ip": "192.168.10.254", "group": "ネットワーク", "x": 800, "y": 0, "image": "switch", "connectedTo": ""}}
+            ];
+        }}
+        
+        // Ensure all devices are active (enabled = true) by default in demo
+        loadedDevices.forEach(d => {{
+            d.enabled = true;
+            if (!d.group) d.group = "その他";
+        }});
+
         let config = {{
             threshLatency: 100,
             threshBandwidth: 10,
@@ -106,14 +126,13 @@ def build_bundled_html():
         }};
         
         let historyState = {{}};
-        devices.forEach(d => {{
+        loadedDevices.forEach(d => {{
             historyState[d.ip] = {{
                 status: "Success",
-                latency: Math.floor(Math.random() * 8 + 2),
-                jitter: +(Math.random() * 1.5).toFixed(2),
+                latency: +(Math.random() * 6 + 1.5).toFixed(1),
+                jitter: +(Math.random() * 0.8 + 0.1).toFixed(2),
                 packetLoss: 0,
-                outages: [0, 0],
-                history: []
+                outages: [0, 0]
             }};
         }});
 
@@ -131,15 +150,15 @@ def build_bundled_html():
             const path = urlObj.pathname;
             const method = (options.method || 'GET').toUpperCase();
 
-            // 1. GET /api/devices
+            // 1. GET /api/devices -> { devices: [...] }
             if (path === '/api/devices' && method === 'GET') {{
-                return new Response(JSON.stringify(devices), {{
+                return new Response(JSON.stringify({{ devices: loadedDevices }}), {{
                     status: 200,
                     headers: {{ 'Content-Type': 'application/json' }}
                 }});
             }}
 
-            // 2. GET /api/config
+            // 2. GET /api/config -> config object
             if (path === '/api/config' && method === 'GET') {{
                 return new Response(JSON.stringify(config), {{
                     status: 200,
@@ -147,36 +166,69 @@ def build_bundled_html():
                 }});
             }}
 
-            // 3. GET /api/status
+            // 3. GET /api/status -> { "192.168.10.x": { ... }, "_iperf": { ... } }
             if (path === '/api/status' && method === 'GET') {{
                 const resultStatus = {{}};
                 const now = new Date();
                 const ts = now.toTimeString().split(' ')[0];
                 
-                devices.forEach((d, idx) => {{
+                loadedDevices.forEach((d, idx) => {{
                     if (d.enabled === false) {{
-                        resultStatus[d.ip] = {{ status: "Paused", latency: "-", jitter: 0, packetLoss: 0, outages: [0, 0], timestamp: ts }};
+                        resultStatus[d.ip] = {{
+                            status: "Paused",
+                            latency: "-",
+                            timestamp: ts,
+                            bandwidth: "-",
+                            tx: "-",
+                            rx: "-",
+                            packetLossRate: 0.0,
+                            jitter: 0.0,
+                            outage600msCount: 0,
+                            outage5sCount: 0,
+                            maxOutageSec: 0,
+                            currentOutageSec: 0
+                        }};
                         return;
                     }}
-                    const stObj = historyState[d.ip] || {{ latency: 5, packetLoss: 0, outages: [0, 0], jitter: 0.5 }};
-                    let lat = Math.max(1.0, +(stObj.latency + (Math.random() * 2.4 - 1.2)).toFixed(1));
-                    let loss = Math.random() < 0.02 ? 5 : 0;
+
+                    const stObj = historyState[d.ip] || {{ latency: 3.5, packetLoss: 0, jitter: 0.3 }};
+                    // Gentle latency oscillation around base
+                    let lat = Math.max(0.5, +(stObj.latency + (Math.random() * 1.6 - 0.8)).toFixed(1));
+                    let loss = Math.random() < 0.01 ? 5.0 : 0.0;
                     let status = "Success";
-                    
+
                     stObj.latency = lat;
                     stObj.packetLoss = loss;
                     stObj.status = status;
-                    stObj.jitter = +(Math.abs(Math.random() * 1.5)).toFixed(2);
+                    stObj.jitter = +(Math.abs(Math.random() * 0.9 + 0.1)).toFixed(2);
                     
+                    const txMb = (Math.random() * 3.5 + 0.5).toFixed(1);
+                    const rxMb = (Math.random() * 6.0 + 1.2).toFixed(1);
+
                     resultStatus[d.ip] = {{
                         status: status,
                         latency: lat,
+                        timestamp: ts,
+                        bandwidth: "100 Mbps",
+                        tx: `${{txMb}} MB/s`,
+                        rx: `${{rxMb}} MB/s`,
+                        packetLossRate: loss,
                         jitter: stObj.jitter,
-                        packetLoss: loss,
-                        outages: stObj.outages,
-                        timestamp: ts
+                        outage600msCount: 0,
+                        outage5sCount: 0,
+                        maxOutageSec: 0,
+                        currentOutageSec: 0
                     }};
                 }});
+
+                // Include _iperf status state
+                resultStatus["_iperf"] = {{
+                    running: iperfRunning,
+                    output: iperfOutput,
+                    targetIp: iperfTargetIp,
+                    targetPort: 5201,
+                    duration: iperfDuration
+                }};
 
                 return new Response(JSON.stringify(resultStatus), {{
                     status: 200,
@@ -198,14 +250,14 @@ def build_bundled_html():
                     if (iperfIntervalTimer) clearInterval(iperfIntervalTimer);
                     iperfIntervalTimer = setInterval(() => {{
                         curSec++;
-                        const speed = +(Math.random() * 110 + 850).toFixed(2);
+                        const speed = +(Math.random() * 80 + 880).toFixed(2);
                         const trans = +(speed / 8).toFixed(1);
                         const nowTs = new Date().toTimeString().split(' ')[0];
                         iperfOutput += `[${{nowTs}}] [  5]   ${{curSec-1}}.00-${{curSec}}.00   sec   ${{trans}} MBytes   ${{speed}} Mbits/sec\\n`;
                         if (curSec >= iperfDuration) {{
                             clearInterval(iperfIntervalTimer);
                             iperfRunning = false;
-                            const avgSpeed = 894.25;
+                            const avgSpeed = 912.45;
                             iperfOutput += `[${{nowTs}}] - - - - - - - - - - - - - - - - - - - - - - - - -\\n`;
                             iperfOutput += `[${{nowTs}}] [  5]   0.00-${{iperfDuration}}.00   sec   ${{+(avgSpeed*iperfDuration/8).toFixed(1)}} MBytes   ${{avgSpeed}} Mbits/sec   sender\\n`;
                             iperfOutput += `=== iperf3 Finished at ${{new Date().toLocaleString('ja-JP')}} ===\\n`;
@@ -239,7 +291,7 @@ def build_bundled_html():
             if (path === '/api/device/toggle' && method === 'POST') {{
                 try {{
                     const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
-                    const dev = devices.find(d => d.ip === body.ip);
+                    const dev = loadedDevices.find(d => d.ip === body.ip);
                     if (dev) {{ dev.enabled = body.enabled; }}
                 }} catch(e) {{}}
                 return new Response(JSON.stringify({{ status: "success" }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
@@ -254,15 +306,15 @@ def build_bundled_html():
                 return new Response(JSON.stringify({{ status: "success" }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
             }}
 
-            // 7. SNMP details simulation
+            // 7. SNMP details
             if (path === '/api/snmp') {{
                 return new Response(JSON.stringify({{
                     status: "success",
                     sysDescr: "Cisco IOS Software, C2960 Software (C2960-LANBASEK9-M), Version 15.0(2)SE4",
                     sysUpTime: "128 days, 14:32:10",
                     sysName: "Core-Switch-01",
-                    cpuUsage: Math.floor(Math.random() * 25 + 15),
-                    memUsage: Math.floor(Math.random() * 20 + 45),
+                    cpuUsage: Math.floor(Math.random() * 20 + 15),
+                    memUsage: Math.floor(Math.random() * 15 + 45),
                     interfaces: [
                         {{ name: "GigabitEthernet0/1", status: "up", speed: "1 Gbps", inOctets: "145.2 GB", outOctets: "210.8 GB" }},
                         {{ name: "GigabitEthernet0/2", status: "up", speed: "1 Gbps", inOctets: "88.4 GB", outOctets: "95.1 GB" }},
@@ -274,14 +326,18 @@ def build_bundled_html():
                 }});
             }}
 
-            // Default fallback
-            return new Response(JSON.stringify({{ status: "success" }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            // Fallback for other requests
+            try {{
+                return await originalFetch(url, options);
+            }} catch (e) {{
+                return new Response(JSON.stringify({{ status: "success" }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
         }};
     }})();
     </script>
     """
 
-    # Inject Inline CSS
+    # Inject Inline CSS into head
     html_content = html_content.replace(
         '<link rel="stylesheet" href="style.css?v=33">',
         f'<style>\n{css_content}\n</style>'
