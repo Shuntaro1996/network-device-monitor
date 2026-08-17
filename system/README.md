@@ -1,6 +1,6 @@
-# 🌐 Network Device Monitor & Diagnostic Tool — README（管理者向け）
+# 🌐 Network Device Monitor & Diagnostic Tool — 管理者・開発者向け詳細設計書
 
-**対象読者**: システムの導入・構成管理・トラブルシューティングを担当する管理者
+**対象読者**: システムの導入・構成管理・API連携・カスタマイズ・トラブルシューティングを担当するインフラエンジニア・管理者
 
 ---
 
@@ -10,14 +10,14 @@
 2. [ファイル・ディレクトリ構成](#2-ファイルディレクトリ構成)
 3. [動作要件と前提条件](#3-動作要件と前提条件)
 4. [起動・停止手順](#4-起動停止手順)
-5. [設定ファイルの詳細](#5-設定ファイルの詳細)
-6. [アーキテクチャ概要](#6-アーキテクチャ概要)
-7. [監視エンジンの仕様](#7-監視エンジンの仕様)
-8. [セキュリティ設計（サニタイズ仕様）](#8-セキュリティ設計サニタイズ仕様)
-9. [JSON保存処理の設計](#9-json保存処理の設計)
-10. [デバッグとログ管理](#10-デバッグとログ管理)
-11. [ログのローテーション仕様](#11-ログのローテーション仕様)
-12. [主要APIエンドポイント一覧](#12-主要apiエンドポイント一覧)
+5. [設定ファイル仕様（config.json / devices.json）](#5-設定ファイル仕様configjson--devicesjson)
+6. [アーキテクチャとスレッドモデル](#6-アーキテクチャとスレッドモデル)
+7. [監視エンジンの詳細仕様](#7-監視エンジンの詳細仕様)
+8. [通信品質アルゴリズム（パケロス・ジッター・瞬断）](#8-通信品質アルゴリズムパケロスジッター瞬断)
+9. [外部通知 & Web Audio 設計](#9-外部通知--web-audio-設計)
+10. [バックアップ・リストア & ログ保守仕様](#10-バックアップリストア--ログ保守仕様)
+11. [REST API エンドポイント一覧](#11-rest-api-エンドポイント一覧)
+12. [セキュリティ & 入力サニタイズ仕様](#12-セキュリティ--入力サニタイズ仕様)
 13. [トラブルシューティング](#13-トラブルシューティング)
 14. [既知の制限事項](#14-既知の制限事項)
 
@@ -25,18 +25,16 @@
 
 ## 1. システム概要
 
-本システムは **PowerShell製のHTTPサーバー** をバックエンドとし、ブラウザ上のSPAでネットワーク機器の状態を一元管理するツールです。
+本システムは **PowerShell 5.1 / 7+ 製のマルチスレッド非同期 HTTP バックエンド** と、ブラウザ上で動作する **Vanilla JS + Vis-Network + Chart.js 製の軽量SPAフロントエンド** で構成された、エージェントレス型のネットワーク監視・診断基盤です。
 
-### 主要機能
-
-| 機能 | 実装方式 | 説明 |
-|------|----------|------|
-| **死活監視 (Ping)** | .NET `System.Net.NetworkInformation.Ping` | 指定間隔でICMP Echo を送出 |
-| **SNMP監視** | SharpSnmpLib / PowerShell SNMPモジュール | v2c/v3に対応。MIB-II + HOST-RESOURCES-MIB |
-| **経路診断 (MTR)** | `tracert` をバックグラウンド実行 | ホップごとの遅延・パケットロスを可視化 |
-| **帯域計測 (Iperf3)** | 同梱の `iperf3.18_64` を非同期実行 | ライブコンソール出力・ログ保存 |
-| **トポロジー可視化** | vis-network.js | CDP/LLDP自動検出 + 手動リンク編集 |
-| **履歴トレンド** | 内部リングバッファ (max 1440エントリ/機器) | 過去24時間の遅延・通信量グラフ |
+### 核心機能
+- **デュアルレート死活監視 (Ping)**: 最重要機器（最大2台）を 0.1秒、他機器を 5.0秒で並行高精度監視。
+- **通信品質解析**: パケットロス率 (%)、RFC 3550 準拠ジッター (ms)、最大瞬断時間 (秒)、閾値別瞬断回数のリアルタイム算出。
+- **稼働ヒートマップ**: 直近サンプリングの到達品質をカラーバーで時系列表示。
+- **外部 Webhook & Web Audio 通知**: Slack/Teams/Discord 等への非同期 POST およびブラウザ上での音波合成アラート。
+- **動的トポロジー可視化**: 機器間リンクの障害・遅延ステータスに応じた動的カラーチェンジ。
+- **設定バックアップ & リストア**: 監視設定・機器情報を1つの JSON でエクスポート/インポート。
+- **自動ログローテーション & パージ**: 保持日数を超過した過去ログの自動削除。
 
 ---
 
@@ -44,384 +42,248 @@
 
 ```
 NetworkDeviceMonitor/
-├── Start-Monitor.bat              ← 起動スクリプト
-├── 利用手順書.md                  ← 利用者向け手順書
-├── Reports/                       ← 実行時ログ出力先
+├── Start-Monitor.bat              # 起動スクリプト（管理者不要）
+├── 利用手順書.md                  # 現場運用者向けマニュアル
+├── README.md                      # プロジェクト概要
+├── LICENSE                        # MIT License
+├── Reports/                       # 実行時ログ・CSVレポート出力先（自動生成）
 │   └── <yyyyMMdd_HHmmss>/
-│       ├── ping_<IP>.csv          ← Ping履歴（5MBローテーション、最大3世代）
-│       └── iperf_<target>_<ts>.log ← Iperf3計測ログ
+│       ├── ping_<IP>.csv          # Ping履歴（末尾に日本語サマリーブロック付与）
+│       └── iperf_<target>_<ts>.log # Iperf3計測ログ
 └── system/
-    ├── Server.ps1                 ← ★メインバックエンドサーバー
-    ├── Launcher.ps1               ← 個別デバイス監視ランチャー
-    ├── Measure-Bandwidth.ps1      ← SNMPによる帯域計算ロジック
-    ├── Monitor-SingleDevice.ps1   ← 単体デバイス監視スクリプト
-    ├── Start-BandwidthServer.ps1  ← 帯域監視補助サーバー
-    ├── devices.json               ← 監視対象デバイス設定（自動保存）
-    ├── config.json                ← グローバル設定（自動保存）
-    ├── debug.log                  ← ★エラーログ（バックグラウンド例外を記録）
-    ├── iperf3.18_64/              ← Iperf3バイナリ（同梱）
-    └── public/                    ← フロントエンド静的ファイル
-        ├── index.html             ← メインUI（グラスモーフィズムデザイン）
-        ├── app.js                 ← フロントエンドロジック（API通信・グラフ等）
-        ├── chart.js               ← Chart.js（トレンドグラフ描画）
-        └── vis-network.min.js     ← vis-network（トポロジー図描画）
+    ├── README.md                  # ★本ドキュメント
+    ├── Server.ps1                 # ★メインバックエンドサーバー（Runspace並列処理）
+    ├── Launcher.ps1               # 個別デバイス監視ランチャー
+    ├── Measure-Bandwidth.ps1      # SNMPによる帯域計算ロジック
+    ├── Monitor-SingleDevice.ps1   # 単体デバイス監視スクリプト
+    ├── Start-BandwidthServer.ps1  # 帯域監視補助サーバー
+    ├── devices.json               # 監視対象デバイス設定（自動保存）
+    ├── config.json                # システム全体設定（自動保存）
+    ├── debug.log                  # エラーログ（Runspace例外を記録）
+    ├── iperf3.18_64/              # Iperf3バイナリ（同梱）
+    └── public/                    # フロントエンド静的アセット
+        ├── index.html             # メインUI（日本語化・グラスモーフィズム）
+        ├── app.js                 # UIロジック・Web Audio・Chart制御・API通信
+        ├── style.css              # レスポンシブスタイルシート（デイ/ナイト対応）
+        ├── chart.js               # Chart.js
+        └── vis-network.min.js     # Vis-Network
 ```
 
 ---
 
 ## 3. 動作要件と前提条件
 
-| 要件 | 詳細 |
-|------|------|
-| **OS** | Windows 10/11、Windows Server 2019以降 |
-| **PowerShell** | 5.1以上（標準搭載） |
-| **ブラウザ** | Chrome / Edge / Firefox 最新版 |
-| **ポート** | TCP 8081（ファイアウォールで開放が必要な場合あり） |
-| **ネットワーク** | 管理用PCから監視対象機器へのICMP(Ping)が通ること |
-| **SNMP（任意）** | 対象機器でSNMP v2c または v3 が有効になっていること |
-| **PowerShell SNMP モジュール（任意）** | `Install-Module SNMP` で事前インストール推奨 |
-
-### SNMP モジュールのインストール（管理者PowerShellで実行）
-
-```powershell
-Install-Module -Name SNMP -Scope CurrentUser -Force
-```
+| 項目 | 要件 |
+| :--- | :--- |
+| **OS** | Windows 10 / 11 / Windows Server 2016 以降 |
+| **PowerShell** | Windows PowerShell 5.1 または PowerShell 7+ |
+| **ブラウザ** | Google Chrome / Microsoft Edge / Mozilla Firefox（最新版） |
+| **通信ポート** | TCP `8081`（HTTP API・Web画面用） |
+| **ネットワーク** | 監視対象機器への ICMP Echo（Ping）疎通 |
+| **SNMP (任意)** | 対象機器で SNMP v2c または v3 が有効であること |
+| **SNMPモジュール** | `Install-Module SNMP -Scope CurrentUser -Force` でインストール推奨 |
 
 ---
 
 ## 4. 起動・停止手順
 
 ### 起動
-
-```bat
-Start-Monitor.bat をダブルクリック
-```
-
-内部では以下が実行されます：
-
-```powershell
+`Start-Monitor.bat` をダブルクリックします。内部で以下が実行されます：
+```cmd
 powershell.exe -ExecutionPolicy Bypass -File "system\Server.ps1"
-Start http://localhost:8081
 ```
+サーバー初期化後、自動的にブラウザで `http://localhost:8081` が開きます。
 
 ### 停止
-
-バックグラウンドのPowerShellウィンドウを **閉じる** か、`Ctrl+C` で停止します。
-
-### ポート番号の変更
-
-`system/Server.ps1` の先頭付近にある以下の行を変更します：
-
-```powershell
-$port = 8081  # ← ここを変更
-```
+バックグラウンドの PowerShell ウィンドウで **[Enter] キーを押す** か、ウィンドウを閉じます。
+停止時に全監視機器の直近サマリー（到達率・パケロス率・ジッター・最大瞬断時間）が CSV に追記され、ポート・Runspace が安全に解放されます。
 
 ---
 
-## 5. 設定ファイルの詳細
+## 5. 設定ファイル仕様（config.json / devices.json）
 
 ### `system/config.json`
-
-システム全体のグローバル設定。UIからの変更が自動反映されます。
+システム全体の監視・通知・保守パラメータ。UI（⚙️ システム設定）からの変更が即座に同期・保存されます。
 
 ```json
 {
-    "pollInterval":      1000,     // Ping監視間隔（ms）。最小100（超高頻度モード）
-    "pingDataSize":      1,        // ICMPパケットのデータサイズ（bytes）
-    "loggingEnabled":    true,     // Ping履歴CSVへの書き出し有効/無効
-    "highFreqTargetIps": "",       // 超高頻度モード（<=100ms）時のPing対象IP（カンマ区切り、最大2台）
-    "outageThresh1Ms":   600,      // 瞬断カウント閾値①（ms）。この時間以上の瞬断を回数カウント
-    "outageThresh2Ms":   5000      // 瞬断カウント閾値②（ms）。この時間以上の瞬断を回数カウント
+  "pollInterval": 1000,
+  "pingDataSize": 1,
+  "loggingEnabled": true,
+  "highFreqTargetIps": "192.168.10.1,192.168.10.2",
+  "outageThresh1Ms": 600,
+  "outageThresh2Ms": 5000,
+  "latencyThreshMs": 100,
+  "logRetentionDays": 30,
+  "webhookUrl": "https://hooks.slack.com/services/...",
+  "webhookEnabled": true,
+  "webhookOfflineOnly": true,
+  "soundEnabled": true,
+  "soundVolume": 0.5
 }
 ```
 
-> ⚙️ `outageThresh1Ms` / `outageThresh2Ms` はサイドバーの **「⚡ 瞬断カウント閾値」** 欄から変更可能です。Enter または Tab で確定すると即時保存されます。
+| キー | 型 | 初期値 | 説明 |
+| :--- | :--- | :--- | :--- |
+| `pollInterval` | int | `1000` | 通常監視のポーリング間隔 (ms)。`100` でデュアルレートモード発動 |
+| `pingDataSize` | int | `1` | ICMP Echo ペイロードサイズ (bytes) |
+| `loggingEnabled` | bool | `true` | CSV ログ記録の有効/無効 |
+| `highFreqTargetIps` | string | `""` | 0.1s 超高頻度監視の対象IP（カンマ区切り、最大2台） |
+| `outageThresh1Ms` | int | `600` | 瞬断判定閾値① (ms)。これ以上の瞬断回数をカウント |
+| `outageThresh2Ms` | int | `5000` | 瞬断判定閾値② (ms)。これ以上の瞬断回数をカウント |
+| `latencyThreshMs` | int | `100` | 遅延アラート警告閾値 (ms) |
+| `logRetentionDays` | int | `30` | ログ保持日数。この日数を超えた古いセッションを自動パージ |
+| `webhookUrl` | string | `""` | 外部通知先 Webhook URL |
+| `webhookEnabled` | bool | `false` | Webhook 自動送信の有効/無効 |
+| `webhookOfflineOnly` | bool | `true` | オフライン/復旧時のみ通知（高遅延時は除外） |
+| `soundEnabled` | bool | `true` | ブラウザ音声アラートの有効/無効 |
+| `soundVolume` | float | `0.5` | 音声アラート音量 (0.0 〜 1.0) |
 
-### `system/devices.json`
+---
 
-監視対象機器の設定。UIで機器を追加/削除/変更すると自動保存されます。**手動編集は推奨しません。**
+## 6. アーキテクチャとスレッドモデル
 
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ Server.ps1 (メインプロセス)                                            │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │ $syncHash (スレッドセーフな Synchronized Hashtable)               │  │
+│  │ ・Devices, Status, Stats, Traffic, Bandwidth, Config, ...        │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│                                                                        │
+│  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
+│  │ Ping Engine (Runspace)  │  │ SNMP & Topology Engine (Runspace)   │  │
+│  │ ・デュアルレート制御    │  │ ・IF-MIB トラフィック取得           │  │
+│  │ ・パケロス/ジッター算出 │  │ ・CDP/LLDP 自動リンク検出           │  │
+│  │ ・Webhook 非同期POST    │  │ ・エラーパケット・システム情報取得   │  │
+│  └─────────────────────────┘  └─────────────────────────────────────┘  │
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │ HTTP Server (HttpListener :8081)                                 │  │
+│  │ ・REST API ルーティング & 静的アセット配信                       │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────┘
+                                ▲ HTTP JSON / WebSocket 代替ポーリング
+                                │
+                      ┌──────────────────┐
+                      │ Browser (SPA)    │
+                      │ app.js           │
+                      │ ・Web Audio 合成 │
+                      │ ・Vis-Network    │
+                      │ ・Chart.js       │
+                      └──────────────────┘
+```
+
+---
+
+## 7. 監視エンジンの詳細仕様
+
+### ① デュアルレート監視アーキテクチャ
+- `pollInterval <= 100`（0.1秒超高頻度モード）設定時：
+  - `highFreqTargetIps` に指定された**最大2台の機器は 0.1秒（100ms）間隔**で超高精度Pingを実行。
+  - **その他の監視機器は 5.0秒間隔** でバックグラウンド監視を継続（PC負荷を最小限に抑制）。
+- **ディスクIO最適化（10秒バッファリング）**:
+  - 超高頻度監視時でもディスク書き込みは内部キューにバッファリングし、10秒周期またはセッション終了時に一括フラッシュすることでストレージ負荷を低減。
+
+### ② SNMP エンジン
+- `SharpSnmpLib` を用いて、非同期に各機器の MIB-II（RFC 1213）および IF-MIB をポーリング。
+- 送信レート（Tx Mbps）、受信レート（Rx Mbps）、エラーパケット数（InErrors / OutErrors）、破棄パケット数を取得。
+
+---
+
+## 8. 通信品質アルゴリズム（パケロス・ジッター・瞬断）
+
+### ① パケットロス率 (%)
+- 直近 30 サンプリングの成否履歴（`RecentResults`）を保持。
+$$\text{PacketLossRate} = \left( \frac{\text{FailedCount}}{\text{TotalCount}} \right) \times 100$$
+
+### ② ジッター（RFC 3550 準拠）
+- 直近の連続したPing応答遅延（$D_i, D_{i-1}$）の差分絶対値から、指数平滑移動平均を用いてジッター $J$ を算出：
+$$D = |Lat_i - Lat_{i-1}|$$
+$$J = J + \frac{D - J}{16}$$
+
+### ③ 瞬断最大時間 & 閾値カウント
+- 連続オフライン期間の経過時間を秒単位（0.1s精度）でトラッキング。
+- 機器がオンラインに復帰した瞬間に、その停止時間が `outageThresh1Ms`（例: 600ms）または `outageThresh2Ms`（例: 5000ms）を超えていた場合に該当カウンターをインクリメント。
+
+---
+
+## 9. 外部通知 & Web Audio 設計
+
+### ① Webhook 送信（`Send-WebhookNotification`）
+- 機器のオフライン検知、復旧検知、およびテスト送信時に非同期で JSON POST を実行：
 ```json
-[
-  {
-    "ip":           "192.168.1.1",
-    "name":         "コアスイッチ",
-    "community":    "public",
-    "group":        "1F",
-    "image":        "switch",
-    "enabled":      true,
-    "connectedTo":  "192.168.1.254",
-    "x":            100,
-    "y":            200,
-    "mac":          "AA:BB:CC:DD:EE:FF",
-    "snmpVersion":  "v2c",
-    "snmpUser":     "",
-    "snmpAuthProto":"none",
-    "snmpAuthPass": "",
-    "snmpPrivProto":"none",
-    "snmpPrivPass": ""
-  }
-]
+{
+  "text": "🔴 **機器オフライン検知**\n・対象機器: コアスイッチ (192.168.10.1)\n・発生時刻: 2026-08-17 19:30:00\n・詳細: 連続タイムアウト発生",
+  "content": "🔴 **機器オフライン検知**...",
+  "deviceName": "コアスイッチ",
+  "ip": "192.168.10.1",
+  "eventType": "offline",
+  "timestamp": "2026-08-17 19:30:00"
+}
 ```
+
+### ② Web Audio API 音声合成エンジン（外部音声ファイル不要）
+- ブラウザの `AudioContext` を使用し、オシレーター（発振器）と GainNode で警告音を直接生成：
+  - **障害時（Error）**: 880Hz → 440Hz → 880Hz の鋸歯状波（Sawtooth）高低ビープ音。
+  - **警告時（Warning）**: 587.33Hz → 880Hz の正弦波（Sine）ソフトチャイム。
 
 ---
 
-## 6. アーキテクチャ概要
+## 10. バックアップ・リストア & ログ保守仕様
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Server.ps1 (メインスレッド)                                │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  $syncHash (Synchronized Hashtable)                   │  │
-│  │  共有状態: Devices, Latency, Status, History, ...     │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ Ping Engine │  │ SNMP Engine │  │ MAC/Topology Engine │  │
-│  │ (Runspace)  │  │ (Runspace)  │  │ (Runspace)          │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-│                                                              │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │  HTTP Listener (port 8081)  ← API リクエスト処理        │ │
-│  └─────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                        ▲ HTTP
-                        │
-              ┌─────────────────┐
-              │ Browser (SPA)   │
-              │ app.js + UI     │
-              └─────────────────┘
-```
+### ① 完全バックアップ & リストア
+- **エクスポート (`GET /api/config/export`)**:
+  - `devices.json` の全内容（IP、名前、グループ、座標、SNMP情報）と `config.json` の全パラメータを統合した JSON を生成・ダウンロード。
+- **インポート (`POST /api/config/import`)**:
+  - アップロードされた JSON を検証後、`devices.json` および `config.json` にアトミック反映し、監視状態を即時リロード。
 
-各監視エンジンは **PowerShell Runspace** で非同期実行され、`$syncHash` 経由で状態を共有します。`Save-DevicesJson` 関数はスレッドセーフなロック（`[System.Threading.Monitor]`）を使用して設定ファイルに書き込みます。
+### ② ログ自動パージ（`Purge-OldReports`）
+- サーバー起動時および定期サイクルにおいて、`Reports/` 直下のセッションフォルダー名（`yyyyMMdd_HHmmss`）を検証。
+- `logRetentionDays`（デフォルト: 30日）を超過したフォルダーを再帰的に自動安全削除。
 
 ---
 
-## 7. 監視エンジンの仕様
-
-### Ping エンジン
-
-| 項目 | 仕様 |
-|------|------|
-| 実装クラス | `System.Net.NetworkInformation.Ping` |
-| タイムアウト | 通常モード: 1000ms / 超高頻度モード: `Max(80, pollInterval)` ms |
-| 並列実行 | 通常モード: 全登録デバイスを並列Ping |
-| 超高頻度モード | **最大2台**（`highFreqTargetIps` で指定）を高速Ping |
-| 最小間隔 | 100ms（`pollInterval <= 100` の場合に超高頻度モード有効） |
-| Min/Max記録 | セッション開始からの最小・最大遅延を各機器ごとに記録 |
-| 最大瞬断時間 | 連続してオフライン（Failed）だった最長時間（秒）を機器ごとに記録 |
-| 瞬断回数カウント | オフライン→オンライン復帰時に、閾値①・②を超えていた場合にカウント（サイドバーで変更可能） |
-
-#### 超高頻度モード（100ms）の制限事項
-
-- `pollInterval` が 100ms 以下の場合、Ping対象は `highFreqTargetIp` で指定した **1台のみ** に限定されます。
-- 他の登録機器への監視は通常頻度（最低1秒間隔）で継続されます。
-- ディスクへのCSVログ書き込み周期は監視間隔に関わらず **最低1秒間隔** です（IOバースト防止）。
-
-### SNMP エンジン
-
-| 項目 | 仕様 |
-|------|------|
-| バージョン対応 | SNMPv2c / SNMPv3 |
-| 主要MIB | RFC1213 (MIB-II) / HOST-RESOURCES-MIB / IF-MIB |
-| Wi-Fi拡張 | IEEE 802.11 MIB (`dot11CurrentChannel`) |
-| 実装ライブラリ | SharpSnmpLib (PowerShell SNMPモジュール経由) |
-| ポーリング間隔 | `Max(1, pollInterval / 1000)` 秒 |
-
----
-
-## 8. セキュリティ設計（サニタイズ仕様）
-
-外部から受け付けるユーザー入力は以下のルールで検証・無害化しています。
-
-### IPアドレス検証
-
-```powershell
-# 形式: xxx.xxx.xxx.xxx（各オクテット0-255）
-if ($ip -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { # 400 Bad Request を返す }
-```
-
-### Iperf3 カスタムオプション（ホワイトリスト方式）
-
-```powershell
-# 英数字・ハイフン・スペースのみ許可（コマンドインジェクション防止）
-$safeOpts = ($opts -replace '[^a-zA-Z0-9\-\s]', '')
-```
-
-> ⚠️ 特殊文字（セミコロン、バッククォート、パイプ、引用符など）は **すべて自動的に除去** されます。
-
-### ホスト名サニタイズ
-
-```powershell
-# DNS名として有効な文字のみ許可
-$safeHost = ($host -replace '[^a-zA-Z0-9\-\.]', '')
-```
-
-### ロック機構（競合書き込み防止）
-
-- `Save-DevicesJson` 関数は `[System.Threading.Monitor]::Enter($syncHash)` でロックを取得してからJSONを書き込みます。
-- 書き込みは `.tmp` ファイルへの出力後に `Move-Item -Force` でアトミックに切り替えます（書き込み途中のファイル破損を防止）。
-- 書き込み失敗時は最大5回リトライし、失敗内容を `debug.log` に記録します。
-
----
-
-## 9. JSON保存処理の設計
-
-### `Save-DevicesJson` 関数の動作
-
-1. `$syncHash.Devices` の全エントリをPowerShellオブジェクト配列 (`$outArray`) に変換
-2. `ConvertTo-Json -Depth 5` でJSONに変換（文字列結合は使用しない）
-3. 一時ファイル (`devices.json.tmp`) に書き込み
-4. `Move-Item -Force` でアトミックにリネーム
-5. 失敗した場合は最大5回リトライ
-
-### 設計上のポイント
-
-- 以前の文字列結合によるJSON生成を廃止し、**PowerShellネイティブのオブジェクト→JSON変換**を採用。
-- `$saveDevicesJsonScript` スクリプトブロックとして定義し、メインスレッドと全Runspaceで同一ロジックを共有。
-- 各Runspace内で `Save-DevicesJson` を呼び出す際は、スクリプトブロックを `.Invoke()` または `. ([scriptblock]::Create(...))` でロードして使用。
-
----
-
-## 10. デバッグとログ管理
-
-### `system/debug.log`
-
-バックグラウンド処理（Runspace内）で予期しないエラーが発生した場合に記録されます。
-
-**記録される主なエラー:**
-
-| 発生箇所 | 記録内容 |
-|----------|----------|
-| Ping Engine | PingタイムアウトやRunspace起動失敗 |
-| SNMP詳細取得 | SNMP応答エラー、OID解析失敗 |
-| MAC/Topology検出 | ARP・LLDP取得失敗 |
-| Save-DevicesJson | ファイル書き込みのリトライ失敗 |
-
-**ログフォーマット:**
-
-```
-[2026-06-23 10:35:42] Save-DevicesJson error: Access to the path '...' is denied.
-[2026-06-23 10:35:43] SNMP detail error for 192.168.1.1: The operation has timed out.
-```
-
-**定期メンテナンス**: `debug.log` は自動ローテーションされません。ファイルが大きくなった場合は手動で削除またはアーカイブしてください。
-
----
-
-## 11. ログのローテーション仕様
-
-### Ping 履歴 CSV（`Reports/<session>/<IP>.csv`）
-
-| 仕様 | 詳細 |
-|------|------|
-| **自動ローテーション条件** | ファイルサイズが 5MB を超えた場合 |
-| **世代管理** | `.1`, `.2`, `.3` の suffix でリネーム（最大3世代） |
-| **保持件数** | 最大4ファイル（現行 + 3世代分） |
-
-### CSVサマリーブロック
-
-サーバー停止時（`Ctrl+C` または PowerShell ウィンドウを閉じた時）に、各機器の CSV ファイル末尾に以下のサマリーが**日本語**で自動追記されます。
-
-```
---- サマリー ---
-セッション,2026-08-06_07-00-00
-IPアドレス,192.168.1.1
-総Ping回数,3600
-成功,3580
-失敗,20
-到達率 (%),99.44
-遅延 最小 (ms),1
-遅延 最大 (ms),45
-遅延 平均 (ms),3.20
-最大瞬断時間 (秒),20.5
-瞬断回数 (600ms 以上),5
-瞬断回数 (5000ms 以上),1
-備考 (瞬断回数),オフラインからオンラインへ復帰した時点でカウント。セッション終了時点で継続中の瞬断は含まない
-```
-
-> ⚠️ 瞬断回数の閾値ラベル（`600ms 以上` / `5000ms 以上`）は、停止時点の設定値が反映されます。
-
----
-
-## 12. 主要APIエンドポイント一覧
-
-サーバーは `http://localhost:8081` でリッスンします。
+## 11. REST API エンドポイント一覧
 
 | メソッド | パス | 説明 |
-|---------|------|------|
-| `GET` | `/api/status` | 全デバイスの現在ステータス（Ping, SNMP, 遅延Min/Max, 最大瞬断時間, 瞬断カウント） |
-| `GET` | `/api/history?ip=<IP>` | 指定IPの過去24時間の遅延・通信量履歴 |
-| `GET` | `/api/devices` | 登録デバイス一覧（名前・グループ・SNMP設定等） |
+| :--- | :--- | :--- |
+| `GET` | `/api/status` | 全デバイスの最新ステータス（Ping、遅延、パケロス率、ジッター、Tx/Rx、瞬断時間） |
+| `GET` | `/api/devices` | 登録デバイス一覧の取得 |
 | `POST` | `/api/devices` | デバイスの追加・更新・削除 |
-| `GET` | `/api/config` | 現在のグローバル設定取得（瞬断閾値含む） |
-| `POST` | `/api/config` | 設定の更新（pollInterval, pingDataSize, outageThresh1Ms, outageThresh2Ms 等） |
-| `POST` | `/api/iperf/start` | Iperf3計測開始 |
-| `GET` | `/api/iperf/status` | Iperf3計測の進捗・結果取得 |
-| `POST` | `/api/iperf/stop` | Iperf3計測の強制停止 |
-| `POST` | `/api/mtr/start` | MTR（経路診断）開始 |
-| `GET` | `/api/mtr/status` | MTR結果取得 |
-| `GET` | `/api/topology` | トポロジー接続情報の取得 |
-| `POST` | `/api/topology` | トポロジー接続情報の保存 |
-| `GET` | `/api/snmp/detail?ip=<IP>` | 指定IPのSNMP詳細情報（インターフェース等）取得 |
+| `POST` | `/api/device/toggle` | 指定IPの監視一時停止/再開切り替え |
+| `GET` | `/api/config` | システム設定（監視間隔、Pingサイズ、閾値、通知設定等）の取得 |
+| `POST` | `/api/config` | システム設定の更新・保存 |
+| `GET` | `/api/config/export` | 機器・システム設定の完全バックアップ JSON ダウンロード |
+| `POST` | `/api/config/import` | バックアップ JSON のアップロード・復元適用 |
+| `POST` | `/api/webhook/test` | Webhook URL のテスト通知送信 |
+| `GET` | `/api/topology` | トポロジー接続・座標情報の取得 |
+| `POST` | `/api/topology` | トポロジー接続・座標情報の保存 |
+| `GET` | `/api/iperf` | Iperf3 計測の開始 (`action=start`) および状態取得 (`action=status`) |
+| `GET` | `/api/mtr` | MTR 経路診断の開始・結果取得 |
+
+---
+
+## 12. セキュリティ & 入力サニタイズ仕様
+
+- **IPアドレス検証**: IPv4 正規表現 `^\d{1,3}(\.\d{1,3}){3}$` による厳格なオクテット範囲検証。
+- **Iperf3 オプションサニタイズ**: 英数字・ハイフン・スペース以外の特殊記号（`;`, `&`, `|`, `` ` `` 等）を完全除去し、コマンドインジェクションを遮断。
+- **アトミックファイル書き込み**: 設定ファイルの保存時は一時ファイル（`.tmp`）に書き込み完了後、`Move-Item -Force` でアトミックに差し替え（書き込み途中の破損防止）。
 
 ---
 
 ## 13. トラブルシューティング
 
-### ブラウザが開かない / 画面が表示されない
-
-1. PowerShellウィンドウに赤いエラーが出ていないか確認します。
-2. ブラウザで `http://localhost:8081` に手動でアクセスします。
-3. ポート8081が他のプロセスに使用されていないか確認します：
-   ```powershell
-   netstat -ano | findstr :8081
-   ```
-4. `Server.ps1` 先頭の `$port = 8081` を別のポート番号に変更します。
-
-### デバイスが「オフライン」のままになる
-
-1. 管理PCから対象IPへPingが通るか確認します：
-   ```powershell
-   ping 192.168.1.1
-   ```
-2. Windowsファイアウォールがブロックしていないか確認します。
-3. `system/debug.log` にエラーが記録されていないか確認します。
-
-### SNMP情報が取得できない
-
-1. PowerShell SNMPモジュールがインストールされているか確認します：
-   ```powershell
-   Get-Module -ListAvailable SNMP
-   ```
-2. 対象機器のSNMP設定（コミュニティ名、許可IPアドレス）を確認します。
-3. v3の場合、認証プロトコル・パスワードの設定が機器側と一致しているか確認します。
-
-### Iperf3計測が始まらない
-
-1. 対象ホストでiperf3サーバーが起動していることを確認します：
-   ```bash
-   iperf3 -s
-   ```
-2. ファイアウォールでTCP 5201（デフォルトポート）が開放されているか確認します。
-3. カスタムオプション欄に記号が含まれていないか確認します（英数字・ハイフン・スペースのみ有効）。
-
-### `debug.log` にエラーが記録され続ける
-
-- エラー内容を確認し、原因となっている機器・設定を特定してください。
-- ファイルロックエラーの場合：監視対象デバイス数を減らすか、`pollInterval` を大きくすることで改善する場合があります。
+| 現象 | 想定原因 | 対処方法 |
+| :--- | :--- | :--- |
+| **起動時にポート重複エラー** | ポート 8081 が他プロセスで使用中 | `Server.ps1` 先頭の `$port = 8081` を別のポートに変更 |
+| **Ping が通らない** | 対象機器の ICMP 応答が無効 | 対象機器のファイアウォールで ICMP Echo を許可 |
+| **Webhook が届かない** | URL 誤りまたはネットワーク制限 | ⚙️ システム設定の「🔔 テスト送信」でエラーメッセージを確認 |
+| **バックアップ復元に失敗** | JSON フォーマット不正 | エクスポート機能で生成された正規の JSON ファイルか確認 |
 
 ---
 
 ## 14. 既知の制限事項
 
-| 制限 | 詳細 |
-|------|------|
-| **超高頻度モード（100ms）の同時監視台数** | 最大2台（`highFreqTargetIps` で指定） |
-| **SNMP MIB対応範囲** | RFC1213 / HOST-RESOURCES-MIB / IF-MIB のみ。ベンダー固有MIBは非対応 |
-| **MTRの精度** | `tracert` コマンドに依存するため、ICMPをブロックするルーターはタイムアウト表示になります |
-| **デバイス上限** | 技術的な上限はありませんが、50台以上ではポーリング遅延が発生する場合があります |
-| **CSVの精度** | 100ms監視時でもCSV書き込みは最低1秒間隔です（ディスクIO負荷低減のため） |
-| **debug.logのローテーション** | 自動ローテーションなし。手動での管理が必要です |
-| **瞬断カウントの精度** | 閾値変更前にカウントされた履歴はリセットされません。変更後の復帰イベントから新閾値が適用されます |
-| **瞬断カウントのセッション末処理** | セッション終了時点でオフライン継続中の瞬断は、カウントに含まれません（最大瞬断時間には反映済み）|
+1. **超高頻度モード（0.1s）の対象台数**: 負荷最適化のため、0.1s 監視対象は最大 2 台までとなります（他機器は 5.0s で継続）。
+2. **セッション終了時の瞬断扱い**: セッション終了時点で継続中の瞬断は「瞬断中時間」として記録され、復帰回数カウントには含まれません。
