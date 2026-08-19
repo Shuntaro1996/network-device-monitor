@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 # =========================================================================
 # 【初心者向けの簡単な解説】
@@ -129,11 +129,11 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         )
         if ([string]::IsNullOrWhiteSpace($url)) { return }
         $emoji = switch ($eventType) {
-            "offline"   { "🔴" }
-            "online"    { "🟢" }
-            "latency"   { "⚠️" }
-            "test"      { "🔔" }
-            default     { "📢" }
+            "offline"   { [char]::ConvertFromUtf32(0x1F534) }
+            "online"    { [char]::ConvertFromUtf32(0x1F7E2) }
+            "latency"   { [char]::ConvertFromUtf32(0x26A0) }
+            "test"      { [char]::ConvertFromUtf32(0x1F514) }
+            default     { [char]::ConvertFromUtf32(0x1F4E2) }
         }
         $title = switch ($eventType) {
             "offline"   { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("5qmf5Zmo44Kq44OV44Op44Kk44Oz5qSc55+l")) }

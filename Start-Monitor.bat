@@ -35,4 +35,15 @@ echo   Press [Enter] in this window to STOP the server
 echo   and save logs to the Reports folder.
 echo ==============================================
 
+:: Automatic UTF-8 BOM check for PowerShell 5.1 compatibility
+powershell -NoProfile -Command "$f='system\Server.ps1'; if(Test-Path $f){$b=[System.IO.File]::ReadAllBytes((Resolve-Path $f)); if($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF){$t=[System.IO.File]::ReadAllText((Resolve-Path $f),[System.Text.Encoding]::UTF8); [System.IO.File]::WriteAllText((Resolve-Path $f),$t,[System.Text.Encoding]::UTF8)}}"
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "system\Server.ps1"
+if %errorlevel% neq 0 (
+    echo.
+    echo ==============================================
+    echo   [ERROR] サーバーの実行が停止しました。
+    echo   エラー内容を確認の上、キーを押して閉じてください。
+    echo ==============================================
+    pause
+)
