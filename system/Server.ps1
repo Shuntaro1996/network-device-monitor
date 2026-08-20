@@ -3149,15 +3149,12 @@ try {
                                 $safeIp = $tIp -replace '[\\/:*?"<>|]', '_'
                                 $tmpLiveLog = Join-Path ([System.IO.Path]::GetTempPath()) "ndm_iperf_tmp_$([guid]::NewGuid().ToString('N')).log"
                                 
-                                # ログ保存先（セッション内・対象IP別・Reports直下・最新ログの4箇所に確実に保存）
+                                # ログ保存先（機器別ログ iperf_${safeIp}.log の1つだけに一本化）
                                 $logFiles = @(
-                                    (Join-Path $sessDir "iperf_results.log"),
-                                    (Join-Path $sessDir "iperf_${safeIp}.log"),
-                                    (Join-Path $reportsDir "iperf_results.log"),
-                                    (Join-Path $reportsDir "iperf_latest.log")
+                                    (Join-Path $sessDir "iperf_${safeIp}.log")
                                 )
 
-                                # ヘルパー: 全ログファイルに追記
+                                # ヘルパー: ログファイルに追記
                                 function Write-IperfLogs([string]$text) {
                                     foreach ($lf in $logFiles) {
                                         try {
@@ -3182,8 +3179,6 @@ try {
                                     $sync.IperfState.Command = "iperf3 $iperfArgs"
 
                                     $tsStart = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                                    # 最新ログファイルのみ初期化
-                                    try { "" | Out-File -FilePath (Join-Path $reportsDir "iperf_latest.log") -Encoding UTF8 -Force } catch {}
 
                                     Write-IperfLogs "=== iperf3 Execution at $tsStart ==="
                                     Write-IperfLogs "Target IP: $tIp"
@@ -3295,7 +3290,7 @@ try {
 
                                     # ── 統計サマリー集計 ──────────────────────────────────────
                                     try {
-                                        $primaryLogFile = Join-Path $sessDir "iperf_results.log"
+                                        $primaryLogFile = Join-Path $sessDir "iperf_${safeIp}.log"
                                         $logContent     = Get-Content $primaryLogFile -Encoding UTF8 -ErrorAction SilentlyContinue
                                         $bwValues       = [System.Collections.Generic.List[double]]::new()
                                         $totalTimeSec   = 0.0
@@ -3382,14 +3377,19 @@ try {
                     }
                 }
                 elseif ($urlPath -eq "/api/iperf/log" -and $method -eq "GET") {
-                    # Latest iperf log download endpoint
-                    $primaryLog = Join-Path $syncHash.SessionDir "iperf_results.log"
-                    $fallbackLog = Join-Path $syncHash.PSScriptRoot "..\Reports\iperf_results.log"
-                    $targetLog = if (Test-Path $primaryLog) { $primaryLog } elseif (Test-Path $fallbackLog) { $fallbackLog } else { $null }
-                    if ($targetLog) {
-                        $logBytes = [System.IO.File]::ReadAllBytes($targetLog)
+                    # Latest device-specific iperf log download endpoint
+                    $targetIp = $request.QueryString["ip"]
+                    $targetSafeIp = if ($targetIp) { $targetIp -replace '[\\/:*?"<>|]', '_' } else { "" }
+                    $primaryLog = if ($targetSafeIp) {
+                        Join-Path $syncHash.SessionDir "iperf_${targetSafeIp}.log"
+                    } else {
+                        Get-ChildItem -Path $syncHash.SessionDir -Filter "iperf_*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+                    }
+                    if ($primaryLog -and (Test-Path $primaryLog)) {
+                        $logBytes = [System.IO.File]::ReadAllBytes($primaryLog)
+                        $filename = [System.IO.Path]::GetFileName($primaryLog)
                         $response.ContentType = "text/plain; charset=utf-8"
-                        $response.AddHeader("Content-Disposition", "attachment; filename=`"iperf_results.log`"")
+                        $response.AddHeader("Content-Disposition", "attachment; filename=`"$filename`"")
                         $response.ContentLength64 = $logBytes.Length
                         $response.OutputStream.Write($logBytes, 0, $logBytes.Length)
                         $response.Close()
