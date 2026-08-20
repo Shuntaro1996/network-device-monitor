@@ -601,7 +601,7 @@ function Initialize-DeviceLog {
         return
     }
     
-    $safeIp  = $ip -replace '[\.:_]', '_'
+    $safeIp  = $ip -replace '[\\/:*?"<>|]', '_'
     $csvPath = Join-Path $syncHash.SessionDir "${safeIp}.csv"
     if (-not (Test-Path $csvPath)) {
         $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps`r`n"
@@ -921,23 +921,24 @@ $pingScript = {
                     }
                     
                     if ($linesToSave.Count -gt 0) {
-                        $safeIp  = $ip -replace '[\.:_]', '_'
+                        $safeIp  = $ip -replace '[\\/:*?"<>|]', '_'
                         $csvPath = Join-Path $syncHash.SessionDir "${safeIp}.csv"
                         
                         $writeSuccess = $false
                         try {
-                            # CSV log rotation (max 5MB, keep up to 3 old files)
+                            # CSV log rotation (max 5MB, keep up to 10 old files as _1.csv, _2.csv, etc.)
                             if (Test-Path $csvPath) {
                                 $fileInfo = Get-Item $csvPath
                                 if ($fileInfo.Length -gt 5MB) {
-                                    for ($i = 2; $i -ge 1; $i--) {
-                                        $oldPath = Join-Path $syncHash.SessionDir "${safeIp}.csv.$i"
-                                        $newPath = Join-Path $syncHash.SessionDir "${safeIp}.csv.$( $i + 1 )"
+                                    $maxRotations = 10
+                                    for ($i = ($maxRotations - 1); $i -ge 1; $i--) {
+                                        $oldPath = Join-Path $syncHash.SessionDir "${safeIp}_${i}.csv"
+                                        $newPath = Join-Path $syncHash.SessionDir "${safeIp}_$( $i + 1 ).csv"
                                         if (Test-Path $oldPath) {
                                             Move-Item -Path $oldPath -Destination $newPath -Force
                                         }
                                     }
-                                    Move-Item -Path $csvPath -Destination (Join-Path $syncHash.SessionDir "${safeIp}.csv.1") -Force
+                                    Move-Item -Path $csvPath -Destination (Join-Path $syncHash.SessionDir "${safeIp}_1.csv") -Force
                                     $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps`r`n"
                                     [System.IO.File]::WriteAllText($csvPath, $header, [System.Text.Encoding]::GetEncoding(932))
                                 }
@@ -2372,13 +2373,18 @@ try {
                                 }
                                 $syncHash.Devices = $newArr.ToArray()
                                 
-                                # Rename CSV file if it exists
-                                $oldSafeIp = $oldIp -replace '[\.:_]', '_'
-                                $newSafeIp = $newIp -replace '[\.:_]', '_'
+                                # Rename CSV file and rotated files if they exist
+                                $oldSafeIp = $oldIp -replace '[\\/:*?"<>|]', '_'
+                                $newSafeIp = $newIp -replace '[\\/:*?"<>|]', '_'
                                 $oldCsvPath = Join-Path $syncHash.SessionDir "${oldSafeIp}.csv"
                                 $newCsvPath = Join-Path $syncHash.SessionDir "${newSafeIp}.csv"
                                 if (Test-Path $oldCsvPath) {
                                     Rename-Item -Path $oldCsvPath -NewName "${newSafeIp}.csv" -Force
+                                }
+                                # Also rename any rotated files
+                                Get-ChildItem -Path $syncHash.SessionDir -Filter "${oldSafeIp}_*.csv" -ErrorAction SilentlyContinue | ForEach-Object {
+                                    $renamed = $_.Name -replace "^$([regex]::Escape($oldSafeIp))_", "${newSafeIp}_"
+                                    Rename-Item -Path $_.FullName -NewName $renamed -Force
                                 }
                                 
                                 if ($syncHash.History.ContainsKey($oldIp)) {
@@ -3033,8 +3039,13 @@ try {
                         continue
                     }
                     
-                    $safeIp = $ip -replace '[\.:_]', '_'
+                    $safeIp = $ip -replace '[\\/:*?"<>|]', '_'
                     $csvPath = Join-Path $syncHash.SessionDir "${safeIp}.csv"
+                    if (-not (Test-Path $csvPath)) {
+                        $altSafeIp = $ip -replace '[\.:_]', '_'
+                        $altCsvPath = Join-Path $syncHash.SessionDir "${altSafeIp}.csv"
+                        if (Test-Path $altCsvPath) { $csvPath = $altCsvPath }
+                    }
                     
                     if (Test-Path $csvPath) {
                         try {
@@ -3135,7 +3146,7 @@ try {
 
                             $iperfTaskScript = {
                                 param($exe, $tIp, $dur, $opts, $sync, $sessDir, $bwThresh, $reportsDir)
-                                $safeIp = $tIp -replace '[\.:_]', '_'
+                                $safeIp = $tIp -replace '[\\/:*?"<>|]', '_'
                                 $tmpLiveLog = Join-Path $sessDir "iperf_tmp_$([guid]::NewGuid().ToString('N')).log"
                                 
                                 # ログ保存先（セッション内・対象IP別・Reports直下・最新ログの4箇所に確実に保存）
@@ -3540,8 +3551,13 @@ try {
     $devices = $syncHash.Devices
     if ($syncHash.LoggingEnabled -ne $false -and $null -ne $devices) {
         foreach ($ip in $devices) {
-            $safeIp  = $ip -replace '[\.:_]', '_'
+            $safeIp  = $ip -replace '[\\/:*?"<>|]', '_'
             $csvPath = Join-Path $syncHash.SessionDir "${safeIp}.csv"
+            if (-not (Test-Path $csvPath)) {
+                $altSafeIp = $ip -replace '[\.:_]', '_'
+                $altCsvPath = Join-Path $syncHash.SessionDir "${altSafeIp}.csv"
+                if (Test-Path $altCsvPath) { $csvPath = $altCsvPath }
+            }
             
             # Skip if the CSV log file does not exist (meaning the device was never monitored/initialized this session)
             if (-not (Test-Path $csvPath)) {
