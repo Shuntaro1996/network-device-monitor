@@ -3147,7 +3147,7 @@ try {
                             $iperfTaskScript = {
                                 param($exe, $tIp, $dur, $opts, $sync, $sessDir, $bwThresh, $reportsDir)
                                 $safeIp = $tIp -replace '[\\/:*?"<>|]', '_'
-                                $tmpLiveLog = Join-Path $sessDir "iperf_tmp_$([guid]::NewGuid().ToString('N')).log"
+                                $tmpLiveLog = Join-Path ([System.IO.Path]::GetTempPath()) "ndm_iperf_tmp_$([guid]::NewGuid().ToString('N')).log"
                                 
                                 # ログ保存先（セッション内・対象IP別・Reports直下・最新ログの4箇所に確実に保存）
                                 $logFiles = @(
@@ -3284,6 +3284,10 @@ try {
                                     Write-IperfLogs $errMsg
                                 } finally {
                                     try { if (Test-Path $tmpLiveLog) { Remove-Item $tmpLiveLog -Force -ErrorAction SilentlyContinue } } catch {}
+                                    try {
+                                        Get-ChildItem -Path $sessDir, $reportsDir -Filter "*tmp*.log" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+                                        Get-ChildItem -Path $sessDir, $reportsDir -Filter "*temp*.log" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+                                    } catch {}
                                     $tsEnd = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                                     $endLabel = if ($sync.IperfState.StopRequested) { "STOPPED by user" } else { "Finished" }
                                     Write-IperfLogs "=== iperf3 $endLabel at $tsEnd ==="
