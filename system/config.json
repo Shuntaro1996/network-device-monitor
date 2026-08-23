@@ -1,4 +1,4 @@
-﻿{
+{
     "outageThresh2Ms":  5000,
     "pollInterval":  1000,
     "logRetentionDays":  30,
@@ -11,5 +11,17 @@
     "soundEnabled":  true,
     "webhookUrl":  "",
     "highFreqTargetIps":  "",
-    "latencyThreshMs":  120
+    "latencyThreshMs":  120,
+    "emailEnabled": false,
+    "smtpHost": "",
+    "smtpPort": 587,
+    "smtpSsl": true,
+    "smtpUser": "",
+    "smtpPass": "",
+    "smtpFrom": "",
+    "smtpTo": "",
+    "syslogEnabled": true,
+    "syslogPort": 514,
+    "sslWarnDays": 30,
+    "uiMode": "detail"
 }

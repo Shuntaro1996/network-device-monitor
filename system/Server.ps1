@@ -53,6 +53,15 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.Mac       = [hashtable]::Synchronized(@{})  # MAC addresses
     $syncHash.SnmpDetail = [hashtable]::Synchronized(@{})  # link speed, neighbors, wifi band
     
+    # Memo & Location & Web extensions
+    $syncHash.Location      = [hashtable]::Synchronized(@{})
+    $syncHash.VendorContact = [hashtable]::Synchronized(@{})
+    $syncHash.TroubleMemo   = [hashtable]::Synchronized(@{})
+    $syncHash.DeviceType    = [hashtable]::Synchronized(@{}) # network, web, server, etc.
+    $syncHash.WebUrl        = [hashtable]::Synchronized(@{})
+    $syncHash.SslExpiryDays = [hashtable]::Synchronized(@{})
+    $syncHash.HttpStatus    = [hashtable]::Synchronized(@{})
+
     $syncHash.InterfaceErrors = [hashtable]::Synchronized(@{}) # Stores current error counts and deltas
     
     # SNMPv3 security parameters
@@ -62,6 +71,10 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.SnmpAuthPass  = [hashtable]::Synchronized(@{})
     $syncHash.SnmpPrivProto = [hashtable]::Synchronized(@{})
     $syncHash.SnmpPrivPass  = [hashtable]::Synchronized(@{})
+
+    # Syslog memory buffer (max 500 lines)
+    $syncHash.SyslogQueue   = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
+
     # Config files paths
     $configFileJson  = Join-Path $PSScriptRoot "config.json"
 
@@ -78,6 +91,22 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.WebhookOfflineOnly= $true
     $syncHash.SoundEnabled      = $true
     $syncHash.SoundVolume       = 0.5
+
+    # Email (SMTP) settings
+    $syncHash.EmailEnabled      = $false
+    $syncHash.SmtpHost          = ""
+    $syncHash.SmtpPort          = 587
+    $syncHash.SmtpSsl           = $true
+    $syncHash.SmtpUser          = ""
+    $syncHash.SmtpPass          = ""
+    $syncHash.SmtpFrom          = ""
+    $syncHash.SmtpTo            = ""
+
+    # Syslog settings
+    $syncHash.SyslogEnabled     = $true
+    $syncHash.SyslogPort        = 514
+    $syncHash.SslWarnDays       = 30
+    $syncHash.UiMode            = "detail"
     
     # Load Config from file if exists
     if (Test-Path $configFileJson) {
@@ -97,6 +126,20 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             if ($null -ne $savedConfig.webhookOfflineOnly) { $syncHash.WebhookOfflineOnly = [bool]$savedConfig.webhookOfflineOnly }
             if ($null -ne $savedConfig.soundEnabled)       { $syncHash.SoundEnabled       = [bool]$savedConfig.soundEnabled }
             if ($null -ne $savedConfig.soundVolume)        { $syncHash.SoundVolume        = [double]$savedConfig.soundVolume }
+
+            if ($null -ne $savedConfig.emailEnabled)       { $syncHash.EmailEnabled       = [bool]$savedConfig.emailEnabled }
+            if ($null -ne $savedConfig.smtpHost)           { $syncHash.SmtpHost           = [string]$savedConfig.smtpHost }
+            if ($null -ne $savedConfig.smtpPort)           { $syncHash.SmtpPort           = [int]$savedConfig.smtpPort }
+            if ($null -ne $savedConfig.smtpSsl)            { $syncHash.SmtpSsl            = [bool]$savedConfig.smtpSsl }
+            if ($null -ne $savedConfig.smtpUser)           { $syncHash.SmtpUser           = [string]$savedConfig.smtpUser }
+            if ($null -ne $savedConfig.smtpPass)           { $syncHash.SmtpPass           = [string]$savedConfig.smtpPass }
+            if ($null -ne $savedConfig.smtpFrom)           { $syncHash.SmtpFrom           = [string]$savedConfig.smtpFrom }
+            if ($null -ne $savedConfig.smtpTo)             { $syncHash.SmtpTo             = [string]$savedConfig.smtpTo }
+
+            if ($null -ne $savedConfig.syslogEnabled)      { $syncHash.SyslogEnabled      = [bool]$savedConfig.syslogEnabled }
+            if ($null -ne $savedConfig.syslogPort)         { $syncHash.SyslogPort         = [int]$savedConfig.syslogPort }
+            if ($null -ne $savedConfig.sslWarnDays)        { $syncHash.SslWarnDays        = [int]$savedConfig.sslWarnDays }
+            if ($null -ne $savedConfig.uiMode)             { $syncHash.UiMode             = [string]$savedConfig.uiMode }
             Write-Host "Config loaded from $configFileJson" -ForegroundColor Green
         } catch {
             Write-Host "Failed to load config.json, using defaults." -ForegroundColor Yellow
@@ -168,8 +211,119 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             $reqStream.Write($bytes, 0, $bytes.Length)
             $reqStream.Close()
             $webResp = $webReq.GetResponse()
-            $webResp.Close()
         } catch { }
+    }
+
+    # Helper: Send Email (SMTP) notification
+    function Send-EmailNotification {
+        param(
+            [string]$smtpHost,
+            [int]$smtpPort,
+            [bool]$useSsl,
+            [string]$smtpUser,
+            [string]$smtpPass,
+            [string]$from,
+            [string]$to,
+            [string]$subject,
+            [string]$body
+        )
+        if ([string]::IsNullOrWhiteSpace($smtpHost) -or [string]::IsNullOrWhiteSpace($to)) { return $false }
+        try {
+            $mail = New-Object System.Net.Mail.MailMessage
+            $mail.From = New-Object System.Net.Mail.MailAddress (if ($from) { $from } else { "monitor@localhost" })
+            foreach ($addr in ($to -split '[,;]')) {
+                if ($addr.Trim()) { $mail.To.Add($addr.Trim()) }
+            }
+            $mail.Subject = $subject
+            $mail.Body = $body
+            $mail.IsBodyHtml = $false
+            $mail.BodyEncoding = [System.Text.Encoding]::UTF8
+            $mail.SubjectEncoding = [System.Text.Encoding]::UTF8
+
+            $smtp = New-Object System.Net.Mail.SmtpClient($smtpHost, $smtpPort)
+            $smtp.EnableSsl = $useSsl
+            $smtp.Timeout = 8000
+            if (-not [string]::IsNullOrWhiteSpace($smtpUser)) {
+                $smtp.Credentials = New-Object System.Net.NetworkCredential($smtpUser, $smtpPass)
+            }
+            $smtp.Send($mail)
+            $mail.Dispose()
+            $smtp.Dispose()
+            return $true
+        } catch {
+            Write-Warning "SMTP notification error: $($_.Exception.Message)"
+            return $false
+        }
+    }
+
+    # Helper: Log Audit record
+    function Log-Audit {
+        param(
+            [string]$action,
+            [string]$target,
+            [string]$details = "",
+            [string]$clientIp = "127.0.0.1",
+            [string]$reportsDirectory
+        )
+        try {
+            if (-not $reportsDirectory) { $reportsDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) "Reports" }
+            if (-not (Test-Path $reportsDirectory)) { New-Item -ItemType Directory -Path $reportsDirectory -Force | Out-Null }
+            $auditFile = Join-Path $reportsDirectory "audit.log"
+            $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            $line = "[$ts] [$clientIp] [Action: $action] [Target: $target] $details"
+            $line | Out-File -FilePath $auditFile -Append -Encoding UTF8
+        } catch {}
+    }
+
+    # Helper: Check HTTP/HTTPS response & SSL Certificate Expiry
+    function Check-WebAndSslEndpoint {
+        param([string]$url, [int]$timeoutMs = 4000)
+        $res = @{
+            Success = $false
+            StatusCode = 0
+            ResponseTimeMs = 0
+            SslDaysRemaining = $null
+            SslSubject = ""
+            SslIssuer = ""
+            Error = ""
+        }
+        if ([string]::IsNullOrWhiteSpace($url)) { return $res }
+        if ($url -notmatch '^https?://') { $url = "http://$url" }
+        
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            $req = [System.Net.HttpWebRequest]::Create($url)
+            $req.Timeout = $timeoutMs
+            $req.AllowAutoRedirect = $true
+            $req.ServerCertificateValidationCallback = { $true } # Accept self-signed for inspection
+            $resp = $req.GetResponse()
+            $sw.Stop()
+            $res.Success = $true
+            $res.StatusCode = [int]$resp.StatusCode
+            $res.ResponseTimeMs = [int]$sw.ElapsedMilliseconds
+
+            if ($url.StartsWith("https://", [System.StringComparison]::OrdinalIgnoreCase) -and $req.ServicePoint.Certificate) {
+                $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $req.ServicePoint.Certificate
+                $exp = $cert.NotAfter
+                $remaining = [math]::Floor(($exp - (Get-Date)).TotalDays)
+                $res.SslDaysRemaining = [int]$remaining
+                $res.SslSubject = $cert.Subject
+                $res.SslIssuer = $cert.Issuer
+            }
+            $resp.Close()
+        } catch [System.Net.WebException] {
+            $sw.Stop()
+            $res.ResponseTimeMs = [int]$sw.ElapsedMilliseconds
+            if ($_.Response) {
+                $res.StatusCode = [int]$_.Response.StatusCode
+                $_.Response.Close()
+            }
+            $res.Error = $_.Exception.Message
+        } catch {
+            $sw.Stop()
+            $res.Error = $_.Exception.Message
+        }
+        return $res
     }
 
     # Iperf Session State
@@ -224,6 +378,11 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
                         $syncHash.X[$ip]           = if ($null -ne $d.x) { $d.x } else { $null }
                         $syncHash.Y[$ip]           = if ($null -ne $d.y) { $d.y } else { $null }
                         $syncHash.Mac[$ip]         = if ($null -ne $d.mac) { [string]$d.mac } else { "" }
+                        $syncHash.Location[$ip]      = if ($null -ne $d.location) { [string]$d.location } else { "" }
+                        $syncHash.VendorContact[$ip] = if ($null -ne $d.vendorContact) { [string]$d.vendorContact } else { "" }
+                        $syncHash.TroubleMemo[$ip]   = if ($null -ne $d.troubleMemo) { [string]$d.troubleMemo } else { "" }
+                        $syncHash.DeviceType[$ip]    = if ($null -ne $d.deviceType) { [string]$d.deviceType } else { "network" }
+                        $syncHash.WebUrl[$ip]        = if ($null -ne $d.webUrl) { [string]$d.webUrl } else { "" }
                         
                         # Load SNMPv3 parameters
                         $syncHash.SnmpVersion[$ip]   = if ($null -ne $d.snmpVersion) { [string]$d.snmpVersion } else { "v2c" }
@@ -296,6 +455,11 @@ $saveDevicesJsonScript = {
                     x = if ($syncHash.X.ContainsKey($ip)) { $syncHash.X[$ip] } else { $null }
                     y = if ($syncHash.Y.ContainsKey($ip)) { $syncHash.Y[$ip] } else { $null }
                     mac = if ($syncHash.Mac.ContainsKey($ip)) { $syncHash.Mac[$ip] } else { "" }
+                    location = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "" }
+                    vendorContact = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "" }
+                    troubleMemo = if ($syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" }
+                    deviceType = if ($syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" }
+                    webUrl = if ($syncHash.WebUrl.ContainsKey($ip)) { $syncHash.WebUrl[$ip] } else { "" }
                     
                     # SNMPv3 properties
                     snmpVersion = if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" }
@@ -1718,6 +1882,13 @@ try {
                                 x = if ($syncHash.X.ContainsKey($ip)) { $syncHash.X[$ip] } else { $null }
                                 y = if ($syncHash.Y.ContainsKey($ip)) { $syncHash.Y[$ip] } else { $null }
                                 mac = if ($syncHash.Mac.ContainsKey($ip)) { $syncHash.Mac[$ip] } else { "" }
+                                location = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "" }
+                                vendorContact = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "" }
+                                troubleMemo = if ($syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" }
+                                deviceType = if ($syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" }
+                                webUrl = if ($syncHash.WebUrl.ContainsKey($ip)) { $syncHash.WebUrl[$ip] } else { "" }
+                                sslExpiryDays = if ($syncHash.SslExpiryDays.ContainsKey($ip)) { $syncHash.SslExpiryDays[$ip] } else { $null }
+                                httpStatus = if ($syncHash.HttpStatus.ContainsKey($ip)) { $syncHash.HttpStatus[$ip] } else { $null }
                                 snmpVersion = if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" }
                                 snmpUser = if ($syncHash.SnmpUser.ContainsKey($ip)) { $syncHash.SnmpUser[$ip] } else { "" }
                                 snmpAuthProto = if ($syncHash.SnmpAuthProto.ContainsKey($ip)) { $syncHash.SnmpAuthProto[$ip] } else { "none" }
@@ -1816,7 +1987,14 @@ try {
                         if ($syncHash.ConnectedTo.ContainsKey($ipToRemove)) { $syncHash.ConnectedTo.Remove($ipToRemove) }
                         if ($syncHash.History.ContainsKey($ipToRemove)) { $syncHash.History.Remove($ipToRemove) }
                         
+                        if ($syncHash.Location.ContainsKey($ipToRemove)) { $syncHash.Location.Remove($ipToRemove) }
+                        if ($syncHash.VendorContact.ContainsKey($ipToRemove)) { $syncHash.VendorContact.Remove($ipToRemove) }
+                        if ($syncHash.TroubleMemo.ContainsKey($ipToRemove)) { $syncHash.TroubleMemo.Remove($ipToRemove) }
+                        if ($syncHash.DeviceType.ContainsKey($ipToRemove)) { $syncHash.DeviceType.Remove($ipToRemove) }
+                        if ($syncHash.WebUrl.ContainsKey($ipToRemove)) { $syncHash.WebUrl.Remove($ipToRemove) }
+                        
                         Save-DevicesJson
+                        Log-Audit -action "DEVICE_DELETE" -target $ipToRemove -details "Device $ipToRemove deleted" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                         
                         Write-JsonResponse $response @{ status = "success" }
                     } else {
@@ -1885,6 +2063,11 @@ try {
                         $syncHash.SnmpAuthPass[$ip] = $snmpAuthPass
                         $syncHash.SnmpPrivProto[$ip] = $snmpPrivProto
                         $syncHash.SnmpPrivPass[$ip] = $snmpPrivPass
+                        $syncHash.Location[$ip] = if ($null -ne $payload.location) { [string]$payload.location } else { "" }
+                        $syncHash.VendorContact[$ip] = if ($null -ne $payload.vendorContact) { [string]$payload.vendorContact } else { "" }
+                        $syncHash.TroubleMemo[$ip] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
+                        $syncHash.DeviceType[$ip] = if ($null -ne $payload.deviceType) { [string]$payload.deviceType } else { "network" }
+                        $syncHash.WebUrl[$ip] = if ($null -ne $payload.webUrl) { [string]$payload.webUrl } else { "" }
 
                         if ($null -ne $payload.x) { $syncHash.X[$ip] = $payload.x }
                         if ($null -ne $payload.y) { $syncHash.Y[$ip] = $payload.y }
@@ -1894,6 +2077,7 @@ try {
                         }
 
                         Save-DevicesJson
+                        Log-Audit -action "DEVICE_ADD" -target $ip -details "Device $name ($ip) registered" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                         Write-JsonResponse $response @{ status = "success" }
                     } else {
                         Write-JsonResponse $response @{ error = "Missing ip" } 400
@@ -2458,11 +2642,26 @@ try {
                         $syncHash.SnmpPrivProto[$newIp] = $snmpPrivProto
                         $syncHash.SnmpPrivPass[$newIp] = $snmpPrivPass
 
+                        $syncHash.Location[$newIp] = if ($null -ne $payload.location) { [string]$payload.location } else { "" }
+                        $syncHash.VendorContact[$newIp] = if ($null -ne $payload.vendorContact) { [string]$payload.vendorContact } else { "" }
+                        $syncHash.TroubleMemo[$newIp] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
+                        $syncHash.DeviceType[$newIp] = if ($null -ne $payload.deviceType) { [string]$payload.deviceType } else { "network" }
+                        $syncHash.WebUrl[$newIp] = if ($null -ne $payload.webUrl) { [string]$payload.webUrl } else { "" }
+
+                        if ($oldIp -ne $newIp) {
+                            if ($syncHash.Location.ContainsKey($oldIp)) { $syncHash.Location.Remove($oldIp) }
+                            if ($syncHash.VendorContact.ContainsKey($oldIp)) { $syncHash.VendorContact.Remove($oldIp) }
+                            if ($syncHash.TroubleMemo.ContainsKey($oldIp)) { $syncHash.TroubleMemo.Remove($oldIp) }
+                            if ($syncHash.DeviceType.ContainsKey($oldIp)) { $syncHash.DeviceType.Remove($oldIp) }
+                            if ($syncHash.WebUrl.ContainsKey($oldIp)) { $syncHash.WebUrl.Remove($oldIp) }
+                        }
+
                         if ($enabled) {
                             Initialize-DeviceLog -ip $newIp
                         }
 
                         Save-DevicesJson
+                        Log-Audit -action "DEVICE_EDIT" -target $newIp -details "Device $name ($newIp) updated (was $oldIp)" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                         Write-JsonResponse $response @{ status = "success" }
                     } else {
                         Write-JsonResponse $response @{ error = "Missing oldIp or newIp" } 400
@@ -2735,6 +2934,18 @@ try {
                         webhookOfflineOnly = $syncHash.WebhookOfflineOnly
                         soundEnabled       = $syncHash.SoundEnabled
                         soundVolume        = $syncHash.SoundVolume
+                        emailEnabled       = $syncHash.EmailEnabled
+                        smtpHost           = $syncHash.SmtpHost
+                        smtpPort           = $syncHash.SmtpPort
+                        smtpSsl            = $syncHash.SmtpSsl
+                        smtpUser           = $syncHash.SmtpUser
+                        smtpPass           = if ($syncHash.SmtpPass) { "********" } else { "" }
+                        smtpFrom           = $syncHash.SmtpFrom
+                        smtpTo             = $syncHash.SmtpTo
+                        syslogEnabled      = $syncHash.SyslogEnabled
+                        syslogPort         = $syncHash.SyslogPort
+                        sslWarnDays        = $syncHash.SslWarnDays
+                        uiMode             = $syncHash.UiMode
                     }
                 }
                 elseif ($urlPath -eq "/api/config" -and $method -eq "POST") {
@@ -2793,6 +3004,22 @@ try {
                     if ($null -ne $payload.soundVolume) {
                         $syncHash.SoundVolume = [double]$payload.soundVolume
                     }
+
+                    if ($null -ne $payload.emailEnabled) { $syncHash.EmailEnabled = [bool]$payload.emailEnabled }
+                    if ($null -ne $payload.smtpHost) { $syncHash.SmtpHost = [string]$payload.smtpHost }
+                    if ($null -ne $payload.smtpPort) { $syncHash.SmtpPort = [int]$payload.smtpPort }
+                    if ($null -ne $payload.smtpSsl) { $syncHash.SmtpSsl = [bool]$payload.smtpSsl }
+                    if ($null -ne $payload.smtpUser) { $syncHash.SmtpUser = [string]$payload.smtpUser }
+                    if ($null -ne $payload.smtpPass -and [string]$payload.smtpPass -ne "********") { $syncHash.SmtpPass = [string]$payload.smtpPass }
+                    if ($null -ne $payload.smtpFrom) { $syncHash.SmtpFrom = [string]$payload.smtpFrom }
+                    if ($null -ne $payload.smtpTo) { $syncHash.SmtpTo = [string]$payload.smtpTo }
+
+                    if ($null -ne $payload.syslogEnabled) { $syncHash.SyslogEnabled = [bool]$payload.syslogEnabled }
+                    if ($null -ne $payload.syslogPort) { $syncHash.SyslogPort = [int]$payload.syslogPort }
+                    if ($null -ne $payload.sslWarnDays) { $syncHash.SslWarnDays = [int]$payload.sslWarnDays }
+                    if ($null -ne $payload.uiMode) { $syncHash.UiMode = [string]$payload.uiMode }
+
+                    Log-Audit -action "CONFIG_UPDATE" -target "System" -details "System configuration updated" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                     
                     Write-JsonResponse $response @{ 
                         status             = "success"
@@ -2809,6 +3036,9 @@ try {
                         webhookOfflineOnly = $syncHash.WebhookOfflineOnly
                         soundEnabled       = $syncHash.SoundEnabled
                         soundVolume        = $syncHash.SoundVolume
+                        emailEnabled       = $syncHash.EmailEnabled
+                        syslogEnabled      = $syncHash.SyslogEnabled
+                        uiMode             = $syncHash.UiMode
                     }
 
                     # Save to file for persistence
@@ -2827,6 +3057,18 @@ try {
                             webhookOfflineOnly = $syncHash.WebhookOfflineOnly
                             soundEnabled       = $syncHash.SoundEnabled
                             soundVolume        = $syncHash.SoundVolume
+                            emailEnabled       = $syncHash.EmailEnabled
+                            smtpHost           = $syncHash.SmtpHost
+                            smtpPort           = $syncHash.SmtpPort
+                            smtpSsl            = $syncHash.SmtpSsl
+                            smtpUser           = $syncHash.SmtpUser
+                            smtpPass           = $syncHash.SmtpPass
+                            smtpFrom           = $syncHash.SmtpFrom
+                            smtpTo             = $syncHash.SmtpTo
+                            syslogEnabled      = $syncHash.SyslogEnabled
+                            syslogPort         = $syncHash.SyslogPort
+                            sslWarnDays        = $syncHash.SslWarnDays
+                            uiMode             = $syncHash.UiMode
                         }
                         $configObj | ConvertTo-Json | Out-File -FilePath $configFileJson -Encoding UTF8
                     } catch {
@@ -3500,6 +3742,318 @@ try {
                     } else {
                         Write-JsonResponse $response @{ error = "Missing target parameter" } 400
                     }
+                }
+                elseif ($urlPath -eq "/api/email/test" -and $method -eq "POST") {
+                    $reader  = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                    $jsonBody = $reader.ReadToEnd()
+                    $payload = $jsonBody | ConvertFrom-Json
+                    
+                    $sHost = if ($payload.smtpHost) { [string]$payload.smtpHost } else { $syncHash.SmtpHost }
+                    $sPort = if ($null -ne $payload.smtpPort) { [int]$payload.smtpPort } else { $syncHash.SmtpPort }
+                    $sSsl  = if ($null -ne $payload.smtpSsl) { [bool]$payload.smtpSsl } else { $syncHash.SmtpSsl }
+                    $sUser = if ($payload.smtpUser) { [string]$payload.smtpUser } else { $syncHash.SmtpUser }
+                    $sPass = if ($payload.smtpPass -and [string]$payload.smtpPass -ne "********") { [string]$payload.smtpPass } else { $syncHash.SmtpPass }
+                    $sFrom = if ($payload.smtpFrom) { [string]$payload.smtpFrom } else { $syncHash.SmtpFrom }
+                    $sTo   = if ($payload.smtpTo) { [string]$payload.smtpTo } else { $syncHash.SmtpTo }
+                    
+                    $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                    $subj = "【テスト通知】ネットワーク機器監視システム (SMTPテスト)"
+                    $body = "これはネットワーク機器監視システムからのテスト通知メールです。`n送信日時: $ts`n正常にSMTPメールサーバーと通信できています。"
+                    
+                    $sent = Send-EmailNotification -smtpHost $sHost -smtpPort $sPort -useSsl $sSsl -smtpUser $sUser -smtpPass $sPass -from $sFrom -to $sTo -subject $subj -body $body
+                    if ($sent) {
+                        Log-Audit -action "EMAIL_TEST" -target $sTo -details "Test email sent successfully via $sHost" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
+                        Write-JsonResponse $response @{ status = "success"; message = "Test email sent successfully" }
+                    } else {
+                        Write-JsonResponse $response @{ error = "Failed to send email. Check SMTP settings and firewall." } 500
+                    }
+                }
+                elseif ($urlPath -eq "/api/syslog" -and $method -eq "GET") {
+                    $logs = @()
+                    [System.Threading.Monitor]::Enter($syncHash.SyslogQueue.SyncRoot)
+                    try {
+                        $logs = $syncHash.SyslogQueue.ToArray()
+                    } finally {
+                        [System.Threading.Monitor]::Exit($syncHash.SyslogQueue.SyncRoot)
+                    }
+                    Write-JsonResponse $response @{ logs = $logs }
+                }
+                elseif ($urlPath -eq "/api/syslog/clear" -and $method -eq "POST") {
+                    [System.Threading.Monitor]::Enter($syncHash.SyslogQueue.SyncRoot)
+                    try {
+                        $syncHash.SyslogQueue.Clear()
+                    } finally {
+                        [System.Threading.Monitor]::Exit($syncHash.SyslogQueue.SyncRoot)
+                    }
+                    Log-Audit -action "SYSLOG_CLEAR" -target "SyslogQueue" -details "Syslog buffer cleared" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
+                    Write-JsonResponse $response @{ status = "success" }
+                }
+                elseif ($urlPath -eq "/api/audit-logs" -and $method -eq "GET") {
+                    $auditFile = Join-Path $ReportsDir "audit.log"
+                    $lines = @()
+                    if (Test-Path $auditFile) {
+                        try {
+                            $all = [System.IO.File]::ReadAllLines($auditFile, [System.Text.Encoding]::UTF8)
+                            $lines = @($all | Select-Object -Last 200)
+                            [Array]::Reverse($lines)
+                        } catch {}
+                    }
+                    Write-JsonResponse $response @{ logs = $lines }
+                }
+                elseif ($urlPath -eq "/api/web-check" -and $method -eq "GET") {
+                    $targetUrl = $request.QueryString["url"]
+                    if ($targetUrl) {
+                        $res = Check-WebAndSslEndpoint -url $targetUrl
+                        Write-JsonResponse $response $res
+                    } else {
+                        Write-JsonResponse $response @{ error = "Missing url" } 400
+                    }
+                }
+                elseif ($urlPath -eq "/api/config-backup/run" -and $method -eq "POST") {
+                    $reader  = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                    $jsonBody = $reader.ReadToEnd()
+                    $payload = $jsonBody | ConvertFrom-Json
+                    $ip = $payload.ip
+                    
+                    if ($ip) {
+                        $configsDir = Join-Path $ReportsDir "Configs"
+                        if (-not (Test-Path $configsDir)) { New-Item -ItemType Directory -Path $configsDir -Force | Out-Null }
+                        $tsStr = (Get-Date).ToString("yyyyMMdd_HHmmss")
+                        $safeIp = $ip -replace '[\\/:*?"<>|]', '_'
+                        $outFile = Join-Path $configsDir "${safeIp}_${tsStr}.txt"
+                        
+                        # Generate config snapshot (SNMP system metadata, interface details, and running parameters)
+                        $devName = if ($syncHash.DeviceName.ContainsKey($ip)) { $syncHash.DeviceName[$ip] } else { $ip }
+                        $loc = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "N/A" }
+                        $vendor = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "N/A" }
+                        $snmpD = if ($syncHash.SnmpDetail.ContainsKey($ip)) { $syncHash.SnmpDetail[$ip] } else { @{} }
+                        
+                        $cfgText = @"
+================================================================================
+ Network Device Configuration & Inventory Snapshot
+ Device: $devName ($ip)
+ Timestamp: $((Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
+ Location: $loc
+ Vendor Contact: $vendor
+================================================================================
+[SYSTEM_INFORMATION]
+Hostname: $devName
+IP Address: $ip
+MAC Address: $(if ($syncHash.Mac.ContainsKey($ip)) { $syncHash.Mac[$ip] } else { "Unknown" })
+Device Type: $(if ($syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" })
+Location: $loc
+Vendor Contact: $vendor
+Trouble Memo: $(if ($syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" })
+
+[SNMP_CONFIGURATION]
+SNMP Version: $(if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" })
+Community: $(if ($syncHash.Community.ContainsKey($ip)) { $syncHash.Community[$ip] } else { "public" })
+Link Speed: $(if ($snmpD.speed) { $snmpD.speed } else { "N/A" })
+WiFi Band: $(if ($snmpD.wifi) { $snmpD.wifi } else { "N/A" })
+
+[INTERFACES & NEIGHBORS]
+$(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else { "No LLDP/CDP neighbors detected." })
+"@
+                        [System.IO.File]::WriteAllText($outFile, $cfgText, [System.Text.Encoding]::UTF8)
+                        Log-Audit -action "CONFIG_BACKUP" -target $ip -details "Configuration snapshot saved: $([System.IO.Path]::GetFileName($outFile))" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
+                        Write-JsonResponse $response @{ status = "success"; filename = [System.IO.Path]::GetFileName($outFile) }
+                    } else {
+                        Write-JsonResponse $response @{ error = "Missing ip" } 400
+                    }
+                }
+                elseif ($urlPath -eq "/api/config-backup/list" -and $method -eq "GET") {
+                    $configsDir = Join-Path $ReportsDir "Configs"
+                    $list = @()
+                    if (Test-Path $configsDir) {
+                        Get-ChildItem -Path $configsDir -Filter "*.txt" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | ForEach-Object {
+                            $parts = $_.BaseName -split '_'
+                            $ipPart = if ($parts.Length -ge 3) { ($parts[0..($parts.Length-3)]) -join '.' } else { $parts[0] }
+                            $list += @{
+                                filename = $_.Name
+                                ip = $ipPart
+                                timestamp = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+                                size = "$([math]::Round($_.Length / 1024, 1)) KB"
+                            }
+                        }
+                    }
+                    Write-JsonResponse $response @{ backups = $list }
+                }
+                elseif ($urlPath -eq "/api/config-backup/diff" -and $method -eq "GET") {
+                    $file1 = $request.QueryString["f1"]
+                    $file2 = $request.QueryString["f2"]
+                    $configsDir = Join-Path $ReportsDir "Configs"
+                    $p1 = Join-Path $configsDir ([System.IO.Path]::GetFileName($file1))
+                    $p2 = Join-Path $configsDir ([System.IO.Path]::GetFileName($file2))
+                    
+                    if ((Test-Path $p1) -and (Test-Path $p2)) {
+                        $lines1 = [System.IO.File]::ReadAllLines($p1, [System.Text.Encoding]::UTF8)
+                        $lines2 = [System.IO.File]::ReadAllLines($p2, [System.Text.Encoding]::UTF8)
+                        
+                        $diffResult = @()
+                        $maxL = [math]::Max($lines1.Length, $lines2.Length)
+                        for ($i = 0; $i -lt $maxL; $i++) {
+                            $l1 = if ($i -lt $lines1.Length) { $lines1[$i] } else { "" }
+                            $l2 = if ($i -lt $lines2.Length) { $lines2[$i] } else { "" }
+                            if ($l1 -ne $l2) {
+                                $diffResult += @{ line = ($i + 1); file1 = $l1; file2 = $l2; changed = $true }
+                            } else {
+                                $diffResult += @{ line = ($i + 1); file1 = $l1; file2 = $l2; changed = $false }
+                            }
+                        }
+                        Write-JsonResponse $response @{ diff = $diffResult }
+                    } else {
+                        Write-JsonResponse $response @{ error = "Backup files not found" } 404
+                    }
+                }
+                elseif ($urlPath -eq "/api/reports/export" -and $method -eq "GET") {
+                    $period = if ($request.QueryString["period"]) { $request.QueryString["period"] } else { "today" }
+                    $tsNow = (Get-Date).ToString("yyyy年MM月dd日 HH:mm")
+                    
+                    # Compute SLA and device summary statistics
+                    $reportRows = @()
+                    $totalSuccess = 0
+                    $totalPings = 0
+                    
+                    foreach ($ip in $syncHash.Devices) {
+                        $dName = if ($syncHash.DeviceName.ContainsKey($ip)) { $syncHash.DeviceName[$ip] } else { $ip }
+                        $dGroup = if ($syncHash.Group.ContainsKey($ip)) { $syncHash.Group[$ip] } else { "未分類" }
+                        $dLoc = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "—" }
+                        $dContact = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "—" }
+                        $st = if ($syncHash.Status.ContainsKey($ip)) { $syncHash.Status[$ip].status } else { "Unknown" }
+                        $lat = if ($syncHash.Status.ContainsKey($ip) -and $null -ne $syncHash.Status[$ip].latency) { "$($syncHash.Status[$ip].latency) ms" } else { "—" }
+                        
+                        $stats = $syncHash.Stats[$ip]
+                        $sla = "100.0%"
+                        $outageCount = 0
+                        $avgLat = "—"
+                        if ($null -ne $stats) {
+                            $total = $stats.Success + $stats.Failed
+                            if ($total -gt 0) {
+                                $slaVal = [math]::Round(($stats.Success / $total) * 100, 2)
+                                $sla = "${slaVal}%"
+                                $totalSuccess += $stats.Success
+                                $totalPings += $total
+                            }
+                            $outageCount = $stats.Outage600msCount + $stats.Outage5sCount
+                            if ($stats.LatCount -gt 0) {
+                                $avgLat = "$([math]::Round($stats.SumLat / $stats.LatCount, 1)) ms"
+                            }
+                        }
+                        
+                        $reportRows += @"
+<tr>
+    <td><strong>$dName</strong><br><small style="color:#64748b;">$ip</small></td>
+    <td>$dGroup</td>
+    <td>$dLoc</td>
+    <td><span class="status-tag $($st.ToLower())">$st</span></td>
+    <td>$lat</td>
+    <td>$avgLat</td>
+    <td><strong>$sla</strong></td>
+    <td>$outageCount 回</td>
+    <td><small>$dContact</small></td>
+</tr>
+"@
+                    }
+                    
+                    $overallSla = if ($totalPings -gt 0) { "$([math]::Round(($totalSuccess / $totalPings) * 100, 2))%" } else { "100.0%" }
+                    $rowsHtml = $reportRows -join "`n"
+                    
+                    $reportHtml = @"
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ネットワーク機器 定期点検報告書 ($tsNow)</title>
+    <style>
+        @page { size: A4 portrait; margin: 15mm; }
+        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Yu Gothic UI', Meiryo, sans-serif; color: #1e293b; background: #fff; margin: 0; padding: 20px; line-height: 1.5; font-size: 13px; }
+        .report-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px; }
+        .report-title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; }
+        .report-meta { text-align: right; font-size: 12px; color: #64748b; }
+        .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+        .summary-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; }
+        .summary-box .val { font-size: 24px; font-weight: 800; color: #2563eb; }
+        .summary-box .label { font-size: 11px; color: #64748b; margin-top: 4px; font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+        th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
+        th { background: #f1f5f9; color: #334155; font-weight: 700; }
+        tr:nth-child(even) { background: #f8fafc; }
+        .status-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+        .status-tag.success { background: #dcfce7; color: #15803d; }
+        .status-tag.failed { background: #fee2e2; color: #b91c1c; }
+        .status-tag.unknown { background: #f1f5f9; color: #64748b; }
+        .print-bar { position: fixed; top: 15px; right: 15px; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; gap: 12px; align-items: center; z-index: 999; }
+        .print-btn { background: #2563eb; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 700; }
+        @media print { .print-bar { display: none; } body { padding: 0; } }
+    </style>
+</head>
+<body>
+    <div class="print-bar">
+        <span>📄 点検報告書プレビュー</span>
+        <button class="print-btn" onclick="window.print()">🖨️ 印刷 / PDF保存</button>
+    </div>
+
+    <div class="report-header">
+        <div>
+            <h1 class="report-title">📊 ネットワーク機器 稼働状況・定期点検報告書</h1>
+            <div style="font-size:12px; color:#64748b; margin-top:4px;">対象期間: $period | 作成日時: $tsNow</div>
+        </div>
+        <div class="report-meta">
+            <div><strong>システム名:</strong> Network Device Monitor</div>
+            <div><strong>総合可用性 (SLA):</strong> <span style="color:#16a34a; font-weight:800; font-size:14px;">$overallSla</span></div>
+        </div>
+    </div>
+
+    <div class="summary-grid">
+        <div class="summary-box">
+            <div class="val">$($syncHash.Devices.Count)</div>
+            <div class="label">登録監視機器数</div>
+        </div>
+        <div class="summary-box">
+            <div class="val" style="color:#16a34a;">$overallSla</div>
+            <div class="label">総合稼働率 (SLA)</div>
+        </div>
+        <div class="summary-box">
+            <div class="val" style="color:#0284c7;">$($syncHash.PollInterval) ms</div>
+            <div class="label">ポーリング頻度</div>
+        </div>
+        <div class="summary-box">
+            <div class="val" style="color:#e11d48;">$(Get-Date -Format 'yyyy/MM/dd')</div>
+            <div class="label">点検実施日</div>
+        </div>
+    </div>
+
+    <h2 style="font-size:15px; margin-bottom:8px; border-left:4px solid #2563eb; padding-left:8px;">1. 機器別 稼働・遅延・SLA一覧</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>機器名 / IP</th>
+                <th>グループ</th>
+                <th>設置場所</th>
+                <th>状態</th>
+                <th>直近遅延</th>
+                <th>平均遅延</th>
+                <th>稼働率 (SLA)</th>
+                <th>瞬断回数</th>
+                <th>保守連絡先</th>
+            </tr>
+        </thead>
+        <tbody>
+            $rowsHtml
+        </tbody>
+    </table>
+
+    <div style="margin-top:30px; border-top:1px solid #e2e8f0; padding-top:12px; font-size:11px; color:#94a3b8; text-align:center;">
+        Generated by Network Device Monitor — $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+    </div>
+</body>
+</html>
+"@
+                    $respBytes = [System.Text.Encoding]::UTF8.GetBytes($reportHtml)
+                    $response.ContentType = "text/html; charset=utf-8"
+                    $response.ContentLength64 = $respBytes.Length
+                    $response.OutputStream.Write($respBytes, 0, $respBytes.Length)
+                    $response.Close()
                 }
                 elseif ($urlPath -eq "/api/shutdown" -and $method -eq "POST") {
                     $syncHash.PendingShutdown = $true

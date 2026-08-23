@@ -49,6 +49,7 @@
                 <button id="tab-dashboard" class="tab-btn active">📊 ダッシュボード</button>
                 <button id="tab-topology" class="tab-btn">🌐 システム構成図</button>
                 <button id="tab-iperf" class="tab-btn">🚀 Iperf3 計測</button>
+                <button id="tab-syslog" class="tab-btn">📡 Syslog / Trap</button>
                 <button id="tab-manage" class="tab-btn">🖥 機器追加 / 管理</button>
             </div>
             <div class="sidebar-actions">
@@ -113,6 +114,25 @@
                         </div>
                         <span class="hint-text">Enter または Tab で確定</span>
                     </div>
+                    <!-- Email (SMTP) Notification Settings -->
+                    <div class="threshold-item border-top">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <label for="config-email-enabled" style="font-size:0.8rem; margin:0; cursor:pointer;">✉️ メール (SMTP) 通知</label>
+                            <input type="checkbox" id="config-email-enabled" style="cursor:pointer;">
+                        </div>
+                        <div id="email-settings-panel" style="display:none; margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+                            <input type="text" id="config-smtp-host" placeholder="SMTPサーバー (例: smtp.gmail.com)" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
+                            <div style="display:flex; gap:6px; align-items:center;">
+                                <input type="number" id="config-smtp-port" placeholder="587" value="587" class="form-input" style="width:70px; font-size:0.75rem; padding:4px 8px;">
+                                <label style="display:flex; align-items:center; gap:4px; font-size:0.72rem; color:var(--text-muted); cursor:pointer;"><input type="checkbox" id="config-smtp-ssl" checked> SSL/TLS</label>
+                            </div>
+                            <input type="text" id="config-smtp-user" placeholder="ユーザー名" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
+                            <input type="password" id="config-smtp-pass" placeholder="パスワード" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
+                            <input type="text" id="config-smtp-from" placeholder="送信元 (例: monitor@example.com)" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
+                            <input type="text" id="config-smtp-to" placeholder="通知先アドレス (カンマ区切り)" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
+                            <button id="btn-test-email" class="btn secondary-btn" style="padding:4px 8px; font-size:0.75rem; margin-top:2px;">✉️ テスト送信</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="theme-toggle-container" style="margin-top: 10px;">
@@ -158,6 +178,24 @@
         <!-- Main Content Area -->
         <main class="dashboard">
             <div id="view-dashboard" class="tab-view active">
+                <!-- Top Utility Bar (Report Export / Simple Mode / Audit Log) -->
+                <div class="dashboard-utility-bar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button id="ui-mode-toggle-btn" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="専門的なグラフを非表示にし、大きなステータス表示のみに切り替えます">
+                            <span id="ui-mode-icon">📊</span>
+                            <span id="ui-mode-text">詳細表示モード</span>
+                        </button>
+                        <button id="btn-export-report" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="稼働率・遅延・瞬断統計をまとめた点検報告書(PDF/印刷)を出力します">
+                            <span>📄</span> 点検報告書 (PDF/印刷)
+                        </button>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button id="btn-open-audit-modal" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="機器の追加・変更・削除などの操作履歴を閲覧します">
+                            <span>🛡️</span> 操作履歴 (Audit Log)
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Heatmap / Timeline Component -->
                 <div id="dashboard-heatmap-card" class="glass-card heatmap-card">
                     <div class="heatmap-header">
@@ -305,6 +343,34 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-syslog" class="tab-view">
+                <div class="glass-card" style="padding:20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+                        <div>
+                            <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px;">📡 Syslog / SNMP Trap リアルタイム受信</h2>
+                            <p style="margin:4px 0 0 0; font-size:0.82rem; color:var(--text-muted);">UDP ポート 514 / 162 でネットワーク機器からの Trap / Syslog メッセージを自動受信・解析します。</p>
+                        </div>
+                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <select id="syslog-severity-filter" class="form-select" style="font-size:0.85rem; padding:6px 12px;">
+                                <option value="ALL">重要度: すべて</option>
+                                <option value="Emergency">🚨 Emergency (緊急)</option>
+                                <option value="Alert">🔥 Alert (警報)</option>
+                                <option value="Critical">🔴 Critical (致命的)</option>
+                                <option value="Error">❌ Error (エラー)</option>
+                                <option value="Warning">⚠️ Warning (警告)</option>
+                                <option value="Notice">📢 Notice (通知)</option>
+                                <option value="Informational">ℹ️ Info (情報)</option>
+                            </select>
+                            <input type="text" id="syslog-search-input" placeholder="ログ内を検索..." class="form-input" style="width:160px; font-size:0.85rem; padding:6px 10px;">
+                            <button id="syslog-clear-btn" class="btn secondary-btn" style="font-size:0.85rem; padding:6px 14px;">🗑️ ログ消去</button>
+                        </div>
+                    </div>
+                    <div id="syslog-stream-container" class="syslog-stream-box" style="height:560px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid var(--glass-border); border-radius:12px; padding:14px; font-family:'Cascadia Code', Consolas, monospace; font-size:0.85rem; display:flex; flex-direction:column; gap:6px;">
+                        <div style="color:var(--text-muted); text-align:center; padding:40px;">Syslog メッセージを受信待機中... (UDP 514)</div>
                     </div>
                 </div>
             </div>
@@ -484,6 +550,22 @@
                                     </div>
                                 </div>
                                 <div class="form-group">
+                                    <label for="dev-location">📍 設置場所 / ラック位置</label>
+                                    <input type="text" id="dev-location" class="form-input" placeholder="例: 3F サーバー室 ラックA-02">
+                                </div>
+                                <div class="form-group">
+                                    <label for="dev-vendor-contact">📞 保守担当 / サポート連絡先</label>
+                                    <input type="text" id="dev-vendor-contact" class="form-input" placeholder="例: 〇〇通信 サポート窓口 0120-xxx-xxx">
+                                </div>
+                                <div class="form-group">
+                                    <label for="dev-trouble-memo">📋 トラブル対応手順 / 運用メモ</label>
+                                    <textarea id="dev-trouble-memo" class="form-input" rows="2" placeholder="例: 障害時は背面の電源ボタンを長押しして再起動。改善しない場合は保守窓口へ連絡。" style="resize:vertical;"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="dev-web-url">🌐 Web URL / SSL監視対象 (任意)</label>
+                                    <input type="text" id="dev-web-url" class="form-input" placeholder="例: https://portal.example.com">
+                                </div>
+                                <div class="form-group">
                                     <label for="dev-comm">SNMP コミュニティ名 (v1/v2c)</label>
                                     <input type="text" id="dev-comm" class="form-input" placeholder="public" value="public">
                                 </div>
@@ -552,6 +634,8 @@
             
             <div class="snmp-tab-bar">
                 <button class="snmp-tab-btn active" data-tab="snmp-tab-overview">概要</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-memo">📋 トラブル対応・連絡先</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-backup">💾 コンフィグ管理</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-interfaces">インターフェース</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-network">ネットワーク</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-tcp">TCP ソケット</button>
@@ -598,6 +682,51 @@
                                     <div class="progress-item">
                                         <div class="item-header"><span>ストレージ 使用率</span><span id="snmp-disk-text">0 / 0 GB (0%)</span></div>
                                         <div class="progress-bar"><div id="snmp-disk-bar" class="fill disk"></div></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Trouble Memo & Support Contacts Tab -->
+                    <div id="snmp-tab-memo" class="snmp-tab-content">
+                        <div class="overview-grid">
+                            <div class="info-card glass-card">
+                                <h3 class="card-title">📍 設置場所 & 保守・サポート窓口</h3>
+                                <div class="info-list" style="margin-top:12px;">
+                                    <div class="info-row"><span class="label">設置場所:</span><span id="modal-memo-location" class="value" style="font-weight:600;">—</span></div>
+                                    <div class="info-row"><span class="label">保守窓口:</span><span id="modal-memo-vendor" class="value" style="font-weight:600; color:var(--primary);">—</span></div>
+                                    <div class="info-row"><span class="label">Web URL:</span><span id="modal-memo-weburl" class="value">—</span></div>
+                                </div>
+                            </div>
+                            <div class="info-card glass-card">
+                                <h3 class="card-title">📋 障害・トラブル対応手順書メモ</h3>
+                                <div id="modal-memo-text" class="descr-box" style="margin-top:12px; height:120px; white-space:pre-wrap; line-height:1.6;">—</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Config Backup & Diff Tab -->
+                    <div id="snmp-tab-backup" class="snmp-tab-content">
+                        <div class="glass-card" style="padding:16px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+                                <h3 class="card-title" style="margin:0;">💾 コンフィグ・設定スナップショット管理</h3>
+                                <button id="btn-run-config-backup" class="btn primary-btn" style="font-size:0.82rem; padding:6px 14px;">➕ バックアップ即時取得</button>
+                            </div>
+                            <div style="display:grid; grid-template-columns: 1fr 2fr; gap:12px; margin-top:12px;">
+                                <div>
+                                    <h4 style="font-size:0.85rem; color:var(--text-muted); margin:0 0 8px 0;">バックアップ履歴</h4>
+                                    <div id="config-backup-file-list" style="max-height:220px; overflow-y:auto; background:rgba(0,0,0,0.2); border-radius:8px; padding:6px; display:flex; flex-direction:column; gap:4px; font-size:0.82rem;">
+                                        <div style="color:var(--text-muted); text-align:center; padding:10px;">履歴なし</div>
+                                    </div>
+                                    <div style="display:flex; gap:6px; margin-top:8px;">
+                                        <button id="btn-diff-configs" class="btn secondary-btn full-width" style="font-size:0.78rem; padding:5px;">🔍 選択した2世代の差分比較 (Diff)</button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 style="font-size:0.85rem; color:var(--text-muted); margin:0 0 8px 0;">スナップショット詳細 / 差分プレビュー</h4>
+                                    <div id="config-preview-box" style="height:260px; overflow:auto; background:rgba(0,0,0,0.3); border:1px solid var(--glass-border); border-radius:8px; padding:10px; font-family:'Cascadia Code', Consolas, monospace; font-size:0.8rem; white-space:pre-wrap;">
+                                        左のリストからバックアップファイルを選択してください。
                                     </div>
                                 </div>
                             </div>
@@ -944,7 +1073,29 @@
         </div>
     </div>
 
+    <!-- Audit Log Modal -->
+    <div id="audit-modal" class="modal-overlay" style="display:none; z-index: 9050;">
+        <div class="modal-content glass-card" style="max-width:780px; width:92%;">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span style="font-size:1.3rem;">🛡️</span>
+                    <h2 class="modal-title">操作履歴・監査ログ (Audit Log)</h2>
+                </div>
+                <button class="modal-close-btn" id="close-audit-modal-btn" aria-label="閉じる">✕</button>
+            </div>
+            <div class="modal-body-scroll" style="padding:1.25rem 1.5rem;">
+                <p style="font-size:0.82rem; color:var(--text-muted); margin:0 0 1rem 0;">機器の追加、編集、削除、設定変更などの重要操作履歴（直近200件）を安全に記録・表示しています。</p>
+                <div id="audit-log-list" style="max-height:420px; overflow-y:auto; font-family:'Cascadia Code', Consolas, monospace; font-size:0.82rem; display:flex; flex-direction:column; gap:6px; background:rgba(0,0,0,0.3); border:1px solid var(--glass-border); padding:12px; border-radius:10px;">
+                    <div style="color:var(--text-muted); text-align:center; padding:20px;">履歴を読み込み中...</div>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content:flex-end;">
+                <button class="btn secondary-btn" id="close-audit-modal-footer-btn">閉じる</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container"></div>
-    <script src="app.js?v=51"></script>
+    <script src="app.js?v=52"></script>
 </body>
 </html>

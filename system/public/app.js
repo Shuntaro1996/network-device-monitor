@@ -2259,6 +2259,73 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Tabs navigation click handlers
+    const tabDashboard = document.getElementById('tab-dashboard');
+    const tabTopology = document.getElementById('tab-topology');
+    const tabIperf = document.getElementById('tab-iperf');
+    const tabSyslog = document.getElementById('tab-syslog');
+    const tabManage = document.getElementById('tab-manage');
+    
+    const viewDashboard = document.getElementById('view-dashboard');
+    const viewTopology = document.getElementById('view-topology');
+    const viewIperf = document.getElementById('view-iperf');
+    const viewSyslog = document.getElementById('view-syslog');
+    const viewManage = document.getElementById('view-manage');
+
+    function switchTab(tabId) {
+        const tabs = [
+            { btn: tabDashboard, view: viewDashboard },
+            { btn: tabTopology, view: viewTopology },
+            { btn: tabIperf, view: viewIperf },
+            { btn: tabSyslog, view: viewSyslog },
+            { btn: tabManage, view: viewManage }
+        ];
+
+        tabs.forEach(t => {
+            if (t.btn && t.view) {
+                if (t.btn.id === tabId) {
+                    t.btn.classList.add('active');
+                    t.btn.style.color = 'var(--text-main)';
+                    t.view.classList.add('active');
+                } else {
+                    t.btn.classList.remove('active');
+                    t.btn.style.color = 'var(--text-muted)';
+                    t.view.classList.remove('active');
+                }
+            }
+        });
+
+        deactivateAllModes();
+        stopFlowAnimation();
+        
+        if (tabId === 'tab-topology') {
+            initTopology();
+        } else if (tabId === 'tab-iperf') {
+            populateIperfDeviceList();
+        } else if (tabId === 'tab-syslog') {
+            fetchSyslogLogs();
+        } else if (tabId === 'tab-manage') {
+            renderManageList();
+            populateConnectionsDropdown();
+        }
+    }
+
+    if (tabDashboard) {
+        tabDashboard.addEventListener('click', () => switchTab('tab-dashboard'));
+    }
+    if (tabTopology) {
+        tabTopology.addEventListener('click', () => switchTab('tab-topology'));
+    }
+    if (tabIperf) {
+        tabIperf.addEventListener('click', () => switchTab('tab-iperf'));
+    }
+    if (tabSyslog) {
+        tabSyslog.addEventListener('click', () => switchTab('tab-syslog'));
+    }
+    if (tabManage) {
+        tabManage.addEventListener('click', () => switchTab('tab-manage'));
+    }
+
     // Trigger server shutdown and log save on browser close
     window.addEventListener('beforeunload', () => {
         navigator.sendBeacon('/api/shutdown');
@@ -5310,5 +5377,379 @@ document.addEventListener('DOMContentLoaded', () => {
         ossLicenseModal.addEventListener('click', function(e) {
             if (e.target === ossLicenseModal) closeOssModal();
         });
+    }
+
+    // =========================================================================
+    // 8 Major Features Implementation
+    // =========================================================================
+
+    // 1. Simple Mode (かんたん表示) Toggle
+    const uiModeToggleBtn = document.getElementById('ui-mode-toggle-btn');
+    const uiModeIcon = document.getElementById('ui-mode-icon');
+    const uiModeText = document.getElementById('ui-mode-text');
+    let currentUiMode = localStorage.getItem('netmon_ui_mode') || 'detail';
+
+    function applyUiMode(mode) {
+        currentUiMode = mode;
+        localStorage.setItem('netmon_ui_mode', mode);
+        if (mode === 'simple') {
+            document.body.classList.add('simple-mode');
+            if (uiModeIcon) uiModeIcon.textContent = '🎨';
+            if (uiModeText) uiModeText.textContent = 'かんたん表示中';
+            if (uiModeToggleBtn) uiModeToggleBtn.classList.add('active');
+        } else {
+            document.body.classList.remove('simple-mode');
+            if (uiModeIcon) uiModeIcon.textContent = '📊';
+            if (uiModeText) uiModeText.textContent = '詳細表示モード';
+            if (uiModeToggleBtn) uiModeToggleBtn.classList.remove('active');
+        }
+    }
+
+    if (uiModeToggleBtn) {
+        uiModeToggleBtn.addEventListener('click', () => {
+            const newMode = (currentUiMode === 'simple') ? 'detail' : 'simple';
+            applyUiMode(newMode);
+            showToast((newMode === 'simple') ? 'かんたん表示モードに切り替えました' : '詳細表示モードに切り替えました', 'info');
+        });
+    }
+    applyUiMode(currentUiMode);
+
+    // 2. Report Export (ワンクリック点検報告書出力)
+    const btnExportReport = document.getElementById('btn-export-report');
+    if (btnExportReport) {
+        btnExportReport.addEventListener('click', () => {
+            window.open('/api/reports/export?period=today', '_blank');
+        });
+    }
+
+    // 3. Audit Log Modal (操作履歴・監査ログ)
+    const auditModal = document.getElementById('audit-modal');
+    const btnOpenAuditModal = document.getElementById('btn-open-audit-modal');
+    const closeAuditModalBtn = document.getElementById('close-audit-modal-btn');
+    const closeAuditModalFooterBtn = document.getElementById('close-audit-modal-footer-btn');
+    const auditLogList = document.getElementById('audit-log-list');
+
+    async function openAuditModal() {
+        if (!auditModal) return;
+        auditModal.style.display = 'flex';
+        setTimeout(() => auditModal.classList.add('active'), 10);
+        
+        if (auditLogList) {
+            auditLogList.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:20px;">履歴を読み込み中...</div>';
+            try {
+                const res = await fetch('/api/audit-logs');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.logs && data.logs.length > 0) {
+                        auditLogList.innerHTML = data.logs.map(line => {
+                            const match = line.match(/^\[(.*?)\]\s+\[(.*?)\]\s+\[(.*?)\]\s+\[(.*?)\]\s+(.*)$/);
+                            if (match) {
+                                const [_, ts, ip, action, target, details] = match;
+                                return `
+                                    <div class="audit-entry">
+                                        <span style="color:var(--text-muted); font-size:0.75rem; white-space:nowrap;">${escapeHTML(ts)}</span>
+                                        <span class="audit-action-tag">${escapeHTML(action)}</span>
+                                        <span style="font-weight:600; color:var(--primary); font-size:0.8rem; min-width:90px;">${escapeHTML(target)}</span>
+                                        <span style="color:var(--text-main); font-size:0.8rem; flex:1;">${escapeHTML(details)}</span>
+                                    </div>
+                                `;
+                            }
+                            return `<div style="padding:4px 8px; color:var(--text-main);">${escapeHTML(line)}</div>`;
+                        }).join('');
+                    } else {
+                        auditLogList.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:20px;">記録された操作履歴はありません。</div>';
+                    }
+                }
+            } catch (err) {
+                auditLogList.innerHTML = '<div style="color:var(--error); text-align:center; padding:20px;">履歴の取得に失敗しました。</div>';
+            }
+        }
+    }
+
+    function closeAuditModal() {
+        if (auditModal) {
+            auditModal.classList.remove('active');
+            setTimeout(() => auditModal.style.display = 'none', 250);
+        }
+    }
+
+    if (btnOpenAuditModal) btnOpenAuditModal.addEventListener('click', openAuditModal);
+    if (closeAuditModalBtn) closeAuditModalBtn.addEventListener('click', closeAuditModal);
+    if (closeAuditModalFooterBtn) closeAuditModalFooterBtn.addEventListener('click', closeAuditModal);
+    if (auditModal) {
+        auditModal.addEventListener('click', (e) => {
+            if (e.target === auditModal) closeAuditModal();
+        });
+    }
+
+    // 4. Email (SMTP) Settings & Test Send
+    const configEmailEnabled = document.getElementById('config-email-enabled');
+    const emailSettingsPanel = document.getElementById('email-settings-panel');
+    const btnTestEmail = document.getElementById('btn-test-email');
+
+    if (configEmailEnabled && emailSettingsPanel) {
+        configEmailEnabled.addEventListener('change', () => {
+            emailSettingsPanel.style.display = configEmailEnabled.checked ? 'flex' : 'none';
+        });
+    }
+
+    if (btnTestEmail) {
+        btnTestEmail.addEventListener('click', async () => {
+            btnTestEmail.disabled = true;
+            btnTestEmail.textContent = '送信中...';
+            try {
+                const payload = {
+                    smtpHost: document.getElementById('config-smtp-host') ? document.getElementById('config-smtp-host').value.trim() : '',
+                    smtpPort: document.getElementById('config-smtp-port') ? parseInt(document.getElementById('config-smtp-port').value, 10) : 587,
+                    smtpSsl: document.getElementById('config-smtp-ssl') ? document.getElementById('config-smtp-ssl').checked : true,
+                    smtpUser: document.getElementById('config-smtp-user') ? document.getElementById('config-smtp-user').value.trim() : '',
+                    smtpPass: document.getElementById('config-smtp-pass') ? document.getElementById('config-smtp-pass').value : '',
+                    smtpFrom: document.getElementById('config-smtp-from') ? document.getElementById('config-smtp-from').value.trim() : '',
+                    smtpTo: document.getElementById('config-smtp-to') ? document.getElementById('config-smtp-to').value.trim() : ''
+                };
+                const res = await fetch('/api/email/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    showToast('✅ テストメールを送信しました。受信ボックスをご確認ください。', 'success');
+                } else {
+                    showToast(`❌ 送信失敗: ${data.error || 'SMTPサーバーの設定をご確認ください。'}`, 'error');
+                }
+            } catch (err) {
+                showToast('❌ 通信エラーが発生しました。', 'error');
+            } finally {
+                btnTestEmail.disabled = false;
+                btnTestEmail.textContent = '✉️ テスト送信';
+            }
+        });
+    }
+
+    // 5. Syslog / Trap Stream Management
+    const syslogContainer = document.getElementById('syslog-stream-container');
+    const syslogSeverityFilter = document.getElementById('syslog-severity-filter');
+    const syslogSearchInput = document.getElementById('syslog-search-input');
+    const syslogClearBtn = document.getElementById('syslog-clear-btn');
+    let cachedSyslogs = [];
+
+    function renderSyslogStream() {
+        if (!syslogContainer) return;
+        const sevFilter = syslogSeverityFilter ? syslogSeverityFilter.value : 'ALL';
+        const q = syslogSearchInput ? syslogSearchInput.value.trim().toLowerCase() : '';
+
+        const filtered = cachedSyslogs.filter(log => {
+            if (sevFilter !== 'ALL' && log.Severity !== sevFilter) return false;
+            if (q) {
+                const combined = `${log.Timestamp} ${log.SourceIP} ${log.Severity} ${log.Message}`.toLowerCase();
+                if (!combined.includes(q)) return false;
+            }
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            syslogContainer.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:40px;">一致する Syslog メッセージはありません。</div>';
+            return;
+        }
+
+        syslogContainer.innerHTML = filtered.map(log => {
+            const sevClass = (log.Severity || 'info').toLowerCase();
+            return `
+                <div class="syslog-line">
+                    <span style="color:var(--text-muted); font-size:0.75rem; white-space:nowrap;">${escapeHTML(log.Timestamp)}</span>
+                    <span class="syslog-tag ${sevClass}">${escapeHTML(log.Severity || 'INFO')}</span>
+                    <span style="color:var(--primary); font-weight:600; font-size:0.8rem; min-width:95px;">${escapeHTML(log.SourceIP)}</span>
+                    <span style="color:var(--text-main); font-size:0.82rem; flex:1;">${escapeHTML(log.Message)}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function fetchSyslogLogs() {
+        try {
+            const res = await fetch('/api/syslog');
+            if (res.ok) {
+                const data = await res.json();
+                cachedSyslogs = data.logs || [];
+                renderSyslogStream();
+            }
+        } catch (err) {}
+    }
+
+    if (syslogSeverityFilter) syslogSeverityFilter.addEventListener('change', renderSyslogStream);
+    if (syslogSearchInput) syslogSearchInput.addEventListener('input', renderSyslogStream);
+    if (syslogClearBtn) {
+        syslogClearBtn.addEventListener('click', async () => {
+            if (confirm('受信した Syslog バッファを消去しますか？')) {
+                await fetch('/api/syslog/clear', { method: 'POST' });
+                cachedSyslogs = [];
+                renderSyslogStream();
+                showToast('Syslog ログを消去しました', 'info');
+            }
+        });
+    }
+    // Poll syslog every 3s when syslog tab is active
+    setInterval(() => {
+        if (viewSyslog && viewSyslog.classList.contains('active')) {
+            fetchSyslogLogs();
+        }
+    }, 3000);
+
+    // 6. Configuration Backup & Diff
+    const btnRunConfigBackup = document.getElementById('btn-run-config-backup');
+    const configBackupFileList = document.getElementById('config-backup-file-list');
+    const configPreviewBox = document.getElementById('config-preview-box');
+    const btnDiffConfigs = document.getElementById('btn-diff-configs');
+    let selectedBackupFiles = [];
+
+    async function loadConfigBackupList(ip) {
+        if (!configBackupFileList) return;
+        configBackupFileList.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:10px;">バックアップ一覧を読み込み中...</div>';
+        selectedBackupFiles = [];
+        try {
+            const res = await fetch('/api/config-backup/list');
+            if (res.ok) {
+                const data = await res.json();
+                const devBackups = (data.backups || []).filter(b => !ip || b.ip === ip);
+                if (devBackups.length > 0) {
+                    configBackupFileList.innerHTML = devBackups.map(b => `
+                        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.03); cursor:pointer;">
+                            <input type="checkbox" class="backup-checkbox" value="${escapeHTML(b.filename)}">
+                            <div style="flex:1; overflow:hidden;" class="backup-item-click" data-file="${escapeHTML(b.filename)}">
+                                <div style="font-weight:600; font-size:0.8rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHTML(b.filename)}</div>
+                                <div style="font-size:0.7rem; color:var(--text-muted);">${escapeHTML(b.timestamp)} (${escapeHTML(b.size)})</div>
+                            </div>
+                        </label>
+                    `).join('');
+
+                    // Click to preview
+                    configBackupFileList.querySelectorAll('.backup-item-click').forEach(item => {
+                        item.addEventListener('click', async () => {
+                            const fn = item.getAttribute('data-file');
+                            if (configPreviewBox) {
+                                configPreviewBox.textContent = `読み込み中: ${fn}...`;
+                                try {
+                                    const diffRes = await fetch(`/api/config-backup/diff?f1=${encodeURIComponent(fn)}&f2=${encodeURIComponent(fn)}`);
+                                    if (diffRes.ok) {
+                                        const diffData = await diffRes.json();
+                                        configPreviewBox.textContent = (diffData.diff || []).map(d => d.file1).join('\n');
+                                    }
+                                } catch (e) {
+                                    configPreviewBox.textContent = '読み込みに失敗しました。';
+                                }
+                            }
+                        });
+                    });
+                } else {
+                    configBackupFileList.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:10px;">バックアップ履歴がありません。</div>';
+                }
+            }
+        } catch (err) {
+            configBackupFileList.innerHTML = '<div style="color:var(--error); text-align:center; padding:10px;">取得エラー</div>';
+        }
+    }
+
+    if (btnRunConfigBackup) {
+        btnRunConfigBackup.addEventListener('click', async () => {
+            if (!currentSnmpIp) return;
+            btnRunConfigBackup.disabled = true;
+            btnRunConfigBackup.textContent = '取得中...';
+            try {
+                const res = await fetch('/api/config-backup/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip: currentSnmpIp })
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    showToast(`✅ スナップショットを作成しました (${data.filename})`, 'success');
+                    await loadConfigBackupList(currentSnmpIp);
+                } else {
+                    showToast('❌ バックアップ取得に失敗しました。', 'error');
+                }
+            } catch (err) {
+                showToast('❌ 通信エラーが発生しました。', 'error');
+            } finally {
+                btnRunConfigBackup.disabled = false;
+                btnRunConfigBackup.textContent = '➕ バックアップ即時取得';
+            }
+        });
+    }
+
+    if (btnDiffConfigs) {
+        btnDiffConfigs.addEventListener('click', async () => {
+            const checked = Array.from(configBackupFileList.querySelectorAll('.backup-checkbox:checked')).map(cb => cb.value);
+            if (checked.length !== 2) {
+                alert('差分比較を行うには、バックアップ一覧からチェックボックスで「2世代」選択してください。');
+                return;
+            }
+            if (configPreviewBox) {
+                configPreviewBox.innerHTML = '<div style="color:var(--text-muted); padding:10px;">差分を計算中...</div>';
+                try {
+                    const res = await fetch(`/api/config-backup/diff?f1=${encodeURIComponent(checked[0])}&f2=${encodeURIComponent(checked[1])}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.diff) {
+                            configPreviewBox.innerHTML = `
+                                <div style="display:grid; grid-template-columns:35px 1fr 1fr; gap:8px; font-weight:700; border-bottom:2px solid var(--glass-border); padding-bottom:4px; margin-bottom:4px; font-size:0.78rem;">
+                                    <span>行</span>
+                                    <span>${escapeHTML(checked[0])}</span>
+                                    <span>${escapeHTML(checked[1])}</span>
+                                </div>
+                                ${data.diff.map(d => `
+                                    <div class="diff-row ${d.changed ? 'changed' : ''}">
+                                        <span class="line-num">${d.line}</span>
+                                        <span style="word-break:break-all; ${d.changed ? 'color:#fb923c;' : ''}">${escapeHTML(d.file1 || '')}</span>
+                                        <span style="word-break:break-all; ${d.changed ? 'color:#4ade80;' : ''}">${escapeHTML(d.file2 || '')}</span>
+                                    </div>
+                                `).join('')}
+                            `;
+                        }
+                    }
+                } catch (e) {
+                    configPreviewBox.textContent = '差分の取得に失敗しました。';
+                }
+            }
+        });
+    }
+
+    // 7. Update SNMP Modal Opening with Memo and Backup
+    const originalOpenSnmpDetailsModal = openSnmpDetailsModal;
+    openSnmpDetailsModal = async function(device) {
+        if (originalOpenSnmpDetailsModal) await originalOpenSnmpDetailsModal(device);
+        
+        // Populate memo tab
+        const locEl = document.getElementById('modal-memo-location');
+        const venEl = document.getElementById('modal-memo-vendor');
+        const webEl = document.getElementById('modal-memo-weburl');
+        const memEl = document.getElementById('modal-memo-text');
+        
+        if (locEl) locEl.textContent = device.location || '未登録';
+        if (venEl) venEl.textContent = device.vendorContact || '未登録';
+        if (webEl) webEl.innerHTML = device.webUrl ? `<a href="${escapeHTML(device.webUrl)}" target="_blank" style="color:var(--primary); text-decoration:underline;">${escapeHTML(device.webUrl)}</a>` : '—';
+        if (memEl) memEl.textContent = device.troubleMemo || 'トラブル対応手順メモは登録されていません。';
+
+        // Load backup list
+        loadConfigBackupList(device.ip);
+    };
+
+    // 8. Helper: Render simple mode memo badge into device cards
+    const originalRenderDeviceCard = renderDeviceCard;
+    if (typeof originalRenderDeviceCard === 'function') {
+        renderDeviceCard = function(device) {
+            const card = originalRenderDeviceCard(device);
+            if (card && (device.location || device.vendorContact || device.troubleMemo)) {
+                const memoDiv = document.createElement('div');
+                memoDiv.className = 'simple-mode-memo-badge';
+                memoDiv.innerHTML = `
+                    ${device.location ? `<span>📍 <strong>${escapeHTML(device.location)}</strong></span>` : ''}
+                    ${device.vendorContact ? `<span>📞 <strong>${escapeHTML(device.vendorContact)}</strong></span>` : ''}
+                `;
+                const content = card.querySelector('.device-card-content') || card;
+                content.appendChild(memoDiv);
+            }
+            return card;
+        };
     }
 });

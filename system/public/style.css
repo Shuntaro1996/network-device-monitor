@@ -1344,3 +1344,142 @@ body {
 :root[data-theme="day"] .badge-lgpl   { color: #d97706; }
 :root[data-theme="day"] .badge-apache { color: #059669; }
 :root[data-theme="day"] .badge-zlib   { color: #7c3aed; }
+
+/* ==========================================================================
+   Simple Mode (かんたん表示) Layout
+   ========================================================================== */
+body.simple-mode .device-chart-container,
+body.simple-mode #dashboard-heatmap-card,
+body.simple-mode #dashboard-unified-chart-container,
+body.simple-mode .device-meta-sub,
+body.simple-mode .snmp-btn,
+body.simple-mode .iperf-btn,
+body.simple-mode .ping-btn {
+    display: none !important;
+}
+
+body.simple-mode .device-card {
+    padding: 1.25rem 1.5rem !important;
+    border-radius: 16px !important;
+}
+
+body.simple-mode .device-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+body.simple-mode .device-title-area .device-name {
+    font-size: 1.25rem !important;
+    font-weight: 800 !important;
+}
+
+body.simple-mode .device-title-area .device-ip {
+    font-size: 1rem !important;
+    color: var(--text-muted);
+}
+
+.simple-mode-memo-badge {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+:root[data-theme="day"] .simple-mode-memo-badge {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+/* ==========================================================================
+   Syslog / Trap Stream Box
+   ========================================================================== */
+.syslog-line {
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.4;
+    transition: background 0.15s ease;
+    border-left: 3px solid transparent;
+}
+.syslog-line:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+.syslog-tag {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+.syslog-tag.emergency, .syslog-tag.alert, .syslog-tag.critical {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+.syslog-tag.error {
+    background: rgba(249, 115, 22, 0.2);
+    color: #fb923c;
+    border: 1px solid rgba(249, 115, 22, 0.4);
+}
+.syslog-tag.warning {
+    background: rgba(234, 179, 8, 0.2);
+    color: #facc15;
+    border: 1px solid rgba(234, 179, 8, 0.4);
+}
+.syslog-tag.notice, .syslog-tag.informational {
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+/* ==========================================================================
+   Config Diff & Snapshot View
+   ========================================================================== */
+.diff-row {
+    display: grid;
+    grid-template-columns: 35px 1fr 1fr;
+    gap: 8px;
+    padding: 2px 4px;
+    font-size: 0.78rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.diff-row.changed {
+    background: rgba(234, 179, 8, 0.12);
+    border-left: 3px solid #eab308;
+}
+.diff-row .line-num {
+    color: var(--text-muted);
+    user-select: none;
+    text-align: right;
+}
+
+/* ==========================================================================
+   Audit Log Viewer
+   ========================================================================== */
+.audit-entry {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--glass-border);
+}
+.audit-action-tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
