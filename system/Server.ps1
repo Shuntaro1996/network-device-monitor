@@ -1762,6 +1762,91 @@ $null = $snmpDetailPipeline.Commands.AddScript($snmpDetailScriptBlockCombined)
 $snmpDetailAsyncResult = $snmpDetailPipeline.InvokeAsync()
 
 # ─────────────────────────────────────────
+# 2.10 Background Syslog Receiver Runspace (UDP 514 / Fallback)
+# ─────────────────────────────────────────
+$syslogRunspace = [runspacefactory]::CreateRunspace()
+$syslogRunspace.ApartmentState = "STA"
+$syslogRunspace.ThreadOptions  = "ReuseThread"
+$syslogRunspace.Open()
+$syslogRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
+
+$syslogScriptBlock = {
+    $port = if ($syncHash.SyslogPort) { $syncHash.SyslogPort } else { 514 }
+    $udpClient = $null
+    try {
+        $udpClient = New-Object System.Net.Sockets.UdpClient($port)
+        $udpClient.Client.ReceiveTimeout = 1000
+    } catch {
+        try {
+            $udpClient = New-Object System.Net.Sockets.UdpClient(1514)
+            $udpClient.Client.ReceiveTimeout = 1000
+        } catch {}
+    }
+
+    $remoteEP = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+
+    while ($syncHash.Running) {
+        if (-not $syncHash.SyslogEnabled -or $null -eq $udpClient) {
+            Start-Sleep -Milliseconds 500
+            continue
+        }
+
+        try {
+            $bytes = $udpClient.Receive([ref]$remoteEP)
+            if ($null -ne $bytes -and $bytes.Length -gt 0) {
+                $rawMsg = [System.Text.Encoding]::UTF8.GetString($bytes)
+                $srcIp  = $remoteEP.Address.ToString()
+                $ts     = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                
+                $severity = "Informational"
+                $cleanMsg = $rawMsg
+                if ($rawMsg -match '^<(\d{1,3})>(.*)$') {
+                    $pri = [int]$matches[1]
+                    $cleanMsg = $matches[2].Trim()
+                    $sevCode = $pri % 8
+                    $sevMap = @{
+                        0 = "Emergency"; 1 = "Alert"; 2 = "Critical"; 3 = "Error";
+                        4 = "Warning"; 5 = "Notice"; 6 = "Informational"; 7 = "Debug"
+                    }
+                    if ($sevMap.ContainsKey($sevCode)) {
+                        $severity = $sevMap[$sevCode]
+                    }
+                }
+
+                $logEntry = @{
+                    Timestamp = $ts
+                    SourceIP  = $srcIp
+                    Severity  = $severity
+                    Message   = $cleanMsg
+                }
+
+                [System.Threading.Monitor]::Enter($syncHash.SyslogQueue.SyncRoot)
+                try {
+                    $syncHash.SyslogQueue.Insert(0, $logEntry)
+                    while ($syncHash.SyslogQueue.Count -gt 500) {
+                        $syncHash.SyslogQueue.RemoveAt($syncHash.SyslogQueue.Count - 1)
+                    }
+                } finally {
+                    [System.Threading.Monitor]::Exit($syncHash.SyslogQueue.SyncRoot)
+                }
+            }
+        } catch [System.Net.Sockets.SocketException] {
+            # Timeout is normal for non-blocking receive
+        } catch {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+
+    if ($null -ne $udpClient) {
+        try { $udpClient.Close(); $udpClient.Dispose() } catch {}
+    }
+}
+
+$syslogPipeline = $syslogRunspace.CreatePipeline()
+$null = $syslogPipeline.Commands.AddScript($syslogScriptBlock)
+$syslogAsyncResult = $syslogPipeline.InvokeAsync()
+
+# ─────────────────────────────────────────
 # Helper: Serve JSON response
 # ─────────────────────────────────────────
 function Write-JsonResponse($response, $data, $statusCode=200) {
@@ -4207,7 +4292,8 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
         }
     }
 
-    if ($null -ne $listener)     { try { $listener.Stop();   $listener.Close()   } catch {} }
-    if ($null -ne $keyRunspace)  { try { $keyRunspace.Close(); $keyRunspace.Dispose() } catch {} }
+    if ($null -ne $listener)       { try { $listener.Stop();   $listener.Close()   } catch {} }
+    if ($null -ne $syslogRunspace) { try { $syslogRunspace.Close(); $syslogRunspace.Dispose() } catch {} }
+    if ($null -ne $keyRunspace)    { try { $keyRunspace.Close(); $keyRunspace.Dispose() } catch {} }
     Write-Host "Server stopped gracefully." -ForegroundColor Gray
 }

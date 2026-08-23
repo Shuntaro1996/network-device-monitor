@@ -1,4 +1,4 @@
-// =========================================================================
+﻿// =========================================================================
 // 【初心者向けの簡単な解説】
 // このファイルは、監視画面の「動きやロジック（JavaScript）」を制御する脳にあたるプログラムです。
 // HTML（骨組み）やCSS（装飾）に命を吹き込み、動きのある動的なシステムにします。
@@ -2414,65 +2414,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (devConnectedTo2 && currentVal2 && currentVal2 !== excludeIp) {
             devConnectedTo2.value = currentVal2;
         }
-    }
-
-    // Tabs navigation click handlers
-    const tabDashboard = document.getElementById('tab-dashboard');
-    const tabTopology = document.getElementById('tab-topology');
-    const tabIperf = document.getElementById('tab-iperf');
-    const tabManage = document.getElementById('tab-manage');
-    
-    const viewDashboard = document.getElementById('view-dashboard');
-    const viewTopology = document.getElementById('view-topology');
-    const viewIperf = document.getElementById('view-iperf');
-    const viewManage = document.getElementById('view-manage');
-
-    function switchTab(tabId) {
-        const tabs = [
-            { btn: tabDashboard, view: viewDashboard },
-            { btn: tabTopology, view: viewTopology },
-            { btn: tabIperf, view: viewIperf },
-            { btn: tabManage, view: viewManage }
-        ];
-
-        tabs.forEach(t => {
-            if (t.btn && t.view) {
-                if (t.btn.id === tabId) {
-                    t.btn.classList.add('active');
-                    t.btn.style.color = 'var(--text-main)';
-                    t.view.classList.add('active');
-                } else {
-                    t.btn.classList.remove('active');
-                    t.btn.style.color = 'var(--text-muted)';
-                    t.view.classList.remove('active');
-                }
-            }
-        });
-
-        deactivateAllModes();
-        stopFlowAnimation();
-        
-        if (tabId === 'tab-topology') {
-            initTopology();
-        } else if (tabId === 'tab-iperf') {
-            populateIperfDeviceList();
-        } else if (tabId === 'tab-manage') {
-            renderManageList();
-            populateConnectionsDropdown();
-        }
-    }
-
-    if (tabDashboard) {
-        tabDashboard.addEventListener('click', () => switchTab('tab-dashboard'));
-    }
-    if (tabTopology) {
-        tabTopology.addEventListener('click', () => switchTab('tab-topology'));
-    }
-    if (tabIperf) {
-        tabIperf.addEventListener('click', () => switchTab('tab-iperf'));
-    }
-    if (tabManage) {
-        tabManage.addEventListener('click', () => switchTab('tab-manage'));
     }
 
     // Iperf View logic
