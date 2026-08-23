@@ -4003,7 +4003,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                         $dName = if ($syncHash.DeviceName.ContainsKey($ip)) { $syncHash.DeviceName[$ip] } else { $ip }
                         $dGroup = if ($syncHash.Group.ContainsKey($ip)) { $syncHash.Group[$ip] } else { "未分類" }
                         $dLoc = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "—" }
-                        $dContact = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "—" }
+                        $dManual = if ($syncHash.TroubleMemo.ContainsKey($ip) -and $syncHash.TroubleMemo[$ip]) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($syncHash.TroubleMemo[$ip]))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
                         $st = if ($syncHash.Status.ContainsKey($ip)) { $syncHash.Status[$ip].status } else { "Unknown" }
                         $lat = if ($syncHash.Status.ContainsKey($ip) -and $null -ne $syncHash.Status[$ip].latency) { "$($syncHash.Status[$ip].latency) ms" } else { "—" }
                         
@@ -4035,7 +4035,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
     <td>$avgLat</td>
     <td><strong>$sla</strong></td>
     <td>$outageCount 回</td>
-    <td><small>$dContact</small></td>
+    <td><small>$dManual</small></td>
 </tr>
 "@
                     }
@@ -4120,7 +4120,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 <th>平均遅延</th>
                 <th>稼働率 (SLA)</th>
                 <th>瞬断回数</th>
-                <th>保守連絡先</th>
+                <th>マニュアル</th>
             </tr>
         </thead>
         <tbody>

@@ -114,25 +114,6 @@
                         </div>
                         <span class="hint-text">Enter または Tab で確定</span>
                     </div>
-                    <!-- Email (SMTP) Notification Settings -->
-                    <div class="threshold-item border-top">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <label for="config-email-enabled" style="font-size:0.8rem; margin:0; cursor:pointer;">✉️ メール (SMTP) 通知</label>
-                            <input type="checkbox" id="config-email-enabled" style="cursor:pointer;">
-                        </div>
-                        <div id="email-settings-panel" style="display:none; margin-top:8px; display:flex; flex-direction:column; gap:6px;">
-                            <input type="text" id="config-smtp-host" placeholder="SMTPサーバー (例: smtp.gmail.com)" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
-                            <div style="display:flex; gap:6px; align-items:center;">
-                                <input type="number" id="config-smtp-port" placeholder="587" value="587" class="form-input" style="width:70px; font-size:0.75rem; padding:4px 8px;">
-                                <label style="display:flex; align-items:center; gap:4px; font-size:0.72rem; color:var(--text-muted); cursor:pointer;"><input type="checkbox" id="config-smtp-ssl" checked> SSL/TLS</label>
-                            </div>
-                            <input type="text" id="config-smtp-user" placeholder="ユーザー名" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
-                            <input type="password" id="config-smtp-pass" placeholder="パスワード" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
-                            <input type="text" id="config-smtp-from" placeholder="送信元 (例: monitor@example.com)" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
-                            <input type="text" id="config-smtp-to" placeholder="通知先アドレス (カンマ区切り)" class="form-input" style="font-size:0.75rem; padding:4px 8px;">
-                            <button id="btn-test-email" class="btn secondary-btn" style="padding:4px 8px; font-size:0.75rem; margin-top:2px;">✉️ テスト送信</button>
-                        </div>
-                    </div>
                 </div>
 
                 <div class="theme-toggle-container" style="margin-top: 10px;">
@@ -554,12 +535,8 @@
                                     <input type="text" id="dev-location" class="form-input" placeholder="例: 3F サーバー室 ラックA-02">
                                 </div>
                                 <div class="form-group">
-                                    <label for="dev-vendor-contact">📞 保守担当 / サポート連絡先</label>
-                                    <input type="text" id="dev-vendor-contact" class="form-input" placeholder="例: 〇〇通信 サポート窓口 0120-xxx-xxx">
-                                </div>
-                                <div class="form-group">
-                                    <label for="dev-trouble-memo">📋 トラブル対応手順 / 運用メモ</label>
-                                    <textarea id="dev-trouble-memo" class="form-input" rows="2" placeholder="例: 障害時は背面の電源ボタンを長押しして再起動。改善しない場合は保守窓口へ連絡。" style="resize:vertical;"></textarea>
+                                    <label for="dev-trouble-memo">📖 トラブル対応マニュアル URL (社内Wiki / 共有リンク)</label>
+                                    <input type="text" id="dev-trouble-memo" class="form-input" placeholder="例: https://wiki.example.com/manuals/core-switch.pdf">
                                 </div>
                                 <div class="form-group">
                                     <label for="dev-web-url">🌐 Web URL / SSL監視対象 (任意)</label>
@@ -634,7 +611,7 @@
             
             <div class="snmp-tab-bar">
                 <button class="snmp-tab-btn active" data-tab="snmp-tab-overview">概要</button>
-                <button class="snmp-tab-btn" data-tab="snmp-tab-memo">📋 トラブル対応・連絡先</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-memo">📖 マニュアル・設置場所</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-backup">💾 コンフィグ管理</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-interfaces">インターフェース</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-network">ネットワーク</button>
@@ -688,20 +665,26 @@
                         </div>
                     </div>
                     
-                    <!-- Trouble Memo & Support Contacts Tab -->
+                    <!-- Trouble Manual & Location Tab -->
                     <div id="snmp-tab-memo" class="snmp-tab-content">
                         <div class="overview-grid">
                             <div class="info-card glass-card">
-                                <h3 class="card-title">📍 設置場所 & 保守・サポート窓口</h3>
+                                <h3 class="card-title">📍 機器情報 & 設置場所</h3>
                                 <div class="info-list" style="margin-top:12px;">
                                     <div class="info-row"><span class="label">設置場所:</span><span id="modal-memo-location" class="value" style="font-weight:600;">—</span></div>
-                                    <div class="info-row"><span class="label">保守窓口:</span><span id="modal-memo-vendor" class="value" style="font-weight:600; color:var(--primary);">—</span></div>
                                     <div class="info-row"><span class="label">Web URL:</span><span id="modal-memo-weburl" class="value">—</span></div>
                                 </div>
                             </div>
                             <div class="info-card glass-card">
-                                <h3 class="card-title">📋 障害・トラブル対応手順書メモ</h3>
-                                <div id="modal-memo-text" class="descr-box" style="margin-top:12px; height:120px; white-space:pre-wrap; line-height:1.6;">—</div>
+                                <h3 class="card-title">📖 トラブル対応マニュアル</h3>
+                                <div id="modal-memo-manual-container" style="margin-top:16px; display:flex; flex-direction:column; gap:10px;">
+                                    <div id="modal-memo-link-wrapper">
+                                        <a id="modal-memo-link" href="#" target="_blank" class="btn primary-btn" style="display:inline-flex; align-items:center; gap:8px; text-decoration:none; padding:10px 18px; font-weight:700;">
+                                            <span>🔗</span> トラブル対応マニュアルを開く
+                                        </a>
+                                    </div>
+                                    <div id="modal-memo-empty" style="color:var(--text-muted); font-size:0.85rem; padding:12px 0;">マニュアルのリンクは登録されていません。</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -950,6 +933,59 @@
                             </div>
                         </div>
                     </div>
+
+                    <div class="config-section" style="margin-top:16px;">
+                        <h4 class="config-section-title">✉️ メール (SMTP) アラート通知</h4>
+                        <p class="config-desc">機器ダウン時や異常検知時に、SMTP サーバー経由で管理者のメールアドレスへ通知メールを自動送信します。</p>
+                        <div class="form-group" style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="modal-email-enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span style="font-size:0.85rem; font-weight:600; color:var(--text-main);">メール通知を有効化</span>
+                        </div>
+                        <div id="modal-email-settings-sub" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+                            <div class="form-group">
+                                <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px; display:block;">SMTP サーバー (ホスト名 / IP)</label>
+                                <input type="text" id="modal-smtp-host" class="form-input" placeholder="例: smtp.gmail.com または mail.company.local">
+                            </div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                                <div class="form-group">
+                                    <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px; display:block;">ポート番号</label>
+                                    <input type="number" id="modal-smtp-port" class="form-input" value="587" placeholder="587">
+                                </div>
+                                <div class="form-group" style="display:flex; align-items:flex-end; padding-bottom:6px;">
+                                    <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; color:var(--text-main); cursor:pointer;">
+                                        <input type="checkbox" id="modal-smtp-ssl" checked>
+                                        <span>SSL / TLS 暗号化通信</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                                <div class="form-group">
+                                    <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px; display:block;">ユーザー名 (アカウント)</label>
+                                    <input type="text" id="modal-smtp-user" class="form-input" placeholder="例: alert-system@company.com">
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px; display:block;">パスワード / アプリパスワード</label>
+                                    <input type="password" id="modal-smtp-pass" class="form-input" placeholder="パスワード">
+                                </div>
+                            </div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                                <div class="form-group">
+                                    <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px; display:block;">送信元 (From アドレス)</label>
+                                    <input type="text" id="modal-smtp-from" class="form-input" placeholder="例: monitor@company.com">
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px; display:block;">通知先 (To アドレス: カンマ区切り)</label>
+                                    <input type="text" id="modal-smtp-to" class="form-input" placeholder="例: admin@company.com, team@company.com">
+                                </div>
+                            </div>
+                            <div style="display:flex; justify-content:flex-end; margin-top:4px;">
+                                <button type="button" id="modal-btn-test-email" class="btn secondary-btn small">✉️ テストメール送信</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Tab 3: Backup & Restore -->
@@ -1096,6 +1132,6 @@
     </div>
 
     <div id="toast-container"></div>
-    <script src="app.js?v=53"></script>
+    <script src="app.js?v=54"></script>
 </body>
 </html>

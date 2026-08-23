@@ -1,4 +1,4 @@
-﻿// =========================================================================
+// =========================================================================
 // 【初心者向けの簡単な解説】
 // このファイルは、監視画面の「動きやロジック（JavaScript）」を制御する脳にあたるプログラムです。
 // HTML（骨組み）やCSS（装飾）に命を吹き込み、動きのある動的なシステムにします。
@@ -542,6 +542,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const webhookOfflineOnlyInp = document.getElementById('modal-webhook-offline-only');
         if (webhookOfflineOnlyInp) webhookOfflineOnlyInp.checked = (systemConfig.webhookOfflineOnly !== false);
 
+        const emailEnabledInp = document.getElementById('modal-email-enabled');
+        if (emailEnabledInp) emailEnabledInp.checked = !!systemConfig.emailEnabled;
+
+        const smtpHostInp = document.getElementById('modal-smtp-host');
+        if (smtpHostInp) smtpHostInp.value = systemConfig.smtpHost || '';
+
+        const smtpPortInp = document.getElementById('modal-smtp-port');
+        if (smtpPortInp) smtpPortInp.value = systemConfig.smtpPort || 587;
+
+        const smtpSslInp = document.getElementById('modal-smtp-ssl');
+        if (smtpSslInp) smtpSslInp.checked = (systemConfig.smtpSsl !== false);
+
+        const smtpUserInp = document.getElementById('modal-smtp-user');
+        if (smtpUserInp) smtpUserInp.value = systemConfig.smtpUser || '';
+
+        const smtpPassInp = document.getElementById('modal-smtp-pass');
+        if (smtpPassInp) smtpPassInp.value = systemConfig.smtpPass || '';
+
+        const smtpFromInp = document.getElementById('modal-smtp-from');
+        if (smtpFromInp) smtpFromInp.value = systemConfig.smtpFrom || '';
+
+        const smtpToInp = document.getElementById('modal-smtp-to');
+        if (smtpToInp) smtpToInp.value = systemConfig.smtpTo || '';
+
         const logRetentionInp = document.getElementById('modal-config-log-retention');
         if (logRetentionInp) logRetentionInp.value = (systemConfig.logRetentionDays != null) ? systemConfig.logRetentionDays : 30;
 
@@ -601,6 +625,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 webhookUrl:         (document.getElementById('modal-webhook-url').value || '').trim(),
                 webhookEnabled:     document.getElementById('modal-webhook-enabled').checked,
                 webhookOfflineOnly: document.getElementById('modal-webhook-offline-only').checked,
+                emailEnabled:       document.getElementById('modal-email-enabled') ? document.getElementById('modal-email-enabled').checked : false,
+                smtpHost:           document.getElementById('modal-smtp-host') ? document.getElementById('modal-smtp-host').value.trim() : '',
+                smtpPort:           document.getElementById('modal-smtp-port') ? parseInt(document.getElementById('modal-smtp-port').value, 10) : 587,
+                smtpSsl:            document.getElementById('modal-smtp-ssl') ? document.getElementById('modal-smtp-ssl').checked : true,
+                smtpUser:           document.getElementById('modal-smtp-user') ? document.getElementById('modal-smtp-user').value.trim() : '',
+                smtpPass:           document.getElementById('modal-smtp-pass') ? document.getElementById('modal-smtp-pass').value : '',
+                smtpFrom:           document.getElementById('modal-smtp-from') ? document.getElementById('modal-smtp-from').value.trim() : '',
+                smtpTo:             document.getElementById('modal-smtp-to') ? document.getElementById('modal-smtp-to').value.trim() : '',
                 soundEnabled:       document.getElementById('modal-sound-enabled').checked,
                 soundVolume:        parseFloat(document.getElementById('modal-sound-volume').value) || 0.5
             };
@@ -618,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     systemConfig = { ...systemConfig, ...data };
                     if (threshLatencyEl) threshLatencyEl.value = systemConfig.latencyThreshMs;
                     updateUltraHighFreqState(systemConfig.pollInterval, systemConfig.highFreqTargetIps);
-                    showToast('info', '✅ 設定を保存しました', '監視設定と通知設定を正常に更新しました。', 3500);
+                    showToast('info', '✅ 設定を保存しました', '監視設定・通知設定を正常に更新しました。', 3500);
                     closeSystemConfigModal();
                     fetchDevices();
                 } else {
@@ -630,6 +662,42 @@ document.addEventListener('DOMContentLoaded', () => {
             } finally {
                 saveSystemConfigBtn.disabled = false;
                 saveSystemConfigBtn.textContent = '💾 設定を保存';
+            }
+        });
+    }
+
+    // Modal Email Test Button
+    const modalBtnTestEmail = document.getElementById('modal-btn-test-email');
+    if (modalBtnTestEmail) {
+        modalBtnTestEmail.addEventListener('click', async () => {
+            modalBtnTestEmail.disabled = true;
+            modalBtnTestEmail.textContent = '送信中...';
+            try {
+                const payload = {
+                    smtpHost: document.getElementById('modal-smtp-host') ? document.getElementById('modal-smtp-host').value.trim() : '',
+                    smtpPort: document.getElementById('modal-smtp-port') ? parseInt(document.getElementById('modal-smtp-port').value, 10) : 587,
+                    smtpSsl: document.getElementById('modal-smtp-ssl') ? document.getElementById('modal-smtp-ssl').checked : true,
+                    smtpUser: document.getElementById('modal-smtp-user') ? document.getElementById('modal-smtp-user').value.trim() : '',
+                    smtpPass: document.getElementById('modal-smtp-pass') ? document.getElementById('modal-smtp-pass').value : '',
+                    smtpFrom: document.getElementById('modal-smtp-from') ? document.getElementById('modal-smtp-from').value.trim() : '',
+                    smtpTo: document.getElementById('modal-smtp-to') ? document.getElementById('modal-smtp-to').value.trim() : ''
+                };
+                const res = await fetch('/api/email/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    showToast('info', '✅ 送信完了', 'テストメールを送信しました。受信トレイをご確認ください。');
+                } else {
+                    showToast('error', '❌ 送信失敗', data.error || 'SMTPサーバーの設定をご確認ください。');
+                }
+            } catch (err) {
+                showToast('error', '❌ 通信エラー', 'テストメール送信に失敗しました。');
+            } finally {
+                modalBtnTestEmail.disabled = false;
+                modalBtnTestEmail.textContent = '✉️ テストメール送信';
             }
         });
     }
@@ -1495,6 +1563,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 newIp: newIp,
                 name: newName,
                 group: devGroupInput ? devGroupInput.value.trim() : "",
+                location: document.getElementById('dev-location') ? document.getElementById('dev-location').value.trim() : "",
+                troubleMemo: document.getElementById('dev-trouble-memo') ? document.getElementById('dev-trouble-memo').value.trim() : "",
+                webUrl: document.getElementById('dev-web-url') ? document.getElementById('dev-web-url').value.trim() : "",
                 community: devCommInput.value.trim(),
                 enabled: devEnabledInput.checked,
                 image: imageVal,
@@ -1533,6 +1604,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ip: ip,
             name: name,
             group: devGroupInput ? devGroupInput.value.trim() : "",
+            location: document.getElementById('dev-location') ? document.getElementById('dev-location').value.trim() : "",
+            troubleMemo: document.getElementById('dev-trouble-memo') ? document.getElementById('dev-trouble-memo').value.trim() : "",
+            webUrl: document.getElementById('dev-web-url') ? document.getElementById('dev-web-url').value.trim() : "",
             community: devCommInput.value.trim(),
             enabled: devEnabledInput.checked,
             image: imageVal,
@@ -1651,6 +1725,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     devEnabledInput.checked = isEnabled;
                     if(submitDeviceBtn) submitDeviceBtn.textContent = '機器情報を更新';
                     devIpInput.placeholder = '192.168.1.1';
+
+                    const devLocEl = document.getElementById('dev-location');
+                    const devMemoEl = document.getElementById('dev-trouble-memo');
+                    const devWebEl = document.getElementById('dev-web-url');
+                    if (devLocEl) devLocEl.value = d.location || '';
+                    if (devMemoEl) devMemoEl.value = d.troubleMemo || '';
+                    if (devWebEl) devWebEl.value = d.webUrl || '';
 
                     populateConnectionsDropdown(d.ip);
                     const parents = d.connectedTo ? d.connectedTo.split(',').map(p => p.trim()).filter(p => p) : [];
@@ -5423,52 +5504,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 4. Email (SMTP) Settings & Test Send
-    const configEmailEnabled = document.getElementById('config-email-enabled');
-    const emailSettingsPanel = document.getElementById('email-settings-panel');
-    const btnTestEmail = document.getElementById('btn-test-email');
-
-    if (configEmailEnabled && emailSettingsPanel) {
-        configEmailEnabled.addEventListener('change', () => {
-            emailSettingsPanel.style.display = configEmailEnabled.checked ? 'flex' : 'none';
-        });
-    }
-
-    if (btnTestEmail) {
-        btnTestEmail.addEventListener('click', async () => {
-            btnTestEmail.disabled = true;
-            btnTestEmail.textContent = '送信中...';
-            try {
-                const payload = {
-                    smtpHost: document.getElementById('config-smtp-host') ? document.getElementById('config-smtp-host').value.trim() : '',
-                    smtpPort: document.getElementById('config-smtp-port') ? parseInt(document.getElementById('config-smtp-port').value, 10) : 587,
-                    smtpSsl: document.getElementById('config-smtp-ssl') ? document.getElementById('config-smtp-ssl').checked : true,
-                    smtpUser: document.getElementById('config-smtp-user') ? document.getElementById('config-smtp-user').value.trim() : '',
-                    smtpPass: document.getElementById('config-smtp-pass') ? document.getElementById('config-smtp-pass').value : '',
-                    smtpFrom: document.getElementById('config-smtp-from') ? document.getElementById('config-smtp-from').value.trim() : '',
-                    smtpTo: document.getElementById('config-smtp-to') ? document.getElementById('config-smtp-to').value.trim() : ''
-                };
-                const res = await fetch('/api/email/test', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await res.json();
-                if (res.ok && data.status === 'success') {
-                    showToast('✅ テストメールを送信しました。受信ボックスをご確認ください。', 'success');
-                } else {
-                    showToast(`❌ 送信失敗: ${data.error || 'SMTPサーバーの設定をご確認ください。'}`, 'error');
-                }
-            } catch (err) {
-                showToast('❌ 通信エラーが発生しました。', 'error');
-            } finally {
-                btnTestEmail.disabled = false;
-                btnTestEmail.textContent = '✉️ テスト送信';
-            }
-        });
-    }
-
-    // 5. Syslog / Trap Stream Management
+    // 4. Syslog / Trap Stream Management
     const syslogContainer = document.getElementById('syslog-stream-container');
     const syslogSeverityFilter = document.getElementById('syslog-severity-filter');
     const syslogSearchInput = document.getElementById('syslog-search-input');
@@ -5655,37 +5691,45 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 7. Update SNMP Modal Opening with Memo and Backup
+    // 6. Update SNMP Modal Opening with Manual Link and Backup
     const originalOpenSnmpDetailsModal = openSnmpDetailsModal;
     openSnmpDetailsModal = async function(device) {
         if (originalOpenSnmpDetailsModal) await originalOpenSnmpDetailsModal(device);
         
-        // Populate memo tab
+        // Populate manual and location tab
         const locEl = document.getElementById('modal-memo-location');
-        const venEl = document.getElementById('modal-memo-vendor');
         const webEl = document.getElementById('modal-memo-weburl');
-        const memEl = document.getElementById('modal-memo-text');
+        const linkWrapper = document.getElementById('modal-memo-link-wrapper');
+        const linkEl = document.getElementById('modal-memo-link');
+        const emptyEl = document.getElementById('modal-memo-empty');
         
         if (locEl) locEl.textContent = device.location || '未登録';
-        if (venEl) venEl.textContent = device.vendorContact || '未登録';
         if (webEl) webEl.innerHTML = device.webUrl ? `<a href="${escapeHTML(device.webUrl)}" target="_blank" style="color:var(--primary); text-decoration:underline;">${escapeHTML(device.webUrl)}</a>` : '—';
-        if (memEl) memEl.textContent = device.troubleMemo || 'トラブル対応手順メモは登録されていません。';
+        
+        if (device.troubleMemo && device.troubleMemo.trim()) {
+            if (linkEl) linkEl.href = device.troubleMemo.trim();
+            if (linkWrapper) linkWrapper.style.display = 'block';
+            if (emptyEl) emptyEl.style.display = 'none';
+        } else {
+            if (linkWrapper) linkWrapper.style.display = 'none';
+            if (emptyEl) emptyEl.style.display = 'block';
+        }
 
         // Load backup list
         loadConfigBackupList(device.ip);
     };
 
-    // 8. Helper: Render simple mode memo badge into device cards
+    // 7. Helper: Render simple mode memo badge into device cards
     const originalRenderDeviceCard = renderDeviceCard;
     if (typeof originalRenderDeviceCard === 'function') {
         renderDeviceCard = function(device) {
             const card = originalRenderDeviceCard(device);
-            if (card && (device.location || device.vendorContact || device.troubleMemo)) {
+            if (card && (device.location || device.troubleMemo)) {
                 const memoDiv = document.createElement('div');
                 memoDiv.className = 'simple-mode-memo-badge';
                 memoDiv.innerHTML = `
                     ${device.location ? `<span>📍 <strong>${escapeHTML(device.location)}</strong></span>` : ''}
-                    ${device.vendorContact ? `<span>📞 <strong>${escapeHTML(device.vendorContact)}</strong></span>` : ''}
+                    ${device.troubleMemo ? `<span>📖 <a href="${escapeHTML(device.troubleMemo)}" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline;">マニュアル</a></span>` : ''}
                 `;
                 const content = card.querySelector('.device-card-content') || card;
                 content.appendChild(memoDiv);
