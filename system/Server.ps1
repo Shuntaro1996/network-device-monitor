@@ -107,6 +107,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.SyslogPort        = 514
     $syncHash.SslWarnDays       = 30
     $syncHash.UiMode            = "detail"
+    $syncHash.BwThreshMbps      = 10.0
     
     # Load Config from file if exists
     if (Test-Path $configFileJson) {
@@ -140,6 +141,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             if ($null -ne $savedConfig.syslogPort)         { $syncHash.SyslogPort         = [int]$savedConfig.syslogPort }
             if ($null -ne $savedConfig.sslWarnDays)        { $syncHash.SslWarnDays        = [int]$savedConfig.sslWarnDays }
             if ($null -ne $savedConfig.uiMode)             { $syncHash.UiMode             = [string]$savedConfig.uiMode }
+            if ($null -ne $savedConfig.bwThreshMbps)       { $syncHash.BwThreshMbps       = [double]$savedConfig.bwThreshMbps }
             Write-Host "Config loaded from $configFileJson" -ForegroundColor Green
         } catch {
             Write-Host "Failed to load config.json, using defaults." -ForegroundColor Yellow
@@ -3041,6 +3043,7 @@ try {
                         syslogPort         = $syncHash.SyslogPort
                         sslWarnDays        = $syncHash.SslWarnDays
                         uiMode             = $syncHash.UiMode
+                        bwThreshMbps       = $syncHash.BwThreshMbps
                     }
                 }
                 elseif ($urlPath -eq "/api/config" -and $method -eq "POST") {
@@ -3113,6 +3116,10 @@ try {
                     if ($null -ne $payload.syslogPort) { $syncHash.SyslogPort = [int]$payload.syslogPort }
                     if ($null -ne $payload.sslWarnDays) { $syncHash.SslWarnDays = [int]$payload.sslWarnDays }
                     if ($null -ne $payload.uiMode) { $syncHash.UiMode = [string]$payload.uiMode }
+                    if ($null -ne $payload.bwThreshMbps) {
+                        $v = [double]$payload.bwThreshMbps
+                        if ($v -gt 0) { $syncHash.BwThreshMbps = $v }
+                    }
 
                     Log-Audit -action "CONFIG_UPDATE" -target "System" -details "System configuration updated" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                     
@@ -3134,6 +3141,7 @@ try {
                         emailEnabled       = $syncHash.EmailEnabled
                         syslogEnabled      = $syncHash.SyslogEnabled
                         uiMode             = $syncHash.UiMode
+                        bwThreshMbps       = $syncHash.BwThreshMbps
                     }
 
                     # Save to file for persistence
@@ -3164,6 +3172,7 @@ try {
                             syslogPort         = $syncHash.SyslogPort
                             sslWarnDays        = $syncHash.SslWarnDays
                             uiMode             = $syncHash.UiMode
+                            bwThreshMbps       = $syncHash.BwThreshMbps
                         }
                         $configObj | ConvertTo-Json | Out-File -FilePath $configFileJson -Encoding UTF8
                     } catch {
@@ -3477,8 +3486,8 @@ try {
                             $syncHash.IperfState.Target        = $targetIp
                             $syncHash.IperfState.StopRequested = $false
                             $syncHash.IperfState.Process       = $null
-                            # Parse bandwidth threshold (default 10 Mbps)
-                            $bwThreshMbps = 10.0
+                            # Parse bandwidth threshold (default from config or 10 Mbps)
+                            $bwThreshMbps = if ($null -ne $syncHash.BwThreshMbps -and $syncHash.BwThreshMbps -gt 0) { [double]$syncHash.BwThreshMbps } else { 10.0 }
                             if ($bwThreshParam -match '^\d+(\.\d+)?$') { $bwThreshMbps = [double]$bwThreshParam }
 
                             $iperfTaskScript = {

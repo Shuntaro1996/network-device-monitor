@@ -236,6 +236,10 @@
                                     <label>カスタムオプション (例: -u -b 10M -P 4)</label>
                                     <input type="text" id="iperf-view-options" placeholder="-u -b 10M" class="form-input-lg">
                                 </div>
+                                <div class="thresh-field" style="min-width: 130px;">
+                                    <label>集計閾値 (Mbps)</label>
+                                    <input type="number" id="iperf-view-bw-thresh" value="10" min="0.1" step="0.5" class="form-input-lg centered" title="この帯域以上の割合を集計します">
+                                </div>
                                 <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
                                     <button id="run-iperf-view-btn" class="btn primary-btn run-btn">計測開始</button>
                                     <button id="stop-iperf-view-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:0 22px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.95rem;">⏹ 計測停止</button>
@@ -944,6 +948,14 @@
                             </div>
                         </div>
                     </div>
+
+                    <div class="config-section">
+                        <h4 class="config-section-title">🚀 Iperf 帯域集計閾値</h4>
+                        <div class="form-group inline-group">
+                            <input type="number" id="modal-thresh-bandwidth" class="form-input" value="10" min="0.1" step="0.5" style="max-width:140px;">
+                            <span class="unit-label">Mbps 以上 / 未満の割合を集計</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Tab 2: Notifications & Audio -->
@@ -1191,6 +1203,6 @@
     </div>
 
     <div id="toast-container"></div>
-    <script src="app.js?v=55"></script>
+    <script src="app.js?v=56"></script>
 </body>
 </html>

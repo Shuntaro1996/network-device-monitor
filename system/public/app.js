@@ -330,7 +330,8 @@ document.addEventListener('DOMContentLoaded', () => {
         webhookEnabled: false,
         webhookOfflineOnly: true,
         soundEnabled: true,
-        soundVolume: 0.5
+        soundVolume: 0.5,
+        bwThreshMbps: 10
     };
 
     // ── Web Audio API Alert Engine ──────────────────────────────────────────
@@ -483,6 +484,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (config.loggingEnabled !== undefined) {
                     updateLoggingToggleUI(config.loggingEnabled);
                 }
+                if (config.bwThreshMbps) {
+                    if (threshBandwidthEl) threshBandwidthEl.value = config.bwThreshMbps;
+                    const iperfViewBwInp = document.getElementById('iperf-view-bw-thresh');
+                    if (iperfViewBwInp) iperfViewBwInp.value = config.bwThreshMbps;
+                }
                 const savedIps = config.highFreqTargetIps || '';
                 populateHighFreqTargetDropdown(savedIps);
                 updateUltraHighFreqState(config.pollInterval || 1000, savedIps);
@@ -523,6 +529,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const out2Inp = document.getElementById('modal-config-outage-thresh2');
         if (out2Inp) out2Inp.value = systemConfig.outageThresh2Ms || 5000;
+
+        const bwThreshInp = document.getElementById('modal-thresh-bandwidth');
+        if (bwThreshInp) bwThreshInp.value = systemConfig.bwThreshMbps || 10;
 
         const soundEnabledInp = document.getElementById('modal-sound-enabled');
         if (soundEnabledInp) soundEnabledInp.checked = (systemConfig.soundEnabled !== false);
@@ -634,7 +643,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 smtpFrom:           document.getElementById('modal-smtp-from') ? document.getElementById('modal-smtp-from').value.trim() : '',
                 smtpTo:             document.getElementById('modal-smtp-to') ? document.getElementById('modal-smtp-to').value.trim() : '',
                 soundEnabled:       document.getElementById('modal-sound-enabled').checked,
-                soundVolume:        parseFloat(document.getElementById('modal-sound-volume').value) || 0.5
+                soundVolume:        parseFloat(document.getElementById('modal-sound-volume').value) || 0.5,
+                bwThreshMbps:       parseFloat(document.getElementById('modal-thresh-bandwidth')?.value) || 10
             };
 
             try {
@@ -649,6 +659,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const data = await res.json();
                     systemConfig = { ...systemConfig, ...data };
                     if (threshLatencyEl) threshLatencyEl.value = systemConfig.latencyThreshMs;
+                    if (threshBandwidthEl && systemConfig.bwThreshMbps) threshBandwidthEl.value = systemConfig.bwThreshMbps;
+                    const iperfViewBwInp = document.getElementById('iperf-view-bw-thresh');
+                    if (iperfViewBwInp && systemConfig.bwThreshMbps) iperfViewBwInp.value = systemConfig.bwThreshMbps;
                     updateUltraHighFreqState(systemConfig.pollInterval, systemConfig.highFreqTargetIps);
                     showToast('info', '✅ 設定を保存しました', '監視設定・通知設定を正常に更新しました。', 3500);
                     closeSystemConfigModal();
@@ -2091,8 +2104,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper to start iperf from Dashboard
     function startIperfFromDashboard(ip) {
         const duration = 10;
-        showToast('info', '🚀 Iperf計測開始', `${ip} に対して帯域計測を開始します...`, 2000);
-        fetch(`/api/iperf?action=start&ip=${encodeURIComponent(ip)}&t=${duration}`)
+        const iperfViewBwInp = document.getElementById('iperf-view-bw-thresh');
+        const bwThresh = (iperfViewBwInp && iperfViewBwInp.value) ? parseFloat(iperfViewBwInp.value) || 10 : (systemConfig.bwThreshMbps || 10);
+        showToast('info', '🚀 Iperf計測開始', `${ip} に対して帯域計測を開始します (閾値: ${bwThresh} Mbps)...`, 2000);
+        fetch(`/api/iperf?action=start&ip=${encodeURIComponent(ip)}&t=${duration}&bw=${bwThresh}`)
             .then(res => res.json())
             .then(data => {
                 if (data.status !== 'started') showToast('error', '❌ 計測失敗', data.error || '計測を開始できませんでした。');
@@ -2505,6 +2520,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const stopIperfViewBtn = document.getElementById('stop-iperf-view-btn');
     const iperfViewDurationInput = document.getElementById('iperf-view-duration');
     const iperfViewOptionsInput = document.getElementById('iperf-view-options');
+    const iperfViewBwThreshInput = document.getElementById('iperf-view-bw-thresh');
     const iperfViewResultContainer = document.getElementById('iperf-view-result-container');
     const iperfViewLoading = document.getElementById('iperf-view-loading');
     const iperfViewCountdown = document.getElementById('iperf-view-countdown');
@@ -2668,12 +2684,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (remaining <= 0) clearInterval(timer);
             }, 1000);
 
+            if (iperfViewBwThreshInput) iperfViewBwThreshInput.disabled = true;
+
             // Stop-requested flag (set when user clicks stop button)
             let isStopRequested = false;
             
             try {
                 // Step 1: Start Iperf in background
-                const bwThresh = parseFloat(threshBandwidthEl ? threshBandwidthEl.value : 10) || 10;
+                const bwThresh = parseFloat(iperfViewBwThreshInput ? iperfViewBwThreshInput.value : (threshBandwidthEl ? threshBandwidthEl.value : 10)) || 10;
                 const startRes = await fetch(`/api/iperf?action=start&ip=${encodeURIComponent(ip)}&t=${duration}&opts=${encodeURIComponent(options)}&bw=${bwThresh}`);
                 const startData = await startRes.json();
                 
@@ -2744,6 +2762,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 runIperfViewBtn.disabled = false;
                 if (stopIperfViewBtn) stopIperfViewBtn.style.display = 'none';
                 if (iperfViewOptionsInput) iperfViewOptionsInput.disabled = false;
+                if (iperfViewBwThreshInput) iperfViewBwThreshInput.disabled = false;
                 if (iperfCustomTargetInput) iperfCustomTargetInput.disabled = false;
                 if (iperfTargetSelect) iperfTargetSelect.disabled = false;
             }
