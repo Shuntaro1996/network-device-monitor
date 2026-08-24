@@ -337,6 +337,16 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         Process        = $null
     })
 
+    # Iperf Server Session State
+    $syncHash.IperfServerState = [hashtable]::Synchronized(@{
+        Running        = $false
+        Port           = 5201
+        Output         = ""
+        Process        = $null
+        StartTime      = ""
+        LogFile        = ""
+    })
+
     # MTR (Visual Tracert) Session State
     $syncHash.MtrState = [hashtable]::Synchronized(@{
         Running = $false
@@ -3724,6 +3734,225 @@ try {
                         Write-JsonResponse $response @{ error = "No iperf log found" } 404
                     }
                 }
+                elseif ($urlPath -eq "/api/iperf/server/status" -and $method -eq "GET") {
+                    $st = $syncHash.IperfServerState
+                    Write-JsonResponse $response @{
+                        status    = "success"
+                        running   = $st.Running
+                        port      = $st.Port
+                        startTime = $st.StartTime
+                        output    = $st.Output
+                        logFile   = $st.LogFile
+                    }
+                }
+                elseif ($urlPath -eq "/api/iperf/server/start" -and $method -eq "POST") {
+                    if ($syncHash.IperfServerState.Running) {
+                        Write-JsonResponse $response @{ error = "iperf3 server is already running" } 409
+                        continue
+                    }
+
+                    $bodyStr = ""
+                    try {
+                        $reader = New-Object System.IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                        $bodyStr = $reader.ReadToEnd()
+                    } catch {}
+
+                    $port = 5201
+                    if ($bodyStr) {
+                        try {
+                            $json = $bodyStr | ConvertFrom-Json
+                            if ($json.port) { $port = [int]$json.port }
+                        } catch {}
+                    }
+
+                    # iperf3.exe の場所を探す
+                    $iperfExe = Join-Path $syncHash.PSScriptRoot "iperf3.exe"
+                    if (-not (Test-Path $iperfExe)) {
+                        $iperfExe = Join-Path $syncHash.PSScriptRoot "iperf3.18_64\iperf3.exe"
+                    }
+                    if (-not (Test-Path $iperfExe)) {
+                        $iperfExe = Get-Command iperf3 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+                    }
+
+                    if ($iperfExe -and (Test-Path $iperfExe)) {
+                        $serverLogFile = Join-Path $syncHash.SessionDir "iperf_server.log"
+                        $tsStart = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                        
+                        $syncHash.IperfServerState.Running   = $true
+                        $syncHash.IperfServerState.Port      = $port
+                        $syncHash.IperfServerState.StartTime = $tsStart
+                        $syncHash.IperfServerState.LogFile   = $serverLogFile
+                        $syncHash.IperfServerState.Output    = "=== iperf3 Server Started at $tsStart on Port $port ===`n"
+
+                        # Audit Log
+                        Log-Audit -action "IPERF_SERVER_START" -target "Port $port" -details "iperf3 server started" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
+
+                        # バックグラウンド実行
+                        $serverTaskScript = {
+                            param($exe, $srvPort, $sync, $sessDir, $logPath)
+                            $tmpLiveLog = Join-Path ([System.IO.Path]::GetTempPath()) "ndm_iperf_srv_tmp_$([guid]::NewGuid().ToString('N')).log"
+
+                            function Write-ServerLog([string]$text) {
+                                try {
+                                    $text | Out-File -FilePath $logPath -Append -Encoding UTF8
+                                } catch {}
+                            }
+
+                            try {
+                                Write-ServerLog "-----------------------------------------------------------"
+                                Write-ServerLog "=== iperf3 Server Session Started at $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) ==="
+                                Write-ServerLog "Port: $srvPort"
+                                Write-ServerLog "Command: iperf3 -s -p $srvPort -i 1 --forceflush"
+                                Write-ServerLog "-----------------------------------------------------------"
+
+                                $cmdArgs = "-s -p $srvPort -i 1 --forceflush"
+                                $cmdArguments = "/c `"`"$exe`" $cmdArgs > `"$tmpLiveLog`" 2>&1`""
+
+                                $pInfo = New-Object System.Diagnostics.ProcessStartInfo
+                                $pInfo.FileName = "cmd.exe"
+                                $pInfo.Arguments = $cmdArguments
+                                $pInfo.UseShellExecute = $false
+                                $pInfo.CreateNoWindow = $true
+
+                                $proc = New-Object System.Diagnostics.Process
+                                $proc.StartInfo = $pInfo
+                                $null = $proc.Start()
+                                $sync.IperfServerState.Process = $proc
+
+                                # ファイル生成待機
+                                $waited = 0
+                                while (-not (Test-Path $tmpLiveLog) -and $waited -lt 3000 -and -not $proc.HasExited) {
+                                    Start-Sleep -Milliseconds 100
+                                    $waited += 100
+                                }
+
+                                [long]$byteOffset = 0
+                                while (-not $proc.HasExited -and $sync.IperfServerState.Running) {
+                                    Start-Sleep -Milliseconds 300
+                                    if (-not (Test-Path $tmpLiveLog)) { continue }
+                                    try {
+                                        $fs = New-Object System.IO.FileStream(
+                                            $tmpLiveLog,
+                                            [System.IO.FileMode]::Open,
+                                            [System.IO.FileAccess]::Read,
+                                            [System.IO.FileShare]::ReadWrite)
+                                        $fileLen = $fs.Length
+                                        if ($fileLen -gt $byteOffset) {
+                                            $null = $fs.Seek($byteOffset, [System.IO.SeekOrigin]::Begin)
+                                            $readLen = [int]($fileLen - $byteOffset)
+                                            $buf = New-Object byte[] $readLen
+                                            $read = $fs.Read($buf, 0, $readLen)
+                                            $byteOffset += $read
+                                            $chunk = [System.Text.Encoding]::UTF8.GetString($buf, 0, $read)
+                                            foreach ($ln in ($chunk -split "`n")) {
+                                                $trimmed = $ln.TrimEnd("`r")
+                                                if ($trimmed) {
+                                                    $nowTs = Get-Date -Format "HH:mm:ss"
+                                                    $fl = "[$nowTs] $trimmed"
+                                                    $sync.IperfServerState.Output += $fl + "`n"
+                                                    Write-ServerLog $fl
+                                                }
+                                            }
+                                        }
+                                        $fs.Close()
+                                    } catch { try { $fs.Close() } catch {} }
+                                }
+
+                                # 残りデータの吸い出し
+                                Start-Sleep -Milliseconds 200
+                                if (Test-Path $tmpLiveLog) {
+                                    try {
+                                        $fs = New-Object System.IO.FileStream(
+                                            $tmpLiveLog,
+                                            [System.IO.FileMode]::Open,
+                                            [System.IO.FileAccess]::Read,
+                                            [System.IO.FileShare]::ReadWrite)
+                                        $fileLen = $fs.Length
+                                        if ($fileLen -gt $byteOffset) {
+                                            $null = $fs.Seek($byteOffset, [System.IO.SeekOrigin]::Begin)
+                                            $readLen = [int]($fileLen - $byteOffset)
+                                            $buf = New-Object byte[] $readLen
+                                            $read = $fs.Read($buf, 0, $readLen)
+                                            $chunk = [System.Text.Encoding]::UTF8.GetString($buf, 0, $read)
+                                            foreach ($ln in ($chunk -split "`n")) {
+                                                $trimmed = $ln.TrimEnd("`r")
+                                                if ($trimmed) {
+                                                    $nowTs = Get-Date -Format "HH:mm:ss"
+                                                    $fl = "[$nowTs] $trimmed"
+                                                    $sync.IperfServerState.Output += $fl + "`n"
+                                                    Write-ServerLog $fl
+                                                }
+                                            }
+                                        }
+                                        $fs.Close()
+                                    } catch { try { $fs.Close() } catch {} }
+                                }
+
+                                if (-not $proc.HasExited) {
+                                    try { & taskkill /F /T /PID $proc.Id 2>$null } catch {}
+                                    try { $proc.Kill() } catch {}
+                                }
+                            } catch {
+                                $errMsg = "Error during server execution: $($_.Exception.Message)"
+                                $sync.IperfServerState.Output += $errMsg + "`n"
+                                Write-ServerLog $errMsg
+                            } finally {
+                                try { if (Test-Path $tmpLiveLog) { Remove-Item $tmpLiveLog -Force -ErrorAction SilentlyContinue } } catch {}
+                                $sync.IperfServerState.Running = $false
+                                $sync.IperfServerState.Process = $null
+                                $tsEnd = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                                Write-ServerLog "=== iperf3 Server Stopped at $tsEnd ==="
+                                Write-ServerLog "-----------------------------------------------------------"
+                            }
+                        }
+
+                        $serverPowerShell = [PowerShell]::Create().AddScript($serverTaskScript)
+                        $null = $serverPowerShell.AddArgument($iperfExe)
+                        $null = $serverPowerShell.AddArgument($port)
+                        $null = $serverPowerShell.AddArgument($syncHash)
+                        $null = $serverPowerShell.AddArgument($syncHash.SessionDir)
+                        $null = $serverPowerShell.AddArgument($serverLogFile)
+                        $null = $serverPowerShell.BeginInvoke()
+
+                        Write-JsonResponse $response @{ status = "success"; port = $port; message = "iperf3 server started" }
+                    } else {
+                        Write-JsonResponse $response @{ error = "iperf3.exe not found on server" } 404
+                    }
+                }
+                elseif ($urlPath -eq "/api/iperf/server/stop" -and $method -eq "POST") {
+                    if ($syncHash.IperfServerState.Running) {
+                        $syncHash.IperfServerState.Running = $false
+                        $srvProc = $syncHash.IperfServerState.Process
+                        if ($null -ne $srvProc -and -not $srvProc.HasExited) {
+                            try { & taskkill /F /T /PID $srvProc.Id 2>$null } catch {}
+                            try { $srvProc.Kill() } catch {}
+                        }
+                        $nowTs = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                        $syncHash.IperfServerState.Output += "=== iperf3 Server Stopped by user at $nowTs ===`n"
+                        Log-Audit -action "IPERF_SERVER_STOP" -target "Server" -details "iperf3 server stopped" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
+                        Write-JsonResponse $response @{ status = "stopped" }
+                    } else {
+                        Write-JsonResponse $response @{ status = "not_running" }
+                    }
+                }
+                elseif ($urlPath -eq "/api/iperf/server/log" -and $method -eq "GET") {
+                    $serverLog = Join-Path $syncHash.SessionDir "iperf_server.log"
+                    if ($serverLog -and (Test-Path $serverLog)) {
+                        $logBytes = [System.IO.File]::ReadAllBytes($serverLog)
+                        $filename = [System.IO.Path]::GetFileName($serverLog)
+                        $response.ContentType = "text/plain; charset=utf-8"
+                        $response.AddHeader("Content-Disposition", "attachment; filename=`"$filename`"")
+                        $response.ContentLength64 = $logBytes.Length
+                        $response.OutputStream.Write($logBytes, 0, $logBytes.Length)
+                        $response.Close()
+                    } else {
+                        Write-JsonResponse $response @{ error = "No iperf server log found" } 404
+                    }
+                }
+                elseif ($urlPath -eq "/api/iperf/server/clear-log" -and $method -eq "POST") {
+                    $syncHash.IperfServerState.Output = ""
+                    Write-JsonResponse $response @{ status = "cleared" }
+                }
                 elseif ($urlPath -eq "/api/device/upload-image" -and $method -eq "POST") {
                     $ip = $request.Headers["X-Device-IP"]
                     $filename = $request.Headers["X-File-Name"]
@@ -4290,6 +4519,13 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 } catch {}
             }
         }
+    }
+
+    if ($null -ne $syncHash.IperfServerState.Process -and -not $syncHash.IperfServerState.Process.HasExited) {
+        try { $syncHash.IperfServerState.Process.Kill() } catch {}
+    }
+    if ($null -ne $syncHash.IperfState.Process -and -not $syncHash.IperfState.Process.HasExited) {
+        try { $syncHash.IperfState.Process.Kill() } catch {}
     }
 
     if ($null -ne $listener)       { try { $listener.Stop();   $listener.Close()   } catch {} }

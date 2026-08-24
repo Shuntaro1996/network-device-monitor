@@ -204,7 +204,18 @@
                 <div class="glass-card iperf-container">
                     <h2 class="view-title">🚀 Iperf3 帯域計測</h2>
                     
-                    <div class="iperf-content">
+                    <!-- Subtabs: Client Mode vs Server Mode -->
+                    <div class="iperf-subtabs" style="display:flex; gap:10px; margin-bottom:16px; border-bottom:1px solid var(--glass-border); padding-bottom:10px;">
+                        <button id="iperf-subtab-client" class="btn active" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:var(--primary); color:#fff; border:none; border-radius:8px; cursor:pointer;">
+                            <span>📤 クライアント計測 (送信側)</span>
+                        </button>
+                        <button id="iperf-subtab-server" class="btn" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.06); color:var(--text-muted); border:1px solid var(--glass-border); border-radius:8px; cursor:pointer;">
+                            <span>📥 サーバー待機 (受信・ログ取得)</span>
+                        </button>
+                    </div>
+
+                    <!-- 1. Client Mode Section -->
+                    <div id="iperf-client-section" class="iperf-content">
                         <div class="iperf-setup glass-card">
                             <div class="setup-grid">
                                 <div class="target-field">
@@ -265,6 +276,50 @@
                             
                             <div id="iperf-view-summary" class="result-summary"></div>
                         </div>
+                    </div>
+
+                    <!-- 2. Server Mode Section -->
+                    <div id="iperf-server-section" class="iperf-content" style="display:none; flex-direction:column; gap:16px;">
+                        <div class="glass-card" style="padding:18px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                                <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+                                    <div class="field" style="display:flex; align-items:center; gap:8px;">
+                                        <label style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">待受ポート:</label>
+                                        <input type="number" id="iperf-server-port" value="5201" min="1024" max="65535" class="form-input-lg centered" style="width:100px;">
+                                    </div>
+                                    <div id="iperf-server-status-badge" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:20px; font-size:0.82rem; font-weight:700; background:rgba(148,163,184,0.15); color:var(--text-muted);">
+                                        <span id="iperf-server-status-dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#94a3b8;"></span>
+                                        <span id="iperf-server-status-text">サーバー停止中</span>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:10px;">
+                                    <button id="iperf-server-start-btn" class="btn primary-btn" style="padding:8px 24px; font-size:0.9rem; font-weight:700;">▶️ サーバー起動</button>
+                                    <button id="iperf-server-stop-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:8px 24px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.9rem;">⏹ サーバー停止</button>
+                                </div>
+                            </div>
+                            <div style="margin-top:14px; font-size:0.82rem; color:var(--text-muted); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">
+                                <div>💡 外部クライアントから計測する際は <code>iperf3 -c &lt;このPCのIPアドレス&gt; -p 5201</code> を実行してください。</div>
+                                <div style="display:flex; gap:8px;">
+                                    <a id="iperf-server-download-log-btn" href="/api/iperf/server/log" target="_blank" class="btn secondary-btn small" style="text-decoration:none;">💾 サーバーログ保存</a>
+                                    <button id="iperf-server-clear-log-btn" class="btn secondary-btn small">🗑 ログ消去</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Server Realtime Live Console -->
+                        <div class="glass-card" style="padding:18px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                                <div style="font-size:0.9rem; font-weight:700; color:var(--text-main); display:flex; align-items:center; gap:8px;">
+                                    <span class="pulse-live-dot"></span>
+                                    <span>受信ログストリーム (iperf3 -s --forceflush)</span>
+                                </div>
+                                <span id="iperf-server-uptime" style="font-size:0.78rem; color:var(--text-muted);"></span>
+                            </div>
+                            <div id="iperf-server-live-console" class="live-console" style="min-height:300px; max-height:450px; overflow-y:auto; font-family:'Cascadia Code', Consolas, monospace; font-size:0.82rem; line-height:1.6; padding:12px; background:rgba(0,0,0,0.45); border:1px solid var(--glass-border); border-radius:10px; white-space:pre-wrap;">
+                                <div style="color:var(--text-muted); text-align:center; padding:40px;">サーバーは停止しています。「▶️ サーバー起動」を押すとクライアントからの受信待機を開始します。</div>
+                            </div>
+                        </div>
+                    </div>
 
                         <div class="iperf-guide">
                             <div class="guide-title">📖 Iperf3 コマンド詳細解説</div>
@@ -282,6 +337,10 @@
                                         <li><code>-b [N]</code> : 帯域制限 (UDP時はデフォルト1Mbps)</li>
                                         <li><code>-P [NUM]</code> : 並列ストリーム数（同時セッション）</li>
                                         <li><code>-R</code> : リバースモード（サーバー側から送信）</li>
+                                    </ul>
+                                    <ul class="guide-list">
+                                        <li><code>-s</code> : サーバーモードで待機 (ポート 5201)</li>
+                                        <li><code>--forceflush</code> : 出力をバッファリングせず即時出力</li>
                                     </ul>
                                 </div>
                             </div>
@@ -1132,6 +1191,6 @@
     </div>
 
     <div id="toast-container"></div>
-    <script src="app.js?v=54"></script>
+    <script src="app.js?v=55"></script>
 </body>
 </html>

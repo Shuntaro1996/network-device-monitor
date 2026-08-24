@@ -2771,6 +2771,194 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // =========================================================================
+    // Iperf Server Mode Logic
+    // =========================================================================
+    const iperfSubtabClient = document.getElementById('iperf-subtab-client');
+    const iperfSubtabServer = document.getElementById('iperf-subtab-server');
+    const iperfClientSection = document.getElementById('iperf-client-section');
+    const iperfServerSection = document.getElementById('iperf-server-section');
+
+    const iperfServerPort = document.getElementById('iperf-server-port');
+    const iperfServerStatusBadge = document.getElementById('iperf-server-status-badge');
+    const iperfServerStatusDot = document.getElementById('iperf-server-status-dot');
+    const iperfServerStatusText = document.getElementById('iperf-server-status-text');
+    const iperfServerStartBtn = document.getElementById('iperf-server-start-btn');
+    const iperfServerStopBtn = document.getElementById('iperf-server-stop-btn');
+    const iperfServerLiveConsole = document.getElementById('iperf-server-live-console');
+    const iperfServerUptime = document.getElementById('iperf-server-uptime');
+    const iperfServerClearLogBtn = document.getElementById('iperf-server-clear-log-btn');
+
+    let iperfServerPollTimer = null;
+    let isIperfServerRunning = false;
+
+    function switchIperfSubtab(mode) {
+        if (mode === 'server') {
+            if (iperfSubtabServer) {
+                iperfSubtabServer.style.background = 'var(--primary)';
+                iperfSubtabServer.style.color = '#fff';
+                iperfSubtabServer.classList.add('active');
+            }
+            if (iperfSubtabClient) {
+                iperfSubtabClient.style.background = 'rgba(255,255,255,0.06)';
+                iperfSubtabClient.style.color = 'var(--text-muted)';
+                iperfSubtabClient.classList.remove('active');
+            }
+            if (iperfClientSection) iperfClientSection.style.display = 'none';
+            if (iperfServerSection) iperfServerSection.style.display = 'flex';
+            checkIperfServerStatus();
+        } else {
+            if (iperfSubtabClient) {
+                iperfSubtabClient.style.background = 'var(--primary)';
+                iperfSubtabClient.style.color = '#fff';
+                iperfSubtabClient.classList.add('active');
+            }
+            if (iperfSubtabServer) {
+                iperfSubtabServer.style.background = 'rgba(255,255,255,0.06)';
+                iperfSubtabServer.style.color = 'var(--text-muted)';
+                iperfSubtabServer.classList.remove('active');
+            }
+            if (iperfClientSection) iperfClientSection.style.display = 'block';
+            if (iperfServerSection) iperfServerSection.style.display = 'none';
+        }
+    }
+
+    if (iperfSubtabClient) iperfSubtabClient.addEventListener('click', () => switchIperfSubtab('client'));
+    if (iperfSubtabServer) iperfSubtabServer.addEventListener('click', () => switchIperfSubtab('server'));
+
+    function updateIperfServerUI(running, port, startTime, output) {
+        isIperfServerRunning = running;
+        if (running) {
+            if (iperfServerStartBtn) iperfServerStartBtn.style.display = 'none';
+            if (iperfServerStopBtn) iperfServerStopBtn.style.display = 'inline-block';
+            if (iperfServerPort) iperfServerPort.disabled = true;
+            if (iperfServerStatusBadge) {
+                iperfServerStatusBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+                iperfServerStatusBadge.style.color = '#10b981';
+            }
+            if (iperfServerStatusDot) {
+                iperfServerStatusDot.style.background = '#10b981';
+            }
+            if (iperfServerStatusText) {
+                iperfServerStatusText.textContent = `待受中 (ポート ${port || 5201})`;
+            }
+            if (iperfServerUptime && startTime) {
+                iperfServerUptime.textContent = `開始: ${startTime}`;
+            }
+        } else {
+            if (iperfServerStartBtn) iperfServerStartBtn.style.display = 'inline-block';
+            if (iperfServerStopBtn) iperfServerStopBtn.style.display = 'none';
+            if (iperfServerPort) iperfServerPort.disabled = false;
+            if (iperfServerStatusBadge) {
+                iperfServerStatusBadge.style.background = 'rgba(148, 163, 184, 0.15)';
+                iperfServerStatusBadge.style.color = 'var(--text-muted)';
+            }
+            if (iperfServerStatusDot) {
+                iperfServerStatusDot.style.background = '#94a3b8';
+            }
+            if (iperfServerStatusText) {
+                iperfServerStatusText.textContent = 'サーバー停止中';
+            }
+            if (iperfServerUptime) {
+                iperfServerUptime.textContent = '';
+            }
+        }
+
+        if (iperfServerLiveConsole && typeof output === 'string') {
+            if (output.trim()) {
+                iperfServerLiveConsole.textContent = output;
+                iperfServerLiveConsole.scrollTop = iperfServerLiveConsole.scrollHeight;
+            } else if (!running) {
+                iperfServerLiveConsole.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:40px;">サーバーは停止しています。「▶️ サーバー起動」を押すとクライアントからの受信待機を開始します。</div>';
+            }
+        }
+    }
+
+    async function checkIperfServerStatus() {
+        try {
+            const res = await fetch('/api/iperf/server/status');
+            if (res.ok) {
+                const data = await res.json();
+                updateIperfServerUI(data.running, data.port, data.startTime, data.output);
+                if (data.running && !iperfServerPollTimer) {
+                    startIperfServerPolling();
+                } else if (!data.running && iperfServerPollTimer) {
+                    stopIperfServerPolling();
+                }
+            }
+        } catch (e) {}
+    }
+
+    function startIperfServerPolling() {
+        if (iperfServerPollTimer) clearInterval(iperfServerPollTimer);
+        iperfServerPollTimer = setInterval(checkIperfServerStatus, 1000);
+    }
+
+    function stopIperfServerPolling() {
+        if (iperfServerPollTimer) {
+            clearInterval(iperfServerPollTimer);
+            iperfServerPollTimer = null;
+        }
+    }
+
+    if (iperfServerStartBtn) {
+        iperfServerStartBtn.addEventListener('click', async () => {
+            const port = iperfServerPort ? parseInt(iperfServerPort.value, 10) || 5201 : 5201;
+            iperfServerStartBtn.disabled = true;
+            iperfServerStartBtn.textContent = '起動中...';
+            try {
+                const res = await fetch('/api/iperf/server/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ port: port })
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    showToast('info', '🚀 iperf3 サーバー起動', `ポート ${port} で受信待機を開始しました。`, 3000);
+                    updateIperfServerUI(true, port, new Date().toLocaleTimeString(), `=== iperf3 Server Started on Port ${port} ===\n`);
+                    startIperfServerPolling();
+                } else {
+                    showToast('error', '❌ 起動失敗', data.error || 'サーバーの起動に失敗しました。');
+                }
+            } catch (err) {
+                showToast('error', '❌ 通信エラー', 'サーバー起動リクエストに失敗しました。');
+            } finally {
+                iperfServerStartBtn.disabled = false;
+                iperfServerStartBtn.textContent = '▶️ サーバー起動';
+            }
+        });
+    }
+
+    if (iperfServerStopBtn) {
+        iperfServerStopBtn.addEventListener('click', async () => {
+            iperfServerStopBtn.disabled = true;
+            iperfServerStopBtn.textContent = '停止中...';
+            try {
+                const res = await fetch('/api/iperf/server/stop', { method: 'POST' });
+                if (res.ok) {
+                    showToast('info', '⏹ iperf3 サーバー停止', '受信待機サーバーを停止しました。', 2500);
+                    stopIperfServerPolling();
+                    checkIperfServerStatus();
+                }
+            } catch (err) {
+                showToast('error', '❌ エラー', 'サーバー停止に失敗しました。');
+            } finally {
+                iperfServerStopBtn.disabled = false;
+                iperfServerStopBtn.textContent = '⏹ サーバー停止';
+            }
+        });
+    }
+
+    if (iperfServerClearLogBtn) {
+        iperfServerClearLogBtn.addEventListener('click', async () => {
+            await fetch('/api/iperf/server/clear-log', { method: 'POST' });
+            if (iperfServerLiveConsole) {
+                iperfServerLiveConsole.textContent = '=== Log Cleared ===\n';
+            }
+            showToast('info', 'ログ消去', 'サーバーログ表示を消去しました。', 2000);
+        });
+    }
+
     const topoFitBtn = document.getElementById('topo-fit-btn');
     if (topoFitBtn) {
         topoFitBtn.addEventListener('click', () => {
