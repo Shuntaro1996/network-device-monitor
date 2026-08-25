@@ -2706,7 +2706,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Stop-requested flag (set when user clicks stop button)
             let isStopRequested = false;
-            
+            let pollAbortController = null;
+
+            // Attach stop handler BEFORE the polling loop starts so the button works immediately
+            if (stopIperfViewBtn) {
+                stopIperfViewBtn.disabled = false;
+                stopIperfViewBtn._stopHandler = async () => {
+                    if (isStopRequested) return; // prevent double-fire
+                    isStopRequested = true;
+                    stopIperfViewBtn.disabled = true;
+                    stopIperfViewBtn.textContent = '中断中...';
+                    // Abort any in-flight status fetch so the loop exits immediately
+                    if (pollAbortController) {
+                        try { pollAbortController.abort(); } catch(e) {}
+                    }
+                    try {
+                        await fetch('/api/iperf?action=stop');
+                    } catch(e) { /* ignore */ }
+                };
+            }
+
             try {
                 // Step 1: Start Iperf in background
                 const bwThresh = parseFloat(iperfViewBwThreshInput ? iperfViewBwThreshInput.value : (threshBandwidthEl ? threshBandwidthEl.value : 10)) || 10;
@@ -2721,40 +2740,49 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (startData.status === 'started') {
-                    // Step 2: Poll for status and output
+                    // Step 2: Poll for status and output (200ms interval for snappier stop response)
                     let isRunning = true;
                     while (isRunning && !isStopRequested) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        const statusRes = await fetch(`/api/iperf?action=status`);
-                        const statusData = await statusRes.json();
-                        
-                        if (statusData.output) {
-                            iperfLiveConsole.textContent = statusData.output;
-                            iperfLiveConsole.scrollTop = iperfLiveConsole.scrollHeight;
-                            updateIperfChart(statusData.output);
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        if (isStopRequested) break;
+                        try {
+                            pollAbortController = new AbortController();
+                            const statusRes = await fetch(`/api/iperf?action=status`, { signal: pollAbortController.signal });
+                            const statusData = await statusRes.json();
+                            
+                            if (statusData.output) {
+                                iperfLiveConsole.textContent = statusData.output;
+                                iperfLiveConsole.scrollTop = iperfLiveConsole.scrollHeight;
+                                updateIperfChart(statusData.output);
 
-                            const latestSpeed = parseLatestIperfSpeed(statusData.output);
-                            if (latestSpeed && liveSpeedVal && liveSpeedUnit) {
-                                liveSpeedVal.textContent = latestSpeed.val;
-                                liveSpeedUnit.textContent = latestSpeed.unit;
+                                const latestSpeed = parseLatestIperfSpeed(statusData.output);
+                                if (latestSpeed && liveSpeedVal && liveSpeedUnit) {
+                                    liveSpeedVal.textContent = latestSpeed.val;
+                                    liveSpeedUnit.textContent = latestSpeed.unit;
+                                }
                             }
-                        }
-                        
-                        if (statusData.running === false) {
-                            isRunning = false;
+                            
+                            if (statusData.running === false) {
+                                isRunning = false;
+                            }
+                        } catch (fetchErr) {
+                            if (isStopRequested) break; // aborted by stop button — normal
+                            throw fetchErr;             // real network error — propagate
                         }
                     }
                     
                     if (isStopRequested) {
                         // Wait briefly for server to finish flushing the log
                         await new Promise(resolve => setTimeout(resolve, 600));
-                        const finalStatus = await fetch(`/api/iperf?action=status`);
-                        const finalData = await finalStatus.json();
-                        if (finalData.output) {
-                            iperfLiveConsole.textContent = finalData.output;
-                            iperfLiveConsole.scrollTop = iperfLiveConsole.scrollHeight;
-                            updateIperfChart(finalData.output);
-                        }
+                        try {
+                            const finalStatus = await fetch(`/api/iperf?action=status`);
+                            const finalData = await finalStatus.json();
+                            if (finalData.output) {
+                                iperfLiveConsole.textContent = finalData.output;
+                                iperfLiveConsole.scrollTop = iperfLiveConsole.scrollHeight;
+                                updateIperfChart(finalData.output);
+                            }
+                        } catch(e) { /* ignore final-flush errors */ }
                         iperfViewSummary.innerHTML = `
                             <div style="font-size: 1.3rem; color: #f59e0b; margin-bottom: 8px; font-weight: 700;">⏹ 計測中断</div>
                             <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">それまでの計測データはログに保存されています。（Reports フォルダ配下）</div>
@@ -2771,30 +2799,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     iperfViewSummary.innerHTML = `<span style="color: var(--error);">&#10060; エラー: ${startData.error || '計測を開始できませんでした'}</span>`;
                 }
             } catch (err) {
-                console.error('Iperf error:', err);
-                iperfViewSummary.innerHTML = `<span style="color: var(--error);">&#10060; 通信エラーが発生しました</span>`;
+                if (!isStopRequested) {
+                    console.error('Iperf error:', err);
+                    iperfViewSummary.innerHTML = `<span style="color: var(--error);">&#10060; 通信エラーが発生しました</span>`;
+                }
             } finally {
+                pollAbortController = null;
                 clearInterval(timer);
                 iperfViewLoading.classList.add('hidden');
                 iperfViewLoading.style.display = 'none';
                 runIperfViewBtn.disabled = false;
-                if (stopIperfViewBtn) stopIperfViewBtn.style.display = 'none';
+                if (stopIperfViewBtn) {
+                    stopIperfViewBtn.style.display = 'none';
+                    stopIperfViewBtn.disabled = false;
+                    stopIperfViewBtn.textContent = '⏹ 計測を停止';
+                    stopIperfViewBtn._stopHandler = null;
+                }
                 if (iperfViewOptionsInput) iperfViewOptionsInput.disabled = false;
                 if (iperfViewBwThreshInput) iperfViewBwThreshInput.disabled = false;
                 if (iperfCustomTargetInput) iperfCustomTargetInput.disabled = false;
                 if (iperfTargetSelect) iperfTargetSelect.disabled = false;
-            }
-
-            // Attach stop handler for this run (using closure over isStopRequested)
-            if (stopIperfViewBtn) {
-                stopIperfViewBtn._stopHandler = async () => {
-                    isStopRequested = true;
-                    stopIperfViewBtn.disabled = true;
-                    stopIperfViewBtn.textContent = '中断中...';
-                    try {
-                        await fetch('/api/iperf?action=stop');
-                    } catch(e) { /* ignore */ }
-                };
             }
         });
     }

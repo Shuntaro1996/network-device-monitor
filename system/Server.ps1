@@ -3494,9 +3494,11 @@ try {
                     if ($action -eq "stop") {
                         if ($syncHash.IperfState.Running) {
                             $syncHash.IperfState.StopRequested = $true
-                            # Kill the iperf3 process immediately if we have a reference
                             $iperfProc = $syncHash.IperfState.Process
                             if ($null -ne $iperfProc -and -not $iperfProc.HasExited) {
+                                # taskkill /F /T kills the cmd.exe + its iperf3.exe child together
+                                try { & taskkill /F /T /PID $iperfProc.Id 2>$null } catch { }
+                                # Fallback: direct .Kill() on the cmd.exe handle
                                 try { $iperfProc.Kill() } catch { }
                             }
                             Write-JsonResponse $response @{ status = "stopping" }
