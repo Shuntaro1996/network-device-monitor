@@ -1,4 +1,4 @@
-﻿{
+{
     "soundEnabled":  true,
     "smtpUser":  "",
     "outageThresh2Ms":  5000,
@@ -24,5 +24,6 @@
     "sslWarnDays":  30,
     "smtpHost":  "",
     "loggingEnabled":  true,
-    "smtpSsl":  true
+    "smtpSsl":  true,
+    "enableParentSuppression": true
 }

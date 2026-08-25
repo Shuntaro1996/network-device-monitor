@@ -151,16 +151,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Dependency Suppression Logic: Check if all parents are offline
     function isAlertSuppressed(ip) {
+        if (systemConfig.enableParentSuppression === false) return false;
         const dev = devices.find(d => d.ip === ip);
         if (!dev || !dev.connectedTo || typeof dev.connectedTo !== 'string') return false;
         
         const parents = dev.connectedTo.split(',').map(p => p.trim()).filter(p => p);
         if (parents.length === 0) return false;
 
-        // If ALL parents are offline/paused/failed, suppress this alert
+        // If ALL parents are offline/paused/failed/unreachable, suppress this alert
         return parents.every(parentIp => {
             const pStatus = window.lastStatusData ? window.lastStatusData[parentIp] : null;
-            return !pStatus || pStatus.status === 'Failed' || pStatus.status === 'Paused' || pStatus.status === 'Error';
+            return !pStatus || pStatus.status === 'Failed' || pStatus.status === 'Paused' || pStatus.status === 'Error' || pStatus.status === 'Offline' || pStatus.isSuppressed;
         });
     }
 
@@ -331,7 +332,8 @@ document.addEventListener('DOMContentLoaded', () => {
         webhookOfflineOnly: true,
         soundEnabled: true,
         soundVolume: 0.5,
-        bwThreshMbps: 10
+        bwThreshMbps: 10,
+        enableParentSuppression: true
     };
 
     // ── Web Audio API Alert Engine ──────────────────────────────────────────
@@ -533,6 +535,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const bwThreshInp = document.getElementById('modal-thresh-bandwidth');
         if (bwThreshInp) bwThreshInp.value = systemConfig.bwThreshMbps || 10;
 
+        const parentSuppressionInp = document.getElementById('modal-config-enable-parent-suppression');
+        if (parentSuppressionInp) parentSuppressionInp.checked = (systemConfig.enableParentSuppression !== false);
+
         const soundEnabledInp = document.getElementById('modal-sound-enabled');
         if (soundEnabledInp) soundEnabledInp.checked = (systemConfig.soundEnabled !== false);
 
@@ -644,7 +649,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 smtpTo:             document.getElementById('modal-smtp-to') ? document.getElementById('modal-smtp-to').value.trim() : '',
                 soundEnabled:       document.getElementById('modal-sound-enabled').checked,
                 soundVolume:        parseFloat(document.getElementById('modal-sound-volume').value) || 0.5,
-                bwThreshMbps:       parseFloat(document.getElementById('modal-thresh-bandwidth')?.value) || 10
+                bwThreshMbps:       parseFloat(document.getElementById('modal-thresh-bandwidth')?.value) || 10,
+                enableParentSuppression: document.getElementById('modal-config-enable-parent-suppression') ? document.getElementById('modal-config-enable-parent-suppression').checked : true
             };
 
             try {
@@ -1547,7 +1553,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             imageVal = devImageType.value;
         }
-        const connectedToVal1 = devConnectedTo ? (devConnectedTo.value || '') : '';
+        const devParentSel = document.getElementById('dev-parent-ip') || devConnectedTo;
+        const connectedToVal1 = devParentSel ? (devParentSel.value || '') : '';
         const connectedToVal2 = devConnectedTo2 ? devConnectedTo2.value : '';
         const uniqueParents = [connectedToVal1, connectedToVal2]
             .map(ip => ip.trim())
@@ -2215,8 +2222,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!dotEl || !latencyEl) return;
 
             if (data) {
-                dotEl.className = 'status-dot ' + (data.status === "Success" ? 'success' : data.status === "Failed" ? 'error' : 'paused');
-                if (data.status === "Failed" && canAlert(ip, 'offline') && !isAlertSuppressed(ip)) {
+                const isSuppressed = isAlertSuppressed(ip) || data.isSuppressed;
+                const statusClass = (data.status === "Success") 
+                    ? 'success' 
+                    : (data.status === "Failed" || data.status === "Offline") 
+                        ? (isSuppressed ? 'unreachable' : 'error') 
+                        : 'paused';
+                dotEl.className = 'status-dot ' + statusClass;
+
+                if (data.status === "Failed" && canAlert(ip, 'offline') && !isSuppressed) {
                     showToast('error', `🔴 ${data.name || ip} オフライン`, `IP: ${ip} 応答なし`, 5000);
                     playAlertSound('error');
                 }
@@ -2224,7 +2238,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.status === "Success" && data.latency !== null) {
                     latencyEl.textContent = `${data.latency} ms`;
                     latencyEl.className = 'header-latency' + (data.latency >= warnLat ? ' bad' : '');
-                    if (data.latency >= warnLat && canAlert(ip, 'latency') && !isAlertSuppressed(ip)) {
+                    if (data.latency >= warnLat && canAlert(ip, 'latency') && !isSuppressed) {
                         showToast('warning', `⚠️ ${data.name || ip} 高遅延検知`, `IP: ${ip} 遅延: ${data.latency}ms (閾値: ${warnLat}ms)`, 5000);
                         playAlertSound('warning');
                     }
@@ -2233,8 +2247,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (latencyStats[ip].min === null || data.latency < latencyStats[ip].min) latencyStats[ip].min = data.latency;
                     if (latencyStats[ip].max === null || data.latency > latencyStats[ip].max) latencyStats[ip].max = data.latency;
                 } else {
-                    latencyEl.textContent = data.status === "Paused" ? '-- ms' : 'タイムアウト';
-                    latencyEl.className = 'header-latency' + (data.status === "Paused" ? ' paused-text' : ' bad');
+                    if (data.status === "Paused") {
+                        latencyEl.textContent = '-- ms';
+                        latencyEl.className = 'header-latency paused-text';
+                    } else if (data.status === "Failed" || data.status === "Offline") {
+                        latencyEl.textContent = isSuppressed ? '到達不能 (親障害)' : 'タイムアウト';
+                        latencyEl.className = 'header-latency ' + (isSuppressed ? 'unreachable-text' : 'bad');
+                    } else {
+                        latencyEl.textContent = '-- ms';
+                        latencyEl.className = 'header-latency';
+                    }
                 }
                 // Refresh min/max display
                 const minmaxEl = document.getElementById(`minmax-${safeIpId}`);
@@ -2480,36 +2502,32 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Connections Dropdown populator helper
+    // Connections / Parent Dropdown populator helper
     function populateConnectionsDropdown(excludeIp = '') {
-        if (!devConnectedTo) return;
-        const currentVal = devConnectedTo.value;
-        const currentVal2 = devConnectedTo2 ? devConnectedTo2.value : '';
-        devConnectedTo.innerHTML = '<option value="">None (Auto-group)</option>';
-        if (devConnectedTo2) {
-            devConnectedTo2.innerHTML = '<option value="">None (Auto-group)</option>';
-        }
-        devices.forEach(d => {
-            if (d.ip !== excludeIp) {
-                const opt = document.createElement('option');
-                opt.value = d.ip;
-                opt.textContent = `${d.name && d.name !== d.ip ? d.name + ' (' + d.ip + ')' : d.ip}`;
-                devConnectedTo.appendChild(opt);
+        const parentSelects = [
+            document.getElementById('dev-parent-ip'),
+            document.getElementById('dev-connected-to'),
+            document.getElementById('dev-connected-to-2'),
+            document.getElementById('topo-parent-ip'),
+            document.getElementById('topo-connected-to'),
+            document.getElementById('topo-connected-to-2')
+        ].filter(Boolean);
 
-                if (devConnectedTo2) {
-                    const opt2 = document.createElement('option');
-                    opt2.value = d.ip;
-                    opt2.textContent = `${d.name && d.name !== d.ip ? d.name + ' (' + d.ip + ')' : d.ip}`;
-                    devConnectedTo2.appendChild(opt2);
+        parentSelects.forEach(sel => {
+            const currentVal = sel.value;
+            sel.innerHTML = '<option value="">なし (最上位 / ルート機器)</option>';
+            devices.forEach(d => {
+                if (d.ip !== excludeIp && d.enabled !== false) {
+                    const opt = document.createElement('option');
+                    opt.value = d.ip;
+                    opt.textContent = `${d.name && d.name !== d.ip ? d.name + ' (' + d.ip + ')' : d.ip}`;
+                    sel.appendChild(opt);
                 }
+            });
+            if (currentVal && currentVal !== excludeIp) {
+                sel.value = currentVal;
             }
         });
-        if (currentVal && currentVal !== excludeIp) {
-            devConnectedTo.value = currentVal;
-        }
-        if (devConnectedTo2 && currentVal2 && currentVal2 !== excludeIp) {
-            devConnectedTo2.value = currentVal2;
-        }
     }
 
     // Iperf View logic
@@ -3081,7 +3099,12 @@ document.addEventListener('DOMContentLoaded', () => {
         let data = window.lastStatusData ? window.lastStatusData[ip] : null;
         const threshLatency = parseFloat(threshLatencyEl.value) || 100;
         if (!data) return '#64748b';
-        if (data.status === "Failed") return '#ef4444';
+        if (data.status === "Failed" || data.status === "Offline") {
+            if (isAlertSuppressed(ip) || data.isSuppressed) {
+                return '#c084fc'; // 到達不能（紫）
+            }
+            return '#ef4444'; // 単独障害（赤）
+        }
         if (data.status === "Success" && data.latency !== null) {
             if (data.latency >= threshLatency) return '#ef4444';
             if (data.latency >= threshLatency * 0.7) return '#f59e0b';
@@ -4349,28 +4372,28 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('topo-group').value = dev.group || '';
 
         // Populate connected to dropdowns
-        const topoConnectedTo = document.getElementById('topo-connected-to');
+        const topoParentSel = document.getElementById('topo-parent-ip') || document.getElementById('topo-connected-to');
         const topoConnectedTo2 = document.getElementById('topo-connected-to-2');
         
         const parents = dev.connectedTo ? dev.connectedTo.split(',').map(p => p.trim()).filter(p => p) : [];
         const parent1 = parents[0] || '';
         const parent2 = parents[1] || '';
 
-        if (topoConnectedTo) {
-            topoConnectedTo.innerHTML = '<option value="">なし（自動グループ化）</option>';
+        if (topoParentSel) {
+            topoParentSel.innerHTML = '<option value="">なし (最上位 / ルート)</option>';
             devices.forEach(d => {
                 if (d.ip !== dev.ip && d.enabled !== false) {
                     const opt = document.createElement('option');
                     opt.value = d.ip;
                     opt.textContent = `${d.name && d.name !== d.ip ? d.name + ' (' + d.ip + ')' : d.ip}`;
-                    topoConnectedTo.appendChild(opt);
+                    topoParentSel.appendChild(opt);
                 }
             });
-            topoConnectedTo.value = parent1;
+            topoParentSel.value = parent1;
         }
 
         if (topoConnectedTo2) {
-            topoConnectedTo2.innerHTML = '<option value="">なし（自動グループ化）</option>';
+            topoConnectedTo2.innerHTML = '<option value="">なし (最上位 / ルート)</option>';
             devices.forEach(d => {
                 if (d.ip !== dev.ip && d.enabled !== false) {
                     const opt = document.createElement('option');
@@ -4409,7 +4432,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const name = document.getElementById('topo-name').value.trim();
             const group = document.getElementById('topo-group').value.trim();
             
-            const connectedToVal1 = document.getElementById('topo-connected-to')?.value || '';
+            const topoParentSel = document.getElementById('topo-parent-ip') || document.getElementById('topo-connected-to');
+            const connectedToVal1 = topoParentSel?.value || '';
             const connectedToVal2 = document.getElementById('topo-connected-to-2')?.value || '';
             const uniqueParents = [connectedToVal1, connectedToVal2]
                 .map(ip => ip.trim())

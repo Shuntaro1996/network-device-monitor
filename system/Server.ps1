@@ -108,6 +108,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.SslWarnDays       = 30
     $syncHash.UiMode            = "detail"
     $syncHash.BwThreshMbps      = 10.0
+    $syncHash.EnableParentSuppression = $true
     
     # Load Config from file if exists
     if (Test-Path $configFileJson) {
@@ -142,6 +143,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             if ($null -ne $savedConfig.sslWarnDays)        { $syncHash.SslWarnDays        = [int]$savedConfig.sslWarnDays }
             if ($null -ne $savedConfig.uiMode)             { $syncHash.UiMode             = [string]$savedConfig.uiMode }
             if ($null -ne $savedConfig.bwThreshMbps)       { $syncHash.BwThreshMbps       = [double]$savedConfig.bwThreshMbps }
+            if ($null -ne $savedConfig.enableParentSuppression) { $syncHash.EnableParentSuppression = [bool]$savedConfig.enableParentSuppression }
             Write-Host "Config loaded from $configFileJson" -ForegroundColor Green
         } catch {
             Write-Host "Failed to load config.json, using defaults." -ForegroundColor Yellow
@@ -980,14 +982,53 @@ $pingScript = {
                         $stats.PacketLossRate = [math]::Round(($failedRecent / $stats.RecentResults.Count) * 100, 1)
                     }
 
+                    # Dependency Check: is alert suppressed because all parent devices are offline?
+                    $isSuppressed = $false
+                    if ($syncHash.EnableParentSuppression -and $syncHash.ConnectedTo.ContainsKey($ip)) {
+                        $parentStr = [string]$syncHash.ConnectedTo[$ip]
+                        if (![string]::IsNullOrWhiteSpace($parentStr)) {
+                            $parentIps = $parentStr -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+                            if ($parentIps.Count -gt 0) {
+                                $allParentsDown = $true
+                                foreach ($pIp in $parentIps) {
+                                    if ($syncHash.Status.ContainsKey($pIp)) {
+                                        $pSt = $syncHash.Status[$pIp].status
+                                        if ($pSt -eq "Success" -or $pSt -eq "Online") {
+                                            $allParentsDown = $false
+                                            break
+                                        }
+                                    }
+                                }
+                                if ($allParentsDown) {
+                                    $isSuppressed = $true
+                                }
+                            }
+                        }
+                    }
+                    if ($syncHash.Status.ContainsKey($ip)) {
+                        $syncHash.Status[$ip].isSuppressed = $isSuppressed
+                    }
+
                     if ($st -eq "Success") {
-                        # Webhook on recovery (Offline -> Online)
-                        if ($stats.PreviousStatus -eq "Failed" -and $syncHash.WebhookEnabled) {
-                            $webhookUrl = $syncHash.WebhookUrl
-                            [powershell]::Create().AddScript({
-                                param($url, $name, $devIp, $helper)
-                                Send-WebhookNotification -url $url -deviceName $name -ip $devIp -eventType "online" -details "正常に応答が復旧しました。"
-                            }).AddArgument($webhookUrl).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                        # Webhook & Email on recovery (Offline -> Online)
+                        if ($stats.PreviousStatus -eq "Failed") {
+                            if ($syncHash.WebhookEnabled) {
+                                $webhookUrl = $syncHash.WebhookUrl
+                                [powershell]::Create().AddScript({
+                                    param($url, $name, $devIp)
+                                    Send-WebhookNotification -url $url -deviceName $name -ip $devIp -eventType "online" -details "正常に応答が復旧しました。"
+                                }).AddArgument($webhookUrl).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                            }
+                            if ($syncHash.EmailEnabled -and $syncHash.SmtpHost -and $syncHash.SmtpTo) {
+                                $sHost = $syncHash.SmtpHost; $sPort = $syncHash.SmtpPort; $sSsl = $syncHash.SmtpSsl
+                                $sUser = $syncHash.SmtpUser; $sPass = $syncHash.SmtpPass; $sFrom = $syncHash.SmtpFrom; $sTo = $syncHash.SmtpTo
+                                [powershell]::Create().AddScript({
+                                    param($host, $port, $ssl, $user, $pass, $from, $to, $name, $devIp)
+                                    $subj = "[復旧通知] ネットワーク機器 $name ($devIp) がオンラインに復旧しました"
+                                    $body = "ネットワーク機器 $name ($devIp) のPing応答が正常に復旧しました。`n発生時刻: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
+                                    Send-EmailNotification -smtpHost $host -smtpPort $port -useSsl $ssl -smtpUser $user -smtpPass $pass -from $from -to $to -subject $subj -body $body
+                                }).AddArgument($sHost).AddArgument($sPort).AddArgument($sSsl).AddArgument($sUser).AddArgument($sPass).AddArgument($sFrom).AddArgument($sTo).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                            }
                         }
                         $stats.PreviousStatus = "Success"
 
@@ -1038,13 +1079,29 @@ $pingScript = {
                             }
                         }
                     } elseif ($st -eq "Failed" -or $st -eq "Error") {
-                        # Webhook on failure (Online -> Offline)
-                        if ($stats.PreviousStatus -eq "Success" -and $syncHash.WebhookEnabled) {
-                            $webhookUrl = $syncHash.WebhookUrl
-                            [powershell]::Create().AddScript({
-                                param($url, $name, $devIp)
-                                Send-WebhookNotification -url $url -deviceName $name -ip $devIp -eventType "offline" -details "Ping応答が途絶しました。"
-                            }).AddArgument($webhookUrl).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                        # Webhook & Email on failure (Online -> Offline) only if not suppressed by parent offline
+                        if ($stats.PreviousStatus -eq "Success") {
+                            if (-not $isSuppressed) {
+                                if ($syncHash.WebhookEnabled) {
+                                    $webhookUrl = $syncHash.WebhookUrl
+                                    [powershell]::Create().AddScript({
+                                        param($url, $name, $devIp)
+                                        Send-WebhookNotification -url $url -deviceName $name -ip $devIp -eventType "offline" -details "Ping応答が途絶しました。"
+                                    }).AddArgument($webhookUrl).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                                }
+                                if ($syncHash.EmailEnabled -and $syncHash.SmtpHost -and $syncHash.SmtpTo) {
+                                    $sHost = $syncHash.SmtpHost; $sPort = $syncHash.SmtpPort; $sSsl = $syncHash.SmtpSsl
+                                    $sUser = $syncHash.SmtpUser; $sPass = $syncHash.SmtpPass; $sFrom = $syncHash.SmtpFrom; $sTo = $syncHash.SmtpTo
+                                    [powershell]::Create().AddScript({
+                                        param($host, $port, $ssl, $user, $pass, $from, $to, $name, $devIp)
+                                        $subj = "[障害検知] ネットワーク機器 $name ($devIp) がオフラインになりました"
+                                        $body = "ネットワーク機器 $name ($devIp) のPing応答が途絶しました。`n発生時刻: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
+                                        Send-EmailNotification -smtpHost $host -smtpPort $port -useSsl $ssl -smtpUser $user -smtpPass $pass -from $from -to $to -subject $subj -body $body
+                                    }).AddArgument($sHost).AddArgument($sPort).AddArgument($sSsl).AddArgument($sUser).AddArgument($sPass).AddArgument($sFrom).AddArgument($sTo).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                                }
+                            } else {
+                                Write-Host "Alert suppressed for $ip (Parent device is down)" -ForegroundColor Yellow
+                            }
                         }
                         $stats.PreviousStatus = "Failed"
 
@@ -2058,6 +2115,8 @@ try {
                             $st.outage600msCount = 0; $st.outage5sCount = 0
                             $st.packetLossRate = 0.0; $st.jitter = 0.0
                         }
+                        $st.isSuppressed = if ($syncHash.Status.ContainsKey($key) -and $syncHash.Status[$key].ContainsKey('isSuppressed')) { $syncHash.Status[$key].isSuppressed } else { $false }
+                        $st.connectedTo  = if ($syncHash.ConnectedTo.ContainsKey($key)) { $syncHash.ConnectedTo[$key] } else { '' }
                         $statusCopy[$key] = $st
                     }
                     $statusCopy["_iperf"] = $syncHash.IperfState
@@ -3044,6 +3103,7 @@ try {
                         sslWarnDays        = $syncHash.SslWarnDays
                         uiMode             = $syncHash.UiMode
                         bwThreshMbps       = $syncHash.BwThreshMbps
+                        enableParentSuppression = $syncHash.EnableParentSuppression
                     }
                 }
                 elseif ($urlPath -eq "/api/config" -and $method -eq "POST") {
@@ -3120,6 +3180,9 @@ try {
                         $v = [double]$payload.bwThreshMbps
                         if ($v -gt 0) { $syncHash.BwThreshMbps = $v }
                     }
+                    if ($null -ne $payload.enableParentSuppression) {
+                        $syncHash.EnableParentSuppression = [bool]$payload.enableParentSuppression
+                    }
 
                     Log-Audit -action "CONFIG_UPDATE" -target "System" -details "System configuration updated" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                     
@@ -3142,6 +3205,7 @@ try {
                         syslogEnabled      = $syncHash.SyslogEnabled
                         uiMode             = $syncHash.UiMode
                         bwThreshMbps       = $syncHash.BwThreshMbps
+                        enableParentSuppression = $syncHash.EnableParentSuppression
                     }
 
                     # Save to file for persistence
@@ -3173,6 +3237,7 @@ try {
                             sslWarnDays        = $syncHash.SslWarnDays
                             uiMode             = $syncHash.UiMode
                             bwThreshMbps       = $syncHash.BwThreshMbps
+                            enableParentSuppression = $syncHash.EnableParentSuppression
                         }
                         $configObj | ConvertTo-Json | Out-File -FilePath $configFileJson -Encoding UTF8
                     } catch {

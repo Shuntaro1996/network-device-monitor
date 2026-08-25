@@ -996,6 +996,12 @@ body {
     background: rgba(148, 163, 184, 0.06);
 }
 
+.chip-unreachable {
+    color: #c084fc;
+    border-color: rgba(192, 132, 252, 0.35);
+    background: rgba(192, 132, 252, 0.1);
+}
+
 /* Heatmap / Timeline Component */
 .heatmap-card {
     padding: 12px 16px;
@@ -1032,10 +1038,21 @@ body {
     display: inline-block;
 }
 
-.dot-online { background: #10b981; }
-.dot-warn   { background: #f59e0b; }
-.dot-error  { background: #ef4444; }
-.dot-paused { background: #64748b; opacity: 0.4; }
+.dot-online      { background: #10b981; }
+.dot-warn        { background: #f59e0b; }
+.dot-error       { background: #ef4444; }
+.dot-unreachable { background: #c084fc; }
+.dot-paused      { background: #64748b; opacity: 0.4; }
+
+.status-dot.unreachable {
+    background: #c084fc;
+    box-shadow: 0 0 10px rgba(192, 132, 252, 0.6);
+}
+
+.header-latency.unreachable-text {
+    color: #c084fc;
+    font-weight: 600;
+}
 
 .heatmap-grid {
     display: grid;
