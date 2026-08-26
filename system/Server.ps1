@@ -835,7 +835,6 @@ $pingScript = {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $lastFlushTime          = [DateTime]::Now
     $lastCheckpointTime     = [DateTime]::Now   # 60秒ごとに Stats を _checkpoint.json へ保存
-    $lastInterimSummaryTime = [DateTime]::Now   # 1時間ごとに CSV へ中間サマリーブロックを挿入
     $lastSlowPingTime = [DateTime]::MinValue
     
     while ($syncHash.Running) {
@@ -1255,58 +1254,6 @@ $pingScript = {
                 $cpPath = Join-Path $syncHash.SessionDir "_checkpoint.json"
                 [System.IO.File]::WriteAllText($cpPath, $cpJson, [System.Text.Encoding]::UTF8)
             } catch { }
-        }
-
-        # ── Hourly interim summary block appended to CSV ─────────────────────
-        # Inserts a summary block into each CSV once per hour so that long-running
-        # sessions are readable even if the final summary is never written.
-        if (([DateTime]::Now - $lastInterimSummaryTime).TotalHours -ge 1.0 -and $syncHash.LoggingEnabled -ne $false) {
-            $lastInterimSummaryTime = [DateTime]::Now
-            $pingB64Interim = "eyJyZWFjaCI6IuWIsOmBlOeOhyAvIOaOpee2muaApyAoJSkiLCJtYXhPdXRhZ2UiOiLmnIDlpKfnnqzmlq3mmYLplpPvvIjmnIDlpKfpgJrkv6HlgZzmraLmmYLplpPvvInvvIjnp5LvvIkiLCJzZXNzaW9uIjoi44K744OD44K344On44Oz77yI6KiI5ris5Zue77yJIiwiaXAiOiJJUOOCouODieODrOOCuSIsImxhdE1heCI6IuacgOWkp+mBheW7tiAobXMpIiwib3V0YWdlQWJvdmUiOiLku6XkuIrjga7nnqzmlq3lm57mlbDvvIjmlq3jgYznmbrnlJ/jgZfjgZ/lm57mlbDvvIkiLCJmYWlsZWQiOiLlpLHmlZfmlbDvvIjlv5znrZTjgarjgZfjg7vjgr/jgqTjg6DjgqLjgqbjg4jvvIkiLCJoZWFkZXIiOiItLS0g6KiI5ris44K144Oe44Oq44O8IC0tLSIsImxhdE91dGFnZSI6IuacgOWkp+eerOaWreaZgumWk++8iOacgOWkp+mAmuS/oeWBnOatouaZgumWk++8ie+8iOenku+8iSIsImppdHRlciI6IuW5s+Wdh+OCuOODg+OCv+ODvCAobXMpIiwibm90ZSI6IuWCmeiAg++8iOeerOaWreWbnuaVsOOBrumbhuioiOOBq+OBpOOBhOOBpu+8iSIsImxhdE1pbiI6IuacgOWwj+mBheW7tiAobXMpIiwibGF0QXZnIjoi5bmz5Z2H6YGF5bu2IChtcykiLCJ0b3RhbFBpbmdzIjoi57ePUGluZ+mAgeS/oeaVsO+8iOippuihjOWbnuaVsO+8iSIsInBhY2tldExvc3MiOiLjg5HjgrHjg4Pjg4jmkI3lpLHnjocgKCUpIiwibm90ZVZhbCI6IuOCquODleODqeOCpOODs+OBi+OCieOCquODs+ODqeOCpOODs+OBuOW+qeW4sOOBl+OBn+aZgueCueOBp+OCq+OCpuODs+ODiOOAguOCu+ODg+OCt+ODp+ODs+e1guS6huaZgueCueOBp+e2mee2muS4reOBrueerOaWreOBr+WQq+OBv+OBvuOBm+OCkyIsInN1Y2Nlc3MiOiLmiJDlip/mlbDvvIjlv5znrZTjgYLjgorvvIkifQ=="
-            try { $pLI = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($pingB64Interim)) | ConvertFrom-Json } catch { $pLI = $null }
-            foreach ($ip in $syncHash.Devices) {
-                $s = $syncHash.Stats[$ip]
-                if ($null -eq $s -or $null -eq $pLI) { continue }
-                $safeIp2  = $ip -replace '[\\/:*?"<>|]', '_'
-                $csvPath2 = Join-Path $syncHash.SessionDir "${safeIp2}.csv"
-                if (-not (Test-Path $csvPath2)) { continue }
-                try {
-                    $iTotal      = $s.Total
-                    $iSuccess    = $s.Success
-                    $iFailed     = $s.Failed
-                    $iReach      = if ($iTotal -gt 0) { [math]::Round($iSuccess / $iTotal * 100, 2) } else { 0 }
-                    $iPktLoss    = if ($iTotal -gt 0) { [math]::Round($iFailed  / $iTotal * 100, 1) } else { 0 }
-                    $iMinLat     = if ($s.LatCount -gt 0 -and $s.MinLat -ne [double]::MaxValue) { $s.MinLat } else { 'N/A' }
-                    $iMaxLat     = if ($s.LatCount -gt 0) { $s.MaxLat } else { 'N/A' }
-                    $iAvgLat     = if ($s.LatCount -gt 0) { [math]::Round($s.SumLat / $s.LatCount, 2) } else { 'N/A' }
-                    $iMaxOutage  = if ($s.MaxOutageSec -gt 0) { [math]::Round($s.MaxOutageSec, 1) } else { 'N/A' }
-                    $iJitter     = if ($s.JitterCount -gt 0) { [math]::Round($s.JitterSum / $s.JitterCount, 2) } else { 'N/A' }
-                    $iTs         = $syncHash.SessionTimestamp
-                    $iThresh1    = "$($syncHash.OutageThresh1Ms)ms"
-                    $iThresh2    = if ($syncHash.OutageThresh2Ms -ge 1000) { "$([int]($syncHash.OutageThresh2Ms/1000))s" } else { "$($syncHash.OutageThresh2Ms)ms" }
-
-                    $interimLines = [System.Collections.Generic.List[string]]::new()
-                    $interimLines.Add("")
-                    $interimLines.Add("--- 中間サマリー ($(  (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')  )) ---")
-                    $interimLines.Add($pLI.session + "," + $iTs)
-                    $interimLines.Add($pLI.ip + "," + $ip)
-                    $interimLines.Add($pLI.totalPings + "," + $iTotal)
-                    $interimLines.Add($pLI.success + "," + $iSuccess)
-                    $interimLines.Add($pLI.failed + "," + $iFailed)
-                    $interimLines.Add($pLI.reach + "," + $iReach)
-                    $interimLines.Add($pLI.packetLoss + "," + $iPktLoss)
-                    $interimLines.Add($pLI.jitter + "," + $iJitter)
-                    $interimLines.Add($pLI.latMin + "," + $iMinLat)
-                    $interimLines.Add($pLI.latMax + "," + $iMaxLat)
-                    $interimLines.Add($pLI.latAvg + "," + $iAvgLat)
-                    $interimLines.Add($pLI.maxOutage + "," + $iMaxOutage)
-                    $interimLines.Add($iThresh1 + $pLI.outageAbove + "," + $s.Outage600msCount)
-                    $interimLines.Add($iThresh2 + $pLI.outageAbove + "," + $s.Outage5sCount)
-                    $interimLines.Add($pLI.note + "," + $pLI.noteVal)
-                    $interimLines.Add("")
-                    [System.IO.File]::AppendAllText($csvPath2, ($interimLines -join "`r`n") + "`r`n", [System.Text.Encoding]::GetEncoding(932))
-                } catch { }
-            }
         }
 
         $elapsed = $sw.ElapsedMilliseconds
