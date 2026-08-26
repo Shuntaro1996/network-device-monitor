@@ -784,7 +784,7 @@ function Initialize-DeviceLog {
     $safeIp  = $ip -replace '[\\/:*?"<>|]', '_'
     $csvPath = Join-Path $syncHash.SessionDir "${safeIp}.csv"
     if (-not (Test-Path $csvPath)) {
-        $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps`r`n"
+        $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec`r`n"
         try {
             [System.IO.File]::WriteAllText($csvPath, $header, [System.Text.Encoding]::GetEncoding(932))
         } catch {
@@ -952,14 +952,29 @@ $pingScript = {
             $st  = if ($syncHash.Status[$ip].status)  { [string]$syncHash.Status[$ip].status  } else { 'Unknown' }
             $lat = if ($syncHash.Status[$ip].latency -ne $null) { [string]$syncHash.Status[$ip].latency } else { '' }
             $bw  = if ($syncHash.Bandwidth[$ip])      { [string]$syncHash.Bandwidth[$ip]       } else { '-' }
-            
+
+            # Outage duration for this record: 0 when online, current elapsed seconds when offline
+            $outageSec = ''
+            $statsNow = $syncHash.Stats[$ip]
+            if ($null -ne $statsNow) {
+                if ($st -eq 'Failed' -or $st -eq 'Error') {
+                    $outageSec = if ($null -ne $statsNow.OutageStartTime) {
+                        [math]::Round([math]::Max(0.0, ((Get-Date) - $statsNow.OutageStartTime).TotalSeconds), 1)
+                    } elseif ($statsNow.CurrentOutageSec -gt 0) {
+                        [math]::Round($statsNow.CurrentOutageSec, 1)
+                    } else { 0.0 }
+                } else {
+                    $outageSec = ''   # empty = normal (online)
+                }
+            }
+
             $txStr = "-"; $rxStr = "-"
             if ($syncHash.Traffic.ContainsKey($ip) -and $null -ne $syncHash.Traffic[$ip]) {
                 $txStr = [string]$syncHash.Traffic[$ip].tx
                 $rxStr = [string]$syncHash.Traffic[$ip].rx
             }
-            
-            $csvLine = "`"$ts`",`"$ip`",`"$st`",`"$lat`",`"$bw`",`"$txStr`",`"$rxStr`""
+
+            $csvLine = "`"$ts`",`"$ip`",`"$st`",`"$lat`",`"$bw`",`"$txStr`",`"$rxStr`",`"$outageSec`""
             if ($syncHash.History.ContainsKey($ip)) {
                 $null = $syncHash.History[$ip].Add($csvLine)
             }
@@ -1174,7 +1189,7 @@ $pingScript = {
                                         }
                                     }
                                     Move-Item -Path $csvPath -Destination (Join-Path $syncHash.SessionDir "${safeIp}_1.csv") -Force
-                                    $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps`r`n"
+                                    $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec`r`n"
                                     [System.IO.File]::WriteAllText($csvPath, $header, [System.Text.Encoding]::GetEncoding(932))
                                 }
                             }
@@ -4555,7 +4570,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
 
             # Create file with header if it doesn't exist
             if (-not (Test-Path $csvPath)) {
-                $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps`r`n"
+                $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec`r`n"
                 try {
                     [System.IO.File]::WriteAllText($csvPath, $header, [System.Text.Encoding]::GetEncoding(932))
                 } catch {
