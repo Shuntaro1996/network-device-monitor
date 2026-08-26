@@ -3831,7 +3831,7 @@ try {
                                             $belowPct   = [math]::Round($belowCount / $n * 100, 1)
 
                                             # Japanese labels via Base64
-                                            $iperfB64 = "eyJoZWFkZXIiOiAiPT09PT09PT09PSBpcGVyZjMg57Wx6KiI44K144Oe44Oq44O8ID09PT09PT09PT0iLCAidGFyZ2V0IjogIuaOpee2muWFiCAoSVAv44OJ44Oh44Kk44OzKSIsICJkdXJhdGlvbiI6ICLlkIjoqIjoqIjmuKzmmYLplpMiLCAic2FtcGxlcyI6ICLjgrXjg7Pjg5fjg6vmlbAiLCAiYXZnIjogIuW5s+Wdh+W4r+Wfn+W5hSIsICJtZWRpYW4iOiAi5Lit5aSu5YCkIiwgIm1heEJ3IjogIuacgOWkp+W4r+Wfn+W5hSIsICJtaW5CdyI6ICLmnIDlsI/luK/ln5/luYUiLCAic3RkRGV2IjogIuaomea6luWBj+W3riIsICJ0aHJlc2giOiAi5biv5Z+f6Za+5YCkIiwgImFib3ZlIjogIumWvuWApOS7peS4iiIsICJiZWxvdyI6ICLplr7lgKTmnKrmuoAiLCAiZm9vdGVyIjogIj09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PSJ9"
+                                            $iperfB64 = "eyJoZWFkZXIiOiAiPT09PT09PT09PSBpcGVyZjMg57Wx6KiI44K144Oe44Oq44O8ID09PT09PT09PT0iLCAidGFyZ2V0IjogIuaOpee2muWFiCAoSVAv44OJ44Oh44Kk44OzKSIsICJkdXJhdGlvbiI6ICLlkIjoqIjoqIjmuKzmmYLplpMiLCAiYXZnIjogIuW5s+Wdh+W4r+Wfn+W5hSIsICJtZWRpYW4iOiAi5Lit5aSu5YCkIiwgIm1heEJ3IjogIuacgOWkp+W4r+Wfn+W5hSIsICJtaW5CdyI6ICLmnIDlsI/luK/ln5/luYUiLCAic3RkRGV2IjogIuaomea6luWBj+W3riIsICJ0aHJlc2giOiAi5biv5Z+f6Za+5YCkIiwgImFib3ZlIjogIumWvuWApOS7peS4iiIsICJiZWxvdyI6ICLplr7lgKTmnKrmuoAiLCAiZm9vdGVyIjogIj09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PSJ9"
                                             $iL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($iperfB64)) | ConvertFrom-Json
 
                                             $targetDisplay = if ($sync.DeviceName -and $sync.DeviceName.ContainsKey($tIp) -and $sync.DeviceName[$tIp] -ne $tIp) { "$tIp ($($sync.DeviceName[$tIp]))" } else { $tIp }
@@ -3841,7 +3841,6 @@ try {
                                             $iLines.Add($iL.header)
                                             $iLines.Add($iL.target   + " : " + $targetDisplay)
                                             $iLines.Add($iL.duration + "   : " + ("{0:F1}" -f $totalTimeSec) + " sec")
-                                            $iLines.Add($iL.samples  + "     : " + $n + " (1sec/sample)")
                                             $iLines.Add($iL.avg      + "     : " + ("{0:F2}" -f $avg) + " Mbps")
                                             $iLines.Add($iL.median   + "         : " + ("{0:F2}" -f $median) + " Mbps")
                                             $iLines.Add($iL.maxBw    + "     : " + ("{0:F2}" -f $maxBw) + " Mbps")
