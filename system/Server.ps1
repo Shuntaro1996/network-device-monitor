@@ -525,6 +525,16 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         $overallMaxOutageStr = if ($maxOverallOutage -gt 0) { "$([math]::Round($maxOverallOutage, 1)) 秒" } else { "0 秒" }
         $rowsHtml = $reportRows -join "`n"
         $devCardsHtmlStr = $devCardsHtml -join "`n"
+
+        # Issue 9: 長時間セッションでのメモリ消費を抑えるため、各機器のtimeSeries上限を2000点にクランプ
+        foreach ($devObj in $chartDataObj.devices) {
+            if ($devObj.timeSeries -and $devObj.timeSeries.Count -gt 2000) {
+                $step = [math]::Ceiling($devObj.timeSeries.Count / 2000)
+                $thinned = @()
+                for ($ti = 0; $ti -lt $devObj.timeSeries.Count; $ti += $step) { $thinned += $devObj.timeSeries[$ti] }
+                $devObj.timeSeries = $thinned
+            }
+        }
         $chartDataJson = $chartDataObj | ConvertTo-Json -Depth 6 -Compress
 
         # Chart.js を安全に注入するため scriptBlock を別途構築（ヒアドキュメント内の $ 誤解釈を防ぐ）
@@ -968,7 +978,8 @@ $chartDataJson
     $syncHash.HasClientConnected = $false
     $syncHash.LastClientActivity = [DateTime]::UtcNow
     $syncHash.AutoShutdownOnDisconnect = $true
-    $syncHash.HeartbeatTimeoutSec = 8
+    $syncHash.HeartbeatTimeoutSec = 20  # リロード・一時的なネット切断での誤終了を防ぐため20秒に設定
+    $syncHash.DevicesLock = [object]::new()  # Issue 5: デバイス設定保存専用ロックオブジェクト（$syncHash全体ロックを回避）
     $syncHash.Listener  = $null   # will be set after listener creation
     $syncHash.PSScriptRoot = $PSScriptRoot
  
@@ -1057,7 +1068,8 @@ $syncHash.Devices = $cleanLines.ToArray()
 
 $saveDevicesJsonScript = {
     function Save-DevicesJson {
-        [System.Threading.Monitor]::Enter($syncHash)
+        # Issue 5: $syncHash全体ではなく専用のDevicesLockオブジェクトのみをロックし、Pingループをブロックしない
+        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
         try {
             $outArray = @()
             foreach ($ip in $syncHash.Devices) {
@@ -1102,7 +1114,7 @@ $saveDevicesJsonScript = {
                 }
             }
         } finally {
-            [System.Threading.Monitor]::Exit($syncHash)
+            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
         }
     }
 }
@@ -1344,6 +1356,17 @@ if (-not (Test-Path $sessionDir)) { New-Item -ItemType Directory -Path $sessionD
 $syncHash.SessionDir = $sessionDir
 $syncHash.SessionTimestamp = $sessionTimestamp
 
+# Issue 8: debug.log ローテーション（起動時に1MBを超えていたらdebug_1.logにリネームして新規作成）
+$debugLogPath = Join-Path $PSScriptRoot "debug.log"
+try {
+    if ((Test-Path $debugLogPath) -and (Get-Item $debugLogPath).Length -gt 1MB) {
+        $debugLogArchive = Join-Path $PSScriptRoot "debug_1.log"
+        if (Test-Path $debugLogArchive) { Remove-Item $debugLogArchive -Force -ErrorAction SilentlyContinue }
+        Move-Item -Path $debugLogPath -Destination $debugLogArchive -Force -ErrorAction SilentlyContinue
+        Write-Host "debug.log rotated to debug_1.log" -ForegroundColor Gray
+    }
+} catch {}
+
 function Initialize-DeviceLog {
     param([string]$ip)
     
@@ -1520,6 +1543,14 @@ $pingScript = {
                 $taskArray = [System.Threading.Tasks.Task[]]($validTasks.Task)
                 [System.Threading.Tasks.Task]::WaitAll($taskArray, $waitTimeout) | Out-Null
             } catch { }
+            # Issue 4: 未完了タスクをさらに短時間待機してからDisposeし、リソースリークを防ぐ
+            foreach ($vt in $validTasks) {
+                if ($vt.Task.Status -notin @([System.Threading.Tasks.TaskStatus]::RanToCompletion,
+                                             [System.Threading.Tasks.TaskStatus]::Faulted,
+                                             [System.Threading.Tasks.TaskStatus]::Canceled)) {
+                    try { $vt.Task.Wait(50) | Out-Null } catch { }
+                }
+            }
         }
 
         # Process results
@@ -1596,10 +1627,11 @@ $pingScript = {
                     $stats.Total = $stats.Total + 1
                     $devName = if ($syncHash.DeviceName.ContainsKey($ip)) { $syncHash.DeviceName[$ip] } else { $ip }
                     
-                    # Track Recent Results (max 30 samples)
+                    # Track Recent Results (max 30 samples) - use RemoveRange for O(1) efficiency
                     $resVal = if ($st -eq "Success") { 1 } else { 0 }
                     $null = $stats.RecentResults.Add($resVal)
-                    while ($stats.RecentResults.Count -gt 30) { $stats.RecentResults.RemoveAt(0) }
+                    $excess = $stats.RecentResults.Count - 30
+                    if ($excess -gt 0) { $stats.RecentResults.RemoveRange(0, $excess) }
                     
                     # Calculate Packet Loss Rate %
                     if ($stats.RecentResults.Count -gt 0) {
@@ -1640,20 +1672,22 @@ $pingScript = {
                         if ($stats.PreviousStatus -eq "Failed") {
                             if ($syncHash.WebhookEnabled) {
                                 $webhookUrl = $syncHash.WebhookUrl
-                                [powershell]::Create().AddScript({
-                                    param($url, $name, $devIp)
-                                    Send-WebhookNotification -url $url -deviceName $name -ip $devIp -eventType "online" -details "正常に応答が復旧しました。"
-                                }).AddArgument($webhookUrl).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                                $capturedName = $devName; $capturedIp = $ip
+                                [System.Threading.ThreadPool]::QueueUserWorkItem({
+                                    try { Send-WebhookNotification -url $webhookUrl -deviceName $capturedName -ip $capturedIp -eventType "online" -details "正常に応答が復旧しました。" } catch {}
+                                }.GetNewClosure()) | Out-Null
                             }
                             if ($syncHash.EmailEnabled -and $syncHash.SmtpHost -and $syncHash.SmtpTo) {
                                 $sHost = $syncHash.SmtpHost; $sPort = $syncHash.SmtpPort; $sSsl = $syncHash.SmtpSsl
                                 $sUser = $syncHash.SmtpUser; $sPass = $syncHash.SmtpPass; $sFrom = $syncHash.SmtpFrom; $sTo = $syncHash.SmtpTo
-                                [powershell]::Create().AddScript({
-                                    param($host, $port, $ssl, $user, $pass, $from, $to, $name, $devIp)
-                                    $subj = "[復旧通知] ネットワーク機器 $name ($devIp) がオンラインに復旧しました"
-                                    $body = "ネットワーク機器 $name ($devIp) のPing応答が正常に復旧しました。`n発生時刻: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
-                                    Send-EmailNotification -smtpHost $host -smtpPort $port -useSsl $ssl -smtpUser $user -smtpPass $pass -from $from -to $to -subject $subj -body $body
-                                }).AddArgument($sHost).AddArgument($sPort).AddArgument($sSsl).AddArgument($sUser).AddArgument($sPass).AddArgument($sFrom).AddArgument($sTo).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                                $capturedName = $devName; $capturedIp = $ip
+                                [System.Threading.ThreadPool]::QueueUserWorkItem({
+                                    try {
+                                        $subj = "[復旧通知] ネットワーク機器 $capturedName ($capturedIp) がオンラインに復旧しました"
+                                        $body = "ネットワーク機器 $capturedName ($capturedIp) のPing応答が正常に復旧しました。`n発生時刻: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
+                                        Send-EmailNotification -smtpHost $sHost -smtpPort $sPort -useSsl $sSsl -smtpUser $sUser -smtpPass $sPass -from $sFrom -to $sTo -subject $subj -body $body
+                                    } catch {}
+                                }.GetNewClosure()) | Out-Null
                             }
                         }
                         $stats.PreviousStatus = "Success"
@@ -1693,9 +1727,10 @@ $pingScript = {
                             $stats.SumLat = $stats.SumLat + $latVal
                             $stats.LatCount = $stats.LatCount + 1
 
-                            # Track Recent Latencies for Jitter calculation (RFC 3550)
+                            # Track Recent Latencies for Jitter calculation (RFC 3550) - RemoveRange for O(1)
                             $null = $stats.RecentLatencies.Add($latVal)
-                            while ($stats.RecentLatencies.Count -gt 30) { $stats.RecentLatencies.RemoveAt(0) }
+                            $excessLat = $stats.RecentLatencies.Count - 30
+                            if ($excessLat -gt 0) { $stats.RecentLatencies.RemoveRange(0, $excessLat) }
                             if ($stats.RecentLatencies.Count -ge 2) {
                                 $diffSum = 0.0
                                 for ($idx = 1; $idx -lt $stats.RecentLatencies.Count; $idx++) {
@@ -1712,20 +1747,22 @@ $pingScript = {
                             if (-not $isSuppressed) {
                                 if ($syncHash.WebhookEnabled) {
                                     $webhookUrl = $syncHash.WebhookUrl
-                                    [powershell]::Create().AddScript({
-                                        param($url, $name, $devIp)
-                                        Send-WebhookNotification -url $url -deviceName $name -ip $devIp -eventType "offline" -details "Ping応答が途絶しました。"
-                                    }).AddArgument($webhookUrl).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                                    $capturedName = $devName; $capturedIp = $ip
+                                    [System.Threading.ThreadPool]::QueueUserWorkItem({
+                                        try { Send-WebhookNotification -url $webhookUrl -deviceName $capturedName -ip $capturedIp -eventType "offline" -details "Ping応答が途絶しました。" } catch {}
+                                    }.GetNewClosure()) | Out-Null
                                 }
                                 if ($syncHash.EmailEnabled -and $syncHash.SmtpHost -and $syncHash.SmtpTo) {
                                     $sHost = $syncHash.SmtpHost; $sPort = $syncHash.SmtpPort; $sSsl = $syncHash.SmtpSsl
                                     $sUser = $syncHash.SmtpUser; $sPass = $syncHash.SmtpPass; $sFrom = $syncHash.SmtpFrom; $sTo = $syncHash.SmtpTo
-                                    [powershell]::Create().AddScript({
-                                        param($host, $port, $ssl, $user, $pass, $from, $to, $name, $devIp)
-                                        $subj = "[障害検知] ネットワーク機器 $name ($devIp) がオフラインになりました"
-                                        $body = "ネットワーク機器 $name ($devIp) のPing応答が途絶しました。`n発生時刻: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
-                                        Send-EmailNotification -smtpHost $host -smtpPort $port -useSsl $ssl -smtpUser $user -smtpPass $pass -from $from -to $to -subject $subj -body $body
-                                    }).AddArgument($sHost).AddArgument($sPort).AddArgument($sSsl).AddArgument($sUser).AddArgument($sPass).AddArgument($sFrom).AddArgument($sTo).AddArgument($devName).AddArgument($ip).BeginInvoke() | Out-Null
+                                    $capturedName = $devName; $capturedIp = $ip
+                                    [System.Threading.ThreadPool]::QueueUserWorkItem({
+                                        try {
+                                            $subj = "[障害検知] ネットワーク機器 $capturedName ($capturedIp) がオフラインになりました"
+                                            $body = "ネットワーク機器 $capturedName ($capturedIp) のPing応答が途絶しました。`n発生時刻: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
+                                            Send-EmailNotification -smtpHost $sHost -smtpPort $sPort -useSsl $sSsl -smtpUser $sUser -smtpPass $sPass -from $sFrom -to $sTo -subject $subj -body $body
+                                        } catch {}
+                                    }.GetNewClosure()) | Out-Null
                                 }
                             } else {
                                 Write-Host "Alert suppressed for $ip (Parent device is down)" -ForegroundColor Yellow
@@ -1808,13 +1845,31 @@ $pingScript = {
                             $contentToAppend = ($linesToSave -join "`r`n") + "`r`n"
                             [System.IO.File]::AppendAllText($csvPath, $contentToAppend, [System.Text.Encoding]::GetEncoding(932))
                             $writeSuccess = $true
-                        } catch { }
+                        } catch {
+                            # CSV書き込み失敗をdebug.logに記録
+                            try {
+                                $errMsg = "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] CSV write failed for ${ip}: $($_.Exception.Message)`r`n"
+                                [System.IO.File]::AppendAllText((Join-Path $syncHash.PSScriptRoot "debug.log"), $errMsg, [System.Text.Encoding]::UTF8)
+                            } catch {}
+                        }
 
                         if ($writeSuccess) {
                             [System.Threading.Monitor]::Enter($historyList.SyncRoot)
                             try {
                                 if ($historyList.Count -ge $linesToSave.Count) {
                                     $historyList.RemoveRange(0, $linesToSave.Count)
+                                }
+                            } finally {
+                                [System.Threading.Monitor]::Exit($historyList.SyncRoot)
+                            }
+                        } else {
+                            # 書き込み失敗時: メモリキューが上限（5000件）を超えたら古いエントリを強制削除してメモリ暴走を防ぐ
+                            [System.Threading.Monitor]::Enter($historyList.SyncRoot)
+                            try {
+                                $maxQueueSize = 5000
+                                if ($historyList.Count -gt $maxQueueSize) {
+                                    $dropCount = $historyList.Count - $maxQueueSize
+                                    $historyList.RemoveRange(0, $dropCount)
                                 }
                             } finally {
                                 [System.Threading.Monitor]::Exit($historyList.SyncRoot)
@@ -1901,6 +1956,11 @@ $bwScriptBlock = {
                 }
             } catch {
                 $syncHash.Bandwidth[$ip] = "Error"
+                # Issue 6: 帯域測定エラーをdebug.logに記録して問題発生を気づけるようにする
+                try {
+                    $errMsg = "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] Bandwidth measure error for ${ip}: $($_.Exception.Message)`r`n"
+                    [System.IO.File]::AppendAllText((Join-Path $AppDir "debug.log"), $errMsg, [System.Text.Encoding]::UTF8)
+                } catch {}
             }
         }
         Start-Sleep -Seconds 10
@@ -2654,8 +2714,9 @@ $keyScript = {
         }
 
         # 3. Client heartbeat & disconnect detection (Auto-shutdown when browser closed)
+        #    タイムアウトを20秒に設定: F5リロードやWi-Fi→有線切替による瞬断（通常3〜10秒）での誤終了を防ぐ
         if ($syncHash.AutoShutdownOnDisconnect -ne $false) {
-            $timeoutSec = if ($syncHash.HeartbeatTimeoutSec) { [int]$syncHash.HeartbeatTimeoutSec } else { 8 }
+            $timeoutSec = if ($syncHash.HeartbeatTimeoutSec) { [int]$syncHash.HeartbeatTimeoutSec } else { 20 }
             
             if ($syncHash.HasClientConnected) {
                 $timeSinceLastActivity = ([DateTime]::UtcNow - $syncHash.LastClientActivity).TotalSeconds
