@@ -1898,14 +1898,18 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) { console.error('Error fetching devices:', err); }
     }
 
+    let isFetchingStatus = false;
     async function fetchStatus() {
         if (devices.length === 0) return;
+        if (isFetchingStatus) return; // prevent parallel requests when server is slow
+        isFetchingStatus = true;
         try {
             const res = await fetch('/api/status');
             const statusData = await res.json();
             updateDeviceData(statusData);
             updateTopologyStatus();
         } catch (err) { console.warn('Error fetching status:', err); }
+        finally { isFetchingStatus = false; }
     }
 
     function renderDeviceGrid() {
@@ -5415,47 +5419,82 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ─── MTR / History Logic ─────────────────────
+    const stopMtrBtn = document.getElementById('stop-mtr-btn');
+
+    function mtrResetUI() {
+        runMtrBtn.disabled = false;
+        if (stopMtrBtn) stopMtrBtn.style.display = 'none';
+        mtrLoading.style.display = 'none';
+    }
+
     if (runMtrBtn) {
         runMtrBtn.addEventListener('click', async () => {
             if (!currentSnmpIp) return;
-            
+
             runMtrBtn.disabled = true;
+            if (stopMtrBtn) {
+                stopMtrBtn.style.display = 'inline-flex';
+                stopMtrBtn.disabled = false;
+                stopMtrBtn.textContent = '⏹ 診断を停止';
+            }
             mtrLoading.style.display = 'flex';
             mtrConsole.textContent = '> MTR 診断を初期化中...\n';
-            
+
             try {
                 const res = await fetch(`/api/mtr?action=start&ip=${encodeURIComponent(currentSnmpIp)}`);
                 const data = await res.json();
-                
+
                 if (data.status === 'started') {
                     if (mtrPollInterval) clearInterval(mtrPollInterval);
                     mtrPollInterval = setInterval(async () => {
-                        const statusRes = await fetch(`/api/mtr?action=status`);
-                        const statusData = await statusRes.json();
-                        
-                        if (statusData.output) {
-                            mtrConsole.textContent = statusData.output;
-                            mtrConsole.scrollTop = mtrConsole.scrollHeight;
-                        }
-                        
-                        if (statusData.running === false) {
+                        try {
+                            const statusRes = await fetch(`/api/mtr?action=status`);
+                            const statusData = await statusRes.json();
+
+                            if (statusData.output) {
+                                mtrConsole.textContent = statusData.output;
+                                mtrConsole.scrollTop = mtrConsole.scrollHeight;
+                            }
+
+                            if (statusData.running === false) {
+                                clearInterval(mtrPollInterval);
+                                mtrPollInterval = null;
+                                mtrResetUI();
+                            }
+                        } catch (pollErr) {
+                            // Network error during polling — stop the interval and restore UI
+                            console.warn('MTR poll error:', pollErr);
                             clearInterval(mtrPollInterval);
                             mtrPollInterval = null;
-                            mtrLoading.style.display = 'none';
-                            runMtrBtn.disabled = false;
+                            mtrConsole.textContent += `\n⚠️ ポーリング中に通信エラーが発生しました\n`;
+                            mtrResetUI();
                         }
                     }, 1000);
                 } else {
                     mtrConsole.textContent += `❌ エラー: ${data.error || '開始できませんでした'}\n`;
-                    runMtrBtn.disabled = false;
-                    mtrLoading.style.display = 'none';
+                    mtrResetUI();
                 }
             } catch (err) {
                 console.error('MTR error:', err);
                 mtrConsole.textContent += `❌ 通信エラーが発生しました\n`;
-                runMtrBtn.disabled = false;
-                mtrLoading.style.display = 'none';
+                mtrResetUI();
             }
+        });
+    }
+
+    if (stopMtrBtn) {
+        stopMtrBtn.addEventListener('click', async () => {
+            stopMtrBtn.disabled = true;
+            stopMtrBtn.textContent = '中断中...';
+            // Stop the client-side polling loop
+            if (mtrPollInterval) {
+                clearInterval(mtrPollInterval);
+                mtrPollInterval = null;
+            }
+            // Ask server to kill the tracert process
+            try { await fetch('/api/mtr?action=stop'); } catch(e) {}
+            mtrConsole.textContent += '\n⏹ 診断を中断しました\n';
+            mtrResetUI();
         });
     }
 
@@ -5821,8 +5860,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    // Poll syslog every 3s when syslog tab is active
-    setInterval(() => {
+    // Poll syslog every 3s when syslog tab is active (ID stored for future clearInterval)
+    const syslogPollInterval = setInterval(() => {
         if (viewSyslog && viewSyslog.classList.contains('active')) {
             fetchSyslogLogs();
         }

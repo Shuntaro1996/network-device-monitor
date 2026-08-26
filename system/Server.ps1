@@ -353,10 +353,12 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
 
     # MTR (Visual Tracert) Session State
     $syncHash.MtrState = [hashtable]::Synchronized(@{
-        Running = $false
-        Output  = ""
-        Command = ""
-        Target  = ""
+        Running       = $false
+        Output        = ""
+        Command       = ""
+        Target        = ""
+        Process       = $null
+        StopRequested = $false
     })
     
     # History: per-IP synchronized ArrayList of plain CSV strings (no runspace affinity issue)
@@ -3368,7 +3370,7 @@ try {
                 }
                 elseif ($urlPath -eq "/api/mtr" -and $method -eq "GET") {
                     $targetIp = $request.QueryString["ip"]
-                    $action = $request.QueryString["action"] # "start" or "status"
+                    $action = $request.QueryString["action"] # "start", "status", or "stop"
                     
                     if ($action -eq "status") {
                         $state = $syncHash.MtrState
@@ -3376,6 +3378,22 @@ try {
                             status = "success"
                             running = $state.Running
                             output = $state.Output
+                        }
+                        continue
+                    }
+
+                    if ($action -eq "stop") {
+                        if ($syncHash.MtrState.Running) {
+                            $syncHash.MtrState.StopRequested = $true
+                            $mtrProc = $syncHash.MtrState.Process
+                            if ($null -ne $mtrProc -and -not $mtrProc.HasExited) {
+                                # taskkill kills tracert.exe process tree
+                                try { & taskkill /F /T /PID $mtrProc.Id 2>$null } catch { }
+                                try { $mtrProc.Kill() } catch { }
+                            }
+                            Write-JsonResponse $response @{ status = "stopping" }
+                        } else {
+                            Write-JsonResponse $response @{ status = "not_running" }
                         }
                         continue
                     }
@@ -3390,9 +3408,11 @@ try {
                             continue
                         }
 
-                        $syncHash.MtrState.Running = $true
-                        $syncHash.MtrState.Output = ""
-                        $syncHash.MtrState.Target = $targetIp
+                        $syncHash.MtrState.Running       = $true
+                        $syncHash.MtrState.Output        = ""
+                        $syncHash.MtrState.Target        = $targetIp
+                        $syncHash.MtrState.Process       = $null
+                        $syncHash.MtrState.StopRequested = $false
 
                         $mtrTaskScript = {
                             param($tIp, $sync)
@@ -3414,6 +3434,7 @@ try {
                                 $proc = New-Object System.Diagnostics.Process
                                 $proc.StartInfo = $pInfo
                                 $null = $proc.Start()
+                                $sync.MtrState.Process = $proc   # save ref for stop API
                                 
                                 while (-not $proc.HasExited) {
                                     $line = $proc.StandardOutput.ReadLine()
@@ -3423,11 +3444,17 @@ try {
                                     [System.Threading.Thread]::Sleep(50)
                                 }
                                 $sync.MtrState.Output += $proc.StandardOutput.ReadToEnd()
-                                $sync.MtrState.Output += "`n> Diagnostics completed.`n"
+                                if ($sync.MtrState.StopRequested) {
+                                    $sync.MtrState.Output += "`n> Diagnostics stopped by user.`n"
+                                } else {
+                                    $sync.MtrState.Output += "`n> Diagnostics completed.`n"
+                                }
                             } catch {
                                 $sync.MtrState.Output += "Error during MTR: $($_.Exception.Message)"
                             } finally {
-                                $sync.MtrState.Running = $false
+                                $sync.MtrState.Running       = $false
+                                $sync.MtrState.Process       = $null
+                                $sync.MtrState.StopRequested = $false
                             }
                         }
                         
