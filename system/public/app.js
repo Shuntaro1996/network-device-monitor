@@ -2449,10 +2449,27 @@ document.addEventListener('DOMContentLoaded', () => {
         tabManage.addEventListener('click', () => switchTab('tab-manage'));
     }
 
-    // Trigger server shutdown and log save on browser close
-    window.addEventListener('beforeunload', () => {
-        navigator.sendBeacon('/api/shutdown');
-    });
+    // ── Client Heartbeat & Auto-shutdown on browser close ──
+    // Send periodic heartbeat every 2.5s to keep server alive
+    setInterval(() => {
+        if (navigator.onLine !== false) {
+            fetch('/api/heartbeat', { method: 'GET', cache: 'no-store' }).catch(() => {});
+        }
+    }, 2500);
+
+    // Trigger server shutdown and log save when browser window/tab is closed
+    const sendShutdownBeacon = () => {
+        try {
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/shutdown');
+            } else {
+                fetch('/api/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
+            }
+        } catch (e) {}
+    };
+
+    window.addEventListener('beforeunload', sendShutdownBeacon);
+    window.addEventListener('pagehide', sendShutdownBeacon);
 
     // File Upload event listeners
     if (devImageFile) {

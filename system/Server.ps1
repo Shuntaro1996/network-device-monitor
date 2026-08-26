@@ -936,6 +936,10 @@ $chartDataJson
     $syncHash.Shutdown  = $false  # flag for Enter-key exit
     $syncHash.PendingShutdown = $false
     $syncHash.PendingShutdownTime = [DateTime]::MinValue
+    $syncHash.HasClientConnected = $false
+    $syncHash.LastClientActivity = [DateTime]::UtcNow
+    $syncHash.AutoShutdownOnDisconnect = $true
+    $syncHash.HeartbeatTimeoutSec = 8
     $syncHash.Listener  = $null   # will be set after listener creation
     $syncHash.PSScriptRoot = $PSScriptRoot
  
@@ -2592,7 +2596,7 @@ try {
     exit
 }
 
-# Dedicated runspace: watch for Enter key, then signal shutdown via syncHash
+# Dedicated runspace: watch for Enter key, browser disconnect, or shutdown signal
 $keyRunspace = [runspacefactory]::CreateRunspace()
 $keyRunspace.ApartmentState = "STA"
 $keyRunspace.ThreadOptions  = "ReuseThread"
@@ -2601,26 +2605,41 @@ $keyRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
 $keyRunspace.SessionStateProxy.SetVariable("ListenerRef", $listener)
 
 $keyScript = {
-    try {
-        while ($true) {
-            if ($syncHash.PendingShutdown -and [DateTime]::UtcNow -gt $syncHash.PendingShutdownTime) {
-                Write-Host "No activity detected. Shutting down server gracefully..." -ForegroundColor Yellow
-                break
-            }
+    $initialStartupTime = [DateTime]::UtcNow
+    while ($true) {
+        # 1. Console key detection (if console handle is available)
+        try {
             if ([System.Console]::KeyAvailable) {
                 $key = [System.Console]::ReadKey($true)
-                if ($key.Key -eq [System.ConsoleKey]::Enter) { break }
+                if ($key.Key -eq [System.ConsoleKey]::Enter) {
+                    Write-Host "[Enter] key pressed. Shutting down server gracefully..." -ForegroundColor Yellow
+                    break
+                }
             }
-            [System.Threading.Thread]::Sleep(100)
+        } catch { }
+
+        # 2. Browser shutdown signal (/api/shutdown beacon)
+        if ($syncHash.PendingShutdown -and [DateTime]::UtcNow -gt $syncHash.PendingShutdownTime) {
+            Write-Host "Browser shutdown signal received. Shutting down server gracefully..." -ForegroundColor Yellow
+            break
         }
-    } catch {
-        while ($syncHash.Running) {
-            if ($syncHash.PendingShutdown -and [DateTime]::UtcNow -gt $syncHash.PendingShutdownTime) {
-                break
+
+        # 3. Client heartbeat & disconnect detection (Auto-shutdown when browser closed)
+        if ($syncHash.AutoShutdownOnDisconnect -ne $false) {
+            $timeoutSec = if ($syncHash.HeartbeatTimeoutSec) { [int]$syncHash.HeartbeatTimeoutSec } else { 8 }
+            
+            if ($syncHash.HasClientConnected) {
+                $timeSinceLastActivity = ([DateTime]::UtcNow - $syncHash.LastClientActivity).TotalSeconds
+                if ($timeSinceLastActivity -gt $timeoutSec) {
+                    Write-Host "Browser disconnected ($([int]$timeSinceLastActivity)s since last heartbeat). Automatically saving logs and shutting down..." -ForegroundColor Yellow
+                    break
+                }
             }
-            [System.Threading.Thread]::Sleep(500)
         }
+
+        [System.Threading.Thread]::Sleep(200)
     }
+
     $syncHash.Shutdown = $true
     try { $ListenerRef.Stop() } catch {}
 }
@@ -2638,6 +2657,10 @@ try {
         $response = $context.Response
         $urlPath  = $request.Url.LocalPath
         $method   = $request.HttpMethod
+
+        # Update client activity on any request from browser
+        $syncHash.HasClientConnected = $true
+        $syncHash.LastClientActivity = [DateTime]::UtcNow
 
         if ($urlPath -ne "/api/shutdown") {
             if ($syncHash.PendingShutdown) {
@@ -4960,11 +4983,16 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                     $response.OutputStream.Write($respBytes, 0, $respBytes.Length)
                     $response.Close()
                 }
-                elseif ($urlPath -eq "/api/shutdown" -and $method -eq "POST") {
+                elseif ($urlPath -eq "/api/heartbeat") {
+                    $syncHash.HasClientConnected = $true
+                    $syncHash.LastClientActivity = [DateTime]::UtcNow
+                    Write-JsonResponse $response @{ status = "alive"; time = [DateTime]::UtcNow.ToString("o") }
+                }
+                elseif ($urlPath -eq "/api/shutdown") {
                     $syncHash.PendingShutdown = $true
-                    $syncHash.PendingShutdownTime = [DateTime]::UtcNow.AddSeconds(4) # wait 4 seconds for browser reload/reconnect
-                    Write-JsonResponse $response @{ status = "success"; message = "Pending shutdown" }
-                    Write-Host "Shutdown signal received from browser (pending)." -ForegroundColor Yellow
+                    $syncHash.PendingShutdownTime = [DateTime]::UtcNow.AddSeconds(2) # wait 2 seconds for clean exit
+                    Write-JsonResponse $response @{ status = "success"; message = "Shutdown initiated" }
+                    Write-Host "Shutdown signal received from browser." -ForegroundColor Yellow
                 }
                 else {
                     Write-JsonResponse $response @{ error = "Not found" } 404
