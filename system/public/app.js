@@ -1919,6 +1919,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const CHART_LINE_COLORS = ['#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#06b6d4','#f43f5e','#14b8a6'];
         Object.values(charts).forEach(c => { if (c) c.destroy(); });
         charts = {};
+        if (dashboardUnifiedChart) {
+            try { dashboardUnifiedChart.destroy(); } catch (e) {}
+            dashboardUnifiedChart = null;
+        }
         const groups = {};
         devices.forEach(d => {
             const g = d.group || 'Ungrouped';
@@ -2030,30 +2034,46 @@ document.addEventListener('DOMContentLoaded', () => {
             deviceList.appendChild(section);
         }
 
-        // グラフは常に全デバイスを対象にする（グループ選択中でも全機器の遅延推移を表示）
-        let chartDevices = monitoredGlobal;
+        // グラフ描画: 'all' なら全監視デバイス、個別グループ選択中ならそのグループのデバイスを表示
+        let chartDevices = (activeTab === 'all')
+            ? monitoredGlobal
+            : monitoredGlobal.filter(d => ((d.group && d.group.trim()) ? d.group.trim() : 'Ungrouped') === activeTab);
+        
+        // グループ内に有効な監視デバイスがない場合のフォールバック（グループ内の全機器または全監視機器）
+        if (chartDevices.length === 0) {
+            if (activeTab !== 'all') {
+                const inGroup = devices.filter(d => ((d.group && d.group.trim()) ? d.group.trim() : 'Ungrouped') === activeTab);
+                chartDevices = inGroup.length > 0 ? inGroup : monitoredGlobal;
+            } else {
+                chartDevices = devices;
+            }
+        }
+
         const unifiedChartContainer = document.getElementById('dashboard-unified-chart-container');
         if (unifiedChartContainer) {
             unifiedChartContainer.innerHTML = '';
             if (chartDevices.length > 0) {
+                const chartTitle = (activeTab === 'all') ? '全デバイス の遅延推移 (ms)' : `グループ [${activeTab}] の遅延推移 (ms)`;
                 const unifiedChartDiv = document.createElement('div');
                 unifiedChartDiv.className = 'dashboard-unified-chart';
-                unifiedChartDiv.innerHTML = `<div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:10px;">全デバイス の遅延推移 (ms)</div><div style="flex:1;position:relative;width:100%;height:calc(100% - 25px);"><canvas id="dashboard-unified-canvas"></canvas></div>`;
+                unifiedChartDiv.innerHTML = `<div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:10px;">${escapeHTML(chartTitle)}</div><div style="flex:1;position:relative;width:100%;height:calc(100% - 25px);"><canvas id="dashboard-unified-canvas"></canvas></div>`;
                 unifiedChartContainer.appendChild(unifiedChartDiv);
                 const datasets = chartDevices.map(d => ({ 
                     label: d.name || d.ip, 
                     deviceIp: d.ip, 
-                    data: latencyHistory[d.ip], 
-                    borderColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length], 
-                    originalColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length],
+                    data: (latencyHistory[d.ip] && latencyHistory[d.ip].length > 0) ? latencyHistory[d.ip].slice() : Array(15).fill(null), 
+                    borderColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] || '#3b82f6', 
+                    originalColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] || '#3b82f6',
                     backgroundColor: 'transparent', 
                     borderWidth: 2, 
                     pointRadius: 2, 
                     fill: false, 
                     tension: 0.4 
                 }));
+                const labelIp = (chartDevices[0] && chartDevices[0].ip && timeHistory[chartDevices[0].ip]) ? chartDevices[0].ip : (monitoredGlobal[0] ? monitoredGlobal[0].ip : null);
+                const chartLabels = (labelIp && timeHistory[labelIp]) ? timeHistory[labelIp] : Array(15).fill('');
                 dashboardUnifiedChart = new Chart(unifiedChartDiv.querySelector('canvas').getContext('2d'), {
-                    type: 'line', data: { labels: timeHistory[chartDevices[0].ip] || Array(15).fill(''), datasets },
+                    type: 'line', data: { labels: chartLabels, datasets },
                     options: { responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
                         scales: {
                             x: {
@@ -2367,12 +2387,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dashboardUnifiedChart) {
             const tab = localStorage.getItem('activeDashboardTab') || 'all';
             const mon = devices.filter(d => d.enabled !== false);
-            const ds = (tab === 'all') ? mon : mon.filter(d => (d.group || 'Ungrouped') === tab);
-            if (ds.length > 0) {
-                dashboardUnifiedChart.data.labels = timeHistory[ds[0].ip] || Array(15).fill('');
-                dashboardUnifiedChart.data.datasets.forEach(s => { if (latencyHistory[s.deviceIp]) s.data = latencyHistory[s.deviceIp]; });
-                dashboardUnifiedChart.update();
+            const inTab = (tab === 'all') ? mon : mon.filter(d => ((d.group && d.group.trim()) ? d.group.trim() : 'Ungrouped') === tab);
+            const targetDevices = inTab.length > 0 ? inTab : (mon.length > 0 ? mon : devices);
+            const labelIp = (targetDevices[0] && targetDevices[0].ip && timeHistory[targetDevices[0].ip]) ? targetDevices[0].ip : (mon[0] ? mon[0].ip : null);
+            if (labelIp && timeHistory[labelIp]) {
+                dashboardUnifiedChart.data.labels = timeHistory[labelIp];
             }
+            dashboardUnifiedChart.data.datasets.forEach(s => {
+                if (latencyHistory[s.deviceIp]) {
+                    s.data = latencyHistory[s.deviceIp];
+                }
+            });
+            dashboardUnifiedChart.update();
         }
         if (topologyLatencyChart) {
             const mon = devices.filter(d => d.enabled !== false);
