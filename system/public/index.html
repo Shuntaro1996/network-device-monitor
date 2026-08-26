@@ -372,6 +372,63 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="guide-section border-top">
+                                <div class="section-subtitle" style="color:var(--primary-light, #60a5fa);">▼ 📊 TCPモード vs UDPモード 取得情報・使い分け</div>
+                                <div style="overflow-x:auto; margin-top:8px; margin-bottom:12px;">
+                                    <table style="width:100%; border-collapse:collapse; font-size:0.8rem; background:rgba(0,0,0,0.25); border-radius:8px; overflow:hidden;">
+                                        <thead>
+                                            <tr style="background:rgba(255,255,255,0.06); text-align:left;">
+                                                <th style="padding:8px 12px; border-bottom:1px solid var(--glass-border); color:var(--text-main);">取得・測定項目</th>
+                                                <th style="padding:8px 12px; border-bottom:1px solid var(--glass-border); color:#60a5fa;">TCP モード (デフォルト)</th>
+                                                <th style="padding:8px 12px; border-bottom:1px solid var(--glass-border); color:#34d399;">UDP モード (<code>-u</code> 指定)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                                <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">実効帯域幅 (Mbps)</td>
+                                                <td style="padding:7px 12px;">✅ <strong>最大伝送能力</strong>を実測</td>
+                                                <td style="padding:7px 12px;">✅ 指定レート (<code>-b</code>) に対する実測値</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                                <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">転送データ量 (Bytes)</td>
+                                                <td style="padding:7px 12px;">✅ 送信・受信の総データ量</td>
+                                                <td style="padding:7px 12px;">✅ 送信・受信の総データ量</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                                <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">パケット再送数 (Retransmits)</td>
+                                                <td style="padding:7px 12px;">✅ <strong>再送回数</strong>を検出 (品質指標)</td>
+                                                <td style="padding:7px 12px; color:var(--text-muted);">— (再送制御なし)</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                                <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">パケットロス率 (%)</td>
+                                                <td style="padding:7px 12px; color:var(--text-muted);">— (自動再送されるため)</td>
+                                                <td style="padding:7px 12px;">✅ <strong>消失パケット数 & ロス率(%)</strong></td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                                <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">ジッター / 揺らぎ (ms)</td>
+                                                <td style="padding:7px 12px; color:var(--text-muted);">—</td>
+                                                <td style="padding:7px 12px;">✅ <strong>パケット到達間隔のブレ</strong>を測定</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                                <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">主な測定用途</td>
+                                                <td style="padding:7px 12px;">ファイル転送・Web等の<strong>最大速度測定</strong></td>
+                                                <td style="padding:7px 12px;">IP電話・Web会議・動画の<strong>品質・遅延ブレ評価</strong></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px; font-size:0.78rem; color:var(--text-muted);">
+                                    <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:8px 12px;">
+                                        <strong style="color:#60a5fa;">💡 TCPモードのポイント:</strong><br>
+                                        確実な転送を行うため、パケットロスが起きると再送が発生して速度が低下します。複数並列で限界を測る場合は <code>-P 4</code> などの指定が効果的です。
+                                    </div>
+                                    <div style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:8px 12px;">
+                                        <strong style="color:#34d399;">💡 UDPモードのポイント:</strong><br>
+                                        再送を行わないため、回線の素のパケットロスやジッターを正確に測定できます。計測時は帯域指定（例: <code>-u -b 50M</code>）を付けるのが推奨されます。
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         
                         <div class="iperf-footer">
@@ -1225,6 +1282,6 @@
     </div>
 
     <div id="toast-container"></div>
-    <script src="app.js?v=59"></script>
+    <script src="app.js?v=60"></script>
 </body>
 </html>
