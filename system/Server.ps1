@@ -291,6 +291,46 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         $devices = $sync.Devices
         if ($null -eq $devices) { $devices = @() }
 
+        # フラッシュ前のメモリキューがあれば CSV に書き込み
+        if ($sync.History) {
+            foreach ($ip in $devices) {
+                $hList = $sync.History[$ip]
+                if ($null -ne $hList) {
+                    $lines = @()
+                    [System.Threading.Monitor]::Enter($hList.SyncRoot)
+                    try {
+                        if ($hList.Count -gt 0) {
+                            $lines = $hList.ToArray()
+                            $hList.Clear()
+                        }
+                    } finally {
+                        [System.Threading.Monitor]::Exit($hList.SyncRoot)
+                    }
+                    if ($lines.Count -gt 0 -and $sessionDir) {
+                        $sIp = $ip -replace '[\\/:*?"<>|]', '_'
+                        $cP = Join-Path $sessionDir "${sIp}.csv"
+                        try { [System.IO.File]::AppendAllText($cP, ($lines -join "`r`n") + "`r`n", [System.Text.Encoding]::GetEncoding(932)) } catch {}
+                    }
+                }
+            }
+        }
+
+        # Chart.js のインラインコード取得 (完全オフライン・どのURL階層からでも確実に動作)
+        $chartJsInline = ""
+        $baseDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+        $candidatePaths = @(
+            (Join-Path $baseDir "public\chart.js"),
+            (Join-Path $baseDir "system\public\chart.js")
+        )
+        foreach ($cp in $candidatePaths) {
+            if (Test-Path $cp) {
+                try {
+                    $chartJsInline = [System.IO.File]::ReadAllText($cp, [System.Text.Encoding]::UTF8)
+                    if ($chartJsInline) { break }
+                } catch {}
+            }
+        }
+
         $palette = @(
             '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6',
             '#06b6d4', '#f43f5e', '#14b8a6', '#6366f1', '#84cc16',
@@ -312,14 +352,22 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         $devIdx = 0
 
         foreach ($ip in $devices) {
+            $st = if ($sync.Status.ContainsKey($ip) -and $sync.Status[$ip].status) { $sync.Status[$ip].status } else { "Unknown" }
+            $stats = $sync.Stats[$ip]
+
+            # ── PAUSED（一時停止中）または一度も計測されていない機器はレポートから除外 ──
+            $isPaused = ($st -eq "PAUSED")
+            $hasMeasured = ($null -ne $stats -and $stats.Total -gt 0)
+            if ($isPaused -or -not $hasMeasured) {
+                continue
+            }
+
             $dName   = if ($sync.DeviceName.ContainsKey($ip) -and $sync.DeviceName[$ip]) { $sync.DeviceName[$ip] } else { $ip }
             $dGroup  = if ($sync.Group.ContainsKey($ip) -and $sync.Group[$ip]) { $sync.Group[$ip] } else { "未分類" }
             $dLoc    = if ($sync.Location.ContainsKey($ip) -and $sync.Location[$ip]) { $sync.Location[$ip] } else { "—" }
             $dManual = if ($sync.TroubleMemo.ContainsKey($ip) -and $sync.TroubleMemo[$ip]) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($sync.TroubleMemo[$ip]))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
-            $st      = if ($sync.Status.ContainsKey($ip) -and $sync.Status[$ip].status) { $sync.Status[$ip].status } else { "Unknown" }
             $color   = $palette[$devIdx % $palette.Count]
 
-            $stats = $sync.Stats[$ip]
             $sla = "100.0%"
             $outageCount = 0
             $avgLat = "—"
@@ -465,6 +513,12 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         $devCardsHtmlStr = $devCardsHtml -join "`n"
         $chartDataJson = $chartDataObj | ConvertTo-Json -Depth 6 -Compress
 
+        $scriptBlock = if ($chartJsInline) {
+            "<script>`n$chartJsInline`n</script>"
+        } else {
+            "<script src='/chart.js'></script><script src='chart.js'></script><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>"
+        }
+
         $reportHtml = @"
 <!DOCTYPE html>
 <html lang="ja">
@@ -472,12 +526,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ネットワーク機器 定期点検・折れ線グラフ報告書 ($tsNow)</title>
-    <script src="chart.js"></script>
-    <script>
-    if (typeof Chart === 'undefined') {
-        document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>');
-    }
-    </script>
+    $scriptBlock
     <style>
         @page { size: A4 landscape; margin: 12mm; }
         * { box-sizing: border-box; }
@@ -540,8 +589,8 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
 
         <div class="summary-grid">
             <div class="summary-box">
-                <div class="val">$($devices.Count)</div>
-                <div class="label">登録監視機器数</div>
+                <div class="val">$($chartDataObj.devices.Count)</div>
+                <div class="label">計測対象機器数</div>
             </div>
             <div class="summary-box">
                 <div class="val" style="color:#16a34a;">$overallSla</div>
