@@ -527,20 +527,24 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         $devCardsHtmlStr = $devCardsHtml -join "`n"
         $chartDataJson = $chartDataObj | ConvertTo-Json -Depth 6 -Compress
 
-        $scriptBlock = if ($chartJsInline) {
-            "<script>`n$chartJsInline`n</script>"
+        # Chart.js を安全に注入するため scriptBlock を別途構築（ヒアドキュメント内の $ 誤解釈を防ぐ）
+        if ($chartJsInline) {
+            $chartScriptTag = "<script>" + "`n" + $chartJsInline + "`n" + "</script>"
         } else {
-            "<script src='/chart.js'></script><script src='chart.js'></script><script src='https://cdn.jsdelivr.net/npm/chart.js'></script>"
+            $chartScriptTag = "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js'></script>"
         }
 
-        $reportHtml = @"
+        $reportHtmlPart1 = @"
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ネットワーク機器 定期点検・折れ線グラフ報告書 ($tsNow)</title>
-    $scriptBlock
+"@
+        # Chart.js スクリプトタグを文字列連結で安全に注入（$ 記号の誤解釈を防ぐ）
+        $reportHtmlPart1 += $chartScriptTag
+        $reportHtmlPart2 = @"
     <style>
         @page { size: A4 landscape; margin: 10mm; }
         * { box-sizing: border-box; }
@@ -858,6 +862,8 @@ $chartDataJson
 </body>
 </html>
 "@
+        # パート1とパート2を結合して完全なHTMLを組み立てる
+        $reportHtml = $reportHtmlPart1 + $reportHtmlPart2
 
         if ($savePath) {
             try {
