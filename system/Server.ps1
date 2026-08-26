@@ -5171,14 +5171,10 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
         }
     }
 
-    # Generate graphical HTML report in session directory and copy chart.js for offline viewing
+    # Generate graphical HTML report in session directory (chart.js is embedded inline, no external file needed)
     if ($syncHash.LoggingEnabled -ne $false -and $syncHash.SessionDir -and (Test-Path $syncHash.SessionDir)) {
         try {
             $reportFile = Join-Path $syncHash.SessionDir "report.html"
-            $chartJsSrc = Join-Path $PSScriptRoot "public\chart.js"
-            if (Test-Path $chartJsSrc) {
-                Copy-Item -Path $chartJsSrc -Destination $syncHash.SessionDir -Force -ErrorAction SilentlyContinue
-            }
             $null = Generate-SessionReportHtml -sync $syncHash -period "Session" -savePath $reportFile
             Write-Host "Generated graph inspection report: $reportFile" -ForegroundColor Green
         } catch {
