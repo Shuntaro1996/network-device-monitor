@@ -784,7 +784,7 @@ function Initialize-DeviceLog {
     $safeIp  = $ip -replace '[\\/:*?"<>|]', '_'
     $csvPath = Join-Path $syncHash.SessionDir "${safeIp}.csv"
     if (-not (Test-Path $csvPath)) {
-        $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec`r`n"
+        $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec,ジッター_ms`r`n"
         try {
             [System.IO.File]::WriteAllText($csvPath, $header, [System.Text.Encoding]::GetEncoding(932))
         } catch {
@@ -974,7 +974,12 @@ $pingScript = {
                 $rxStr = [string]$syncHash.Traffic[$ip].rx
             }
 
-            $csvLine = "`"$ts`",`"$ip`",`"$st`",`"$lat`",`"$bw`",`"$txStr`",`"$rxStr`",`"$outageSec`""
+            # Jitter for this record (ms) — calculated from recent 30 latency samples
+            $jitterVal = if ($null -ne $statsNow -and $null -ne $statsNow.Jitter -and $statsNow.Jitter -gt 0) {
+                [math]::Round($statsNow.Jitter, 2)
+            } else { '' }
+
+            $csvLine = "`"$ts`",`"$ip`",`"$st`",`"$lat`",`"$bw`",`"$txStr`",`"$rxStr`",`"$outageSec`",`"$jitterVal`""
             if ($syncHash.History.ContainsKey($ip)) {
                 $null = $syncHash.History[$ip].Add($csvLine)
             }
@@ -1189,7 +1194,7 @@ $pingScript = {
                                         }
                                     }
                                     Move-Item -Path $csvPath -Destination (Join-Path $syncHash.SessionDir "${safeIp}_1.csv") -Force
-                                    $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec`r`n"
+                                    $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec,ジッター_ms`r`n"
                                     [System.IO.File]::WriteAllText($csvPath, $header, [System.Text.Encoding]::GetEncoding(932))
                                 }
                             }
@@ -4570,7 +4575,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
 
             # Create file with header if it doesn't exist
             if (-not (Test-Path $csvPath)) {
-                $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec`r`n"
+                $header = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec,ジッター_ms`r`n"
                 try {
                     [System.IO.File]::WriteAllText($csvPath, $header, [System.Text.Encoding]::GetEncoding(932))
                 } catch {
