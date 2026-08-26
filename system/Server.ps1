@@ -773,6 +773,8 @@ function Initialize-DeviceLog {
             RecentLatencies  = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new()) # 直近30回の遅延
             PacketLossRate   = 0.0    # 直近パケットロス率 (%)
             Jitter           = 0.0    # 直近ジッター (ms)
+            JitterSum        = 0.0    # セッション累計ジッター合計（平均算出用）
+            JitterCount      = 0      # セッション累計ジッター計測回数
             PreviousStatus   = "Initial"
         })
     }
@@ -1097,7 +1099,9 @@ $pingScript = {
                                 for ($idx = 1; $idx -lt $stats.RecentLatencies.Count; $idx++) {
                                     $diffSum += [math]::Abs([double]$stats.RecentLatencies[$idx] - [double]$stats.RecentLatencies[$idx - 1])
                                 }
-                                $stats.Jitter = [math]::Round($diffSum / ($stats.RecentLatencies.Count - 1), 2)
+                                $stats.Jitter      = [math]::Round($diffSum / ($stats.RecentLatencies.Count - 1), 2)
+                                $stats.JitterSum   = $stats.JitterSum + $stats.Jitter
+                                $stats.JitterCount = $stats.JitterCount + 1
                             }
                         }
                     } elseif ($st -eq "Failed" -or $st -eq "Error") {
@@ -2132,10 +2136,11 @@ try {
                             $st.outage5sCount    = $s.Outage5sCount
                             $st.packetLossRate   = if ($null -ne $s.PacketLossRate) { $s.PacketLossRate } else { 0.0 }
                             $st.jitter           = if ($null -ne $s.Jitter) { $s.Jitter } else { 0.0 }
+                            $st.avgJitter        = if ($s.JitterCount -gt 0) { [math]::Round($s.JitterSum / $s.JitterCount, 2) } else { 0.0 }
                         } else {
                             $st.maxOutageSec = 0; $st.currentOutageSec = 0
                             $st.outage600msCount = 0; $st.outage5sCount = 0
-                            $st.packetLossRate = 0.0; $st.jitter = 0.0
+                            $st.packetLossRate = 0.0; $st.jitter = 0.0; $st.avgJitter = 0.0
                         }
                         $st.isSuppressed = if ($syncHash.Status.ContainsKey($key) -and $syncHash.Status[$key].ContainsKey('isSuppressed')) { $syncHash.Status[$key].isSuppressed } else { $false }
                         $st.connectedTo  = if ($syncHash.ConnectedTo.ContainsKey($key)) { $syncHash.ConnectedTo[$key] } else { '' }
@@ -4611,7 +4616,9 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 $thresh2Label = if ($syncHash.OutageThresh2Ms -ge 1000) { "$([int]($syncHash.OutageThresh2Ms/1000))s" } else { "$($syncHash.OutageThresh2Ms)ms" }
 
                 $packetLossRate = if ($total -gt 0) { [math]::Round(($failed / $total) * 100, 1) } else { 0 }
-                $jitterVal = if ($null -ne $stats.Jitter -and $stats.Jitter -gt 0) { $stats.Jitter } else { 'N/A' }
+                $jitterVal = if ($stats.JitterCount -gt 0) {
+                    [math]::Round($stats.JitterSum / $stats.JitterCount, 2)
+                } else { 'N/A' }
 
                 # Japanese labels via Base64 (avoids PS5 source-encoding issues)
                 $pingB64 = "eyJyZWFjaCI6IuWIsOmBlOeOhyAvIOaOpee2muaApyAoJSkiLCJtYXhPdXRhZ2UiOiLmnIDlpKfnnqzmlq3mmYLplpPvvIjmnIDlpKfpgJrkv6HlgZzmraLmmYLplpPvvInvvIjnp5LvvIkiLCJzZXNzaW9uIjoi44K744OD44K344On44Oz77yI6KiI5ris5Zue77yJIiwiaXAiOiJJUOOCouODieODrOOCuSIsImxhdE1heCI6IuacgOWkp+mBheW7tiAobXMpIiwib3V0YWdlQWJvdmUiOiLku6XkuIrjga7nnqzmlq3lm57mlbDvvIjmlq3jgYznmbrnlJ/jgZfjgZ/lm57mlbDvvIkiLCJmYWlsZWQiOiLlpLHmlZfmlbDvvIjlv5znrZTjgarjgZfjg7vjgr/jgqTjg6DjgqLjgqbjg4jvvIkiLCJoZWFkZXIiOiItLS0g6KiI5ris44K144Oe44Oq44O8IC0tLSIsImxhdE91dGFnZSI6IuacgOWkp+eerOaWreaZgumWk++8iOacgOWkp+mAmuS/oeWBnOatouaZgumWk++8ie+8iOenku+8iSIsImppdHRlciI6IuW5s+Wdh+OCuOODg+OCv+ODvCAobXMpIiwibm90ZSI6IuWCmeiAg++8iOeerOaWreWbnuaVsOOBrumbhuioiOOBq+OBpOOBhOOBpu+8iSIsImxhdE1pbiI6IuacgOWwj+mBheW7tiAobXMpIiwibGF0QXZnIjoi5bmz5Z2H6YGF5bu2IChtcykiLCJ0b3RhbFBpbmdzIjoi57ePUGluZ+mAgeS/oeaVsO+8iOippuihjOWbnuaVsO+8iSIsInBhY2tldExvc3MiOiLjg5HjgrHjg4Pjg4jmkI3lpLHnjocgKCUpIiwibm90ZVZhbCI6IuOCquODleODqeOCpOODs+OBi+OCieOCquODs+ODqeOCpOODs+OBuOW+qeW4sOOBl+OBn+aZgueCueOBp+OCq+OCpuODs+ODiOOAguOCu+ODg+OCt+ODp+ODs+e1guS6huaZgueCueOBp+e2mee2muS4reOBrueerOaWreOBr+WQq+OBv+OBvuOBm+OCkyIsInN1Y2Nlc3MiOiLmiJDlip/mlbDvvIjlv5znrZTjgYLjgorvvIkifQ=="

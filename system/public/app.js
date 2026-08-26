@@ -2277,8 +2277,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     lossEl.style.color = (lossRate > 0) ? '#f87171' : 'var(--text-muted)';
                 }
                 if (jitterEl) {
-                    const jit = (data.jitter != null && data.jitter > 0) ? data.jitter : null;
+                    const jit = (data.avgJitter != null && data.avgJitter > 0) ? data.avgJitter : null;
                     jitterEl.textContent = `揺らぎ: ${jit !== null ? jit.toFixed(1) + 'ms' : '-'}`;
+                    jitterEl.title = jit !== null ? `平均ジッター: ${jit.toFixed(2)}ms` : '';
                     jitterEl.style.color = (jit !== null && jit > 20) ? '#fbbf24' : 'var(--text-muted)';
                 }
 
