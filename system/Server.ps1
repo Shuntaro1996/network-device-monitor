@@ -279,6 +279,525 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         } catch {}
     }
 
+    # Helper: Generate graphical inspection report (HTML with Chart.js line charts)
+    function Generate-SessionReportHtml {
+        param(
+            [hashtable]$sync,
+            [string]$period = "today",
+            [string]$savePath = $null
+        )
+        $tsNow = (Get-Date).ToString("yyyy年MM月dd日 HH:mm:ss")
+        $sessionDir = $sync.SessionDir
+        $devices = $sync.Devices
+        if ($null -eq $devices) { $devices = @() }
+
+        $palette = @(
+            '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6',
+            '#06b6d4', '#f43f5e', '#14b8a6', '#6366f1', '#84cc16',
+            '#d946ef', '#0ea5e9', '#eab308', '#a855f7', '#22c55e'
+        )
+
+        $reportRows = @()
+        $totalSuccess = 0
+        $totalPings = 0
+        $totalLatSum = 0.0
+        $totalLatCount = 0
+        $maxOverallOutage = 0.0
+
+        $chartDataObj = @{
+            devices = @()
+        }
+
+        $devCardsHtml = @()
+        $devIdx = 0
+
+        foreach ($ip in $devices) {
+            $dName   = if ($sync.DeviceName.ContainsKey($ip) -and $sync.DeviceName[$ip]) { $sync.DeviceName[$ip] } else { $ip }
+            $dGroup  = if ($sync.Group.ContainsKey($ip) -and $sync.Group[$ip]) { $sync.Group[$ip] } else { "未分類" }
+            $dLoc    = if ($sync.Location.ContainsKey($ip) -and $sync.Location[$ip]) { $sync.Location[$ip] } else { "—" }
+            $dManual = if ($sync.TroubleMemo.ContainsKey($ip) -and $sync.TroubleMemo[$ip]) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($sync.TroubleMemo[$ip]))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
+            $st      = if ($sync.Status.ContainsKey($ip) -and $sync.Status[$ip].status) { $sync.Status[$ip].status } else { "Unknown" }
+            $color   = $palette[$devIdx % $palette.Count]
+
+            $stats = $sync.Stats[$ip]
+            $sla = "100.0%"
+            $outageCount = 0
+            $avgLat = "—"
+            $maxLat = "—"
+            $minLat = "—"
+            $maxOutage = "—"
+            $avgJit = "—"
+
+            if ($null -ne $stats) {
+                $total = $stats.Success + $stats.Failed
+                if ($total -gt 0) {
+                    $slaVal = [math]::Round(($stats.Success / $total) * 100, 2)
+                    $sla = "${slaVal}%"
+                    $totalSuccess += $stats.Success
+                    $totalPings += $total
+                }
+                $outageCount = $stats.Outage600msCount + $stats.Outage5sCount
+                if ($stats.LatCount -gt 0) {
+                    $avgLatVal = [math]::Round($stats.SumLat / $stats.LatCount, 1)
+                    $avgLat = "$avgLatVal ms"
+                    $totalLatSum += $stats.SumLat
+                    $totalLatCount += $stats.LatCount
+                }
+                if ($stats.MaxLat -gt 0) { $maxLat = "$($stats.MaxLat) ms" }
+                if ($stats.MinLat -ne [double]::MaxValue -and $stats.MinLat -gt 0) { $minLat = "$($stats.MinLat) ms" }
+                if ($stats.MaxOutageSec -gt 0) {
+                    $maxOutage = "$([math]::Round($stats.MaxOutageSec, 1)) 秒"
+                    if ($stats.MaxOutageSec -gt $maxOverallOutage) { $maxOverallOutage = $stats.MaxOutageSec }
+                }
+                if ($stats.JitterCount -gt 0) {
+                    $avgJit = "$([math]::Round($stats.JitterSum / $stats.JitterCount, 2)) ms"
+                }
+            }
+
+            $reportRows += @"
+<tr>
+    <td><span class="color-dot" style="background-color:$color;"></span><strong>$dName</strong><br><small style="color:#64748b;">$ip</small></td>
+    <td>$dGroup</td>
+    <td>$dLoc</td>
+    <td><span class="status-tag $($st.ToLower())">$st</span></td>
+    <td>$avgLat</td>
+    <td>$maxLat</td>
+    <td>$minLat</td>
+    <td><strong>$sla</strong></td>
+    <td>$maxOutage</td>
+    <td>$avgJit</td>
+    <td>$outageCount 回</td>
+    <td><small>$dManual</small></td>
+</tr>
+"@
+
+            # CSVログからの時系列データ抽出
+            $safeIp = $ip -replace '[\\/:*?"<>|]', '_'
+            $csvPath = if ($sessionDir) { Join-Path $sessionDir "${safeIp}.csv" } else { "" }
+            if ($csvPath -and -not (Test-Path $csvPath)) {
+                $altSafeIp = $ip -replace '[\.:_]', '_'
+                $altCsvPath = Join-Path $sessionDir "${altSafeIp}.csv"
+                if (Test-Path $altCsvPath) { $csvPath = $altCsvPath }
+            }
+
+            $timeSeries = @()
+            if ($csvPath -and (Test-Path $csvPath)) {
+                try {
+                    $rawLines = [System.IO.File]::ReadAllLines($csvPath, [System.Text.Encoding]::GetEncoding(932))
+                    $validLines = @()
+                    foreach ($line in $rawLines) {
+                        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("---")) {
+                            if ($validLines.Count -gt 0) { break }
+                            continue
+                        }
+                        $validLines += $line
+                    }
+                    if ($validLines.Count -gt 1) {
+                        $parsedCsv = $validLines | ConvertFrom-Csv
+                        $totalRecords = $parsedCsv.Count
+                        $step = if ($totalRecords -gt 1200) { [math]::Ceiling($totalRecords / 1200) } else { 1 }
+                        
+                        for ($i = 0; $i -lt $totalRecords; $i += $step) {
+                            $row = $parsedCsv[$i]
+                            $tStr = if ($row.タイムスタンプ) { $row.タイムスタンプ } elseif ($row.Timestamp) { $row.Timestamp } else { "" }
+                            $tShort = if ($tStr.Length -ge 19) { $tStr.Substring(11, 8) } else { $tStr }
+                            
+                            $latR = if ($row.遅延_ms) { $row.遅延_ms } elseif ($row.Latency_ms) { $row.Latency_ms } else { "" }
+                            $latV = if ($latR -match '^\d+(\.\d+)?$') { [double]$latR } else { $null }
+                            
+                            $jitR = if ($row.ジッター_ms) { $row.ジッター_ms } elseif ($row.Jitter_ms) { $row.Jitter_ms } else { "" }
+                            $jitV = if ($jitR -match '^\d+(\.\d+)?$') { [double]$jitR } else { $null }
+                            
+                            $txR = if ($row.送信_Mbps) { $row.送信_Mbps } elseif ($row.Tx_Mbps) { $row.Tx_Mbps } else { "" }
+                            $txV = if ($txR -match '^\d+(\.\d+)?$') { [double]$txR } else { $null }
+                            
+                            $rxR = if ($row.受信_Mbps) { $row.受信_Mbps } elseif ($row.Rx_Mbps) { $row.Rx_Mbps } else { "" }
+                            $rxV = if ($rxR -match '^\d+(\.\d+)?$') { [double]$rxR } else { $null }
+                            
+                            $outR = if ($row.瞬断継続_sec) { $row.瞬断継続_sec } else { "" }
+                            $outV = if ($outR -match '^\d+(\.\d+)?$') { [double]$outR } else { 0 }
+                            
+                            $stR = if ($row.ステータス) { $row.ステータス } elseif ($row.Status) { $row.Status } else { "" }
+
+                            $timeSeries += @{
+                                t   = $tShort
+                                lat = $latV
+                                jit = $jitV
+                                tx  = $txV
+                                rx  = $rxV
+                                out = $outV
+                                st  = $stR
+                            }
+                        }
+                    }
+                } catch { }
+            }
+
+            $chartDataObj.devices += @{
+                ip         = $ip
+                name       = $dName
+                group      = $dGroup
+                color      = $color
+                timeSeries = $timeSeries
+            }
+
+            $devCardsHtml += @"
+<div class="device-card">
+    <div class="device-card-header">
+        <div>
+            <span class="color-dot" style="background-color:$color;"></span>
+            <strong>$dName</strong> <span style="font-size:12px; color:#64748b;">($ip)</span>
+        </div>
+        <span class="status-tag $($st.ToLower())">$st</span>
+    </div>
+    <div class="device-chart-box">
+        <canvas id="device-chart-$devIdx"></canvas>
+    </div>
+</div>
+"@
+            $devIdx++
+        }
+
+        $overallSla = if ($totalPings -gt 0) { "$([math]::Round(($totalSuccess / $totalPings) * 100, 2))%" } else { "100.0%" }
+        $overallAvgLat = if ($totalLatCount -gt 0) { "$([math]::Round($totalLatSum / $totalLatCount, 1)) ms" } else { "—" }
+        $overallMaxOutageStr = if ($maxOverallOutage -gt 0) { "$([math]::Round($maxOverallOutage, 1)) 秒" } else { "0 秒" }
+        $rowsHtml = $reportRows -join "`n"
+        $devCardsHtmlStr = $devCardsHtml -join "`n"
+        $chartDataJson = $chartDataObj | ConvertTo-Json -Depth 6 -Compress
+
+        $reportHtml = @"
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ネットワーク機器 定期点検・折れ線グラフ報告書 ($tsNow)</title>
+    <script src="chart.js"></script>
+    <script>
+    if (typeof Chart === 'undefined') {
+        document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>');
+    }
+    </script>
+    <style>
+        @page { size: A4 landscape; margin: 12mm; }
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Yu Gothic UI', Meiryo, sans-serif; color: #1e293b; background: #f8fafc; margin: 0; padding: 24px; line-height: 1.5; font-size: 13px; }
+        .container { max-width: 1200px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
+        .report-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #3b82f6; padding-bottom: 14px; margin-bottom: 24px; }
+        .report-title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px; }
+        .report-meta { text-align: right; font-size: 12px; color: #64748b; }
+        .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
+        .summary-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: center; }
+        .summary-box .val { font-size: 24px; font-weight: 800; color: #2563eb; }
+        .summary-box .label { font-size: 11px; color: #64748b; margin-top: 4px; font-weight: 600; }
+        .section-title { font-size: 15px; font-weight: 700; margin: 28px 0 12px 0; border-left: 4px solid #3b82f6; padding-left: 10px; color: #0f172a; display: flex; align-items: center; gap: 6px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+        th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
+        th { background: #f1f5f9; color: #334155; font-weight: 700; font-size: 11px; }
+        tr:nth-child(even) { background: #f8fafc; }
+        .color-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .status-tag.success { background: #dcfce7; color: #15803d; }
+        .status-tag.failed { background: #fee2e2; color: #b91c1c; }
+        .status-tag.unknown { background: #f1f5f9; color: #64748b; }
+        .chart-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+        .chart-card-title { font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 12px; }
+        .chart-box { position: relative; height: 280px; width: 100%; }
+        .device-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 10px; }
+        .device-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
+        .device-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .device-chart-box { position: relative; height: 180px; width: 100%; }
+        .print-bar { position: fixed; top: 15px; right: 15px; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; gap: 12px; align-items: center; z-index: 999; }
+        .print-btn { background: #2563eb; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 12px; }
+        .print-btn:hover { background: #1d4ed8; }
+        @media print {
+            .print-bar { display: none; }
+            body { background: #fff; padding: 0; }
+            .container { border: none; box-shadow: none; padding: 0; max-width: 100%; }
+            .chart-card, .device-card { break-inside: avoid; }
+            table { break-inside: auto; }
+            tr { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="print-bar">
+        <span>📄 グラフ付き点検報告書</span>
+        <button class="print-btn" onclick="window.print()">🖨️ 印刷 / PDF保存</button>
+    </div>
+
+    <div class="container">
+        <div class="report-header">
+            <div>
+                <h1 class="report-title">📊 ネットワーク機器 稼働状況・定期点検報告書</h1>
+                <div style="font-size:12px; color:#64748b; margin-top:4px;">対象期間: $period | 作成日時: $tsNow</div>
+            </div>
+            <div class="report-meta">
+                <div><strong>システム名:</strong> Network Device Monitor</div>
+                <div><strong>総合可用性 (SLA):</strong> <span style="color:#16a34a; font-weight:800; font-size:14px;">$overallSla</span></div>
+            </div>
+        </div>
+
+        <div class="summary-grid">
+            <div class="summary-box">
+                <div class="val">$($devices.Count)</div>
+                <div class="label">登録監視機器数</div>
+            </div>
+            <div class="summary-box">
+                <div class="val" style="color:#16a34a;">$overallSla</div>
+                <div class="label">総合稼働率 (SLA)</div>
+            </div>
+            <div class="summary-box">
+                <div class="val" style="color:#0284c7;">$overallAvgLat</div>
+                <div class="label">全体平均遅延</div>
+            </div>
+            <div class="summary-box">
+                <div class="val" style="color:#f59e0b;">$overallMaxOutageStr</div>
+                <div class="label">最大瞬断時間</div>
+            </div>
+        </div>
+
+        <div class="section-title">1. 機器別 稼働・遅延・SLA一覧</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>機器名 / IP</th>
+                    <th>グループ</th>
+                    <th>設置場所</th>
+                    <th>状態</th>
+                    <th>平均遅延</th>
+                    <th>最大遅延</th>
+                    <th>最小遅延</th>
+                    <th>稼働率 (SLA)</th>
+                    <th>最大瞬断</th>
+                    <th>平均ジッター</th>
+                    <th>瞬断回数</th>
+                    <th>マニュアル</th>
+                </tr>
+            </thead>
+            <tbody>
+                $rowsHtml
+            </tbody>
+        </table>
+
+        <div class="section-title">2. 全機器 応答遅延（Latency）推移グラフ (ms)</div>
+        <div class="chart-card">
+            <div class="chart-card-title">📈 時系列 応答遅延推移 (凡例クリックで各機器の表示/非表示を切り替え可能)</div>
+            <div class="chart-box">
+                <canvas id="unified-latency-chart"></canvas>
+            </div>
+        </div>
+
+        <div class="section-title">3. 全機器 ジッター（揺らぎ）推移グラフ (ms)</div>
+        <div class="chart-card">
+            <div class="chart-card-title">〰️ 時系列 ジッター推移 (通信のブレ・安定度)</div>
+            <div class="chart-box">
+                <canvas id="unified-jitter-chart"></canvas>
+            </div>
+        </div>
+
+        <div class="section-title">4. 機器別 詳細推移グラフ (遅延 & 送受信帯域)</div>
+        <div class="device-grid">
+            $devCardsHtmlStr
+        </div>
+
+        <div style="margin-top:40px; border-top:1px solid #e2e8f0; padding-top:14px; font-size:11px; color:#94a3b8; text-align:center;">
+            Generated by Network Device Monitor — $tsNow
+        </div>
+    </div>
+
+    <script id="report-data" type="application/json">
+$chartDataJson
+    </script>
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const rawJson = document.getElementById('report-data').textContent;
+        const reportData = JSON.parse(rawJson);
+        const devices = reportData.devices || [];
+        if (typeof Chart === 'undefined') {
+            console.error('Chart.js is not loaded.');
+            return;
+        }
+
+        let allTimestamps = [];
+        devices.forEach(d => {
+            if (d.timeSeries && d.timeSeries.length > allTimestamps.length) {
+                allTimestamps = d.timeSeries.map(p => p.t);
+            }
+        });
+
+        // 1. Unified Latency Chart
+        const latencyDatasets = devices.map(d => {
+            return {
+                label: `${d.name} (${d.ip})`,
+                data: d.timeSeries ? d.timeSeries.map(p => p.lat) : [],
+                borderColor: d.color,
+                backgroundColor: d.color + '15',
+                borderWidth: 1.8,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0.2,
+                fill: false,
+                spanGaps: true
+            };
+        });
+
+        const latCtx = document.getElementById('unified-latency-chart');
+        if (latCtx) {
+            new Chart(latCtx, {
+                type: 'line',
+                data: { labels: allTimestamps, datasets: latencyDatasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '応答なし'}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { color: '#f1f5f9' }, ticks: { maxTicksLimit: 14, font: { size: 10 } } },
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: '遅延 (ms)' } }
+                    }
+                }
+            });
+        }
+
+        // 2. Unified Jitter Chart
+        const jitterDatasets = devices.map(d => {
+            return {
+                label: `${d.name} (${d.ip})`,
+                data: d.timeSeries ? d.timeSeries.map(p => p.jit) : [],
+                borderColor: d.color,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0.2,
+                fill: false,
+                spanGaps: true
+            };
+        });
+
+        const jitCtx = document.getElementById('unified-jitter-chart');
+        if (jitCtx) {
+            new Chart(jitCtx, {
+                type: 'line',
+                data: { labels: allTimestamps, datasets: jitterDatasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '-'}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { color: '#f1f5f9' }, ticks: { maxTicksLimit: 14, font: { size: 10 } } },
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: 'ジッター (ms)' } }
+                    }
+                }
+            });
+        }
+
+        // 3. Device detail charts
+        devices.forEach((d, idx) => {
+            const canvasEl = document.getElementById(`device-chart-${idx}`);
+            if (!canvasEl || !d.timeSeries || d.timeSeries.length === 0) return;
+
+            const labels = d.timeSeries.map(p => p.t);
+            const latData = d.timeSeries.map(p => p.lat);
+            const txData = d.timeSeries.map(p => p.tx);
+            const rxData = d.timeSeries.map(p => p.rx);
+            const hasTraffic = txData.some(v => v != null && v > 0) || rxData.some(v => v != null && v > 0);
+
+            const datasets = [
+                {
+                    label: '応答遅延 (ms)',
+                    data: latData,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    tension: 0.2,
+                    yAxisID: 'y'
+                }
+            ];
+
+            if (hasTraffic) {
+                datasets.push({
+                    label: '送信 Tx (Mbps)',
+                    data: txData,
+                    borderColor: '#10b981',
+                    borderWidth: 1.2,
+                    pointRadius: 0,
+                    tension: 0.2,
+                    borderDash: [3, 3],
+                    yAxisID: 'yTraffic'
+                });
+                datasets.push({
+                    label: '受信 Rx (Mbps)',
+                    data: rxData,
+                    borderColor: '#f59e0b',
+                    borderWidth: 1.2,
+                    pointRadius: 0,
+                    tension: 0.2,
+                    borderDash: [3, 3],
+                    yAxisID: 'yTraffic'
+                });
+            }
+
+            const scales = {
+                x: { grid: { color: '#f8fafc' }, ticks: { maxTicksLimit: 8, font: { size: 9 } } },
+                y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: '遅延 (ms)', font: { size: 10 } } }
+            };
+            if (hasTraffic) {
+                scales.yTraffic = {
+                    position: 'right',
+                    beginAtZero: true,
+                    grid: { drawOnChartArea: false },
+                    title: { display: true, text: '帯域 (Mbps)', font: { size: 10 } }
+                };
+            }
+
+            new Chart(canvasEl, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } }
+                    },
+                    scales
+                }
+            });
+        });
+    });
+    </script>
+</body>
+</html>
+"@
+
+        if ($savePath) {
+            try {
+                $dir = Split-Path -Parent $savePath
+                if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+                [System.IO.File]::WriteAllText($savePath, $reportHtml, [System.Text.Encoding]::UTF8)
+            } catch { }
+        }
+
+        return $reportHtml
+    }
+
     # Helper: Check HTTP/HTTPS response & SSL Certificate Expiry
     function Check-WebAndSslEndpoint {
         param([string]$url, [int]$timeoutMs = 4000)
@@ -4385,148 +4904,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 }
                 elseif ($urlPath -eq "/api/reports/export" -and $method -eq "GET") {
                     $period = if ($request.QueryString["period"]) { $request.QueryString["period"] } else { "today" }
-                    $tsNow = (Get-Date).ToString("yyyy年MM月dd日 HH:mm")
-                    
-                    # Compute SLA and device summary statistics
-                    $reportRows = @()
-                    $totalSuccess = 0
-                    $totalPings = 0
-                    
-                    foreach ($ip in $syncHash.Devices) {
-                        $dName = if ($syncHash.DeviceName.ContainsKey($ip)) { $syncHash.DeviceName[$ip] } else { $ip }
-                        $dGroup = if ($syncHash.Group.ContainsKey($ip)) { $syncHash.Group[$ip] } else { "未分類" }
-                        $dLoc = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "—" }
-                        $dManual = if ($syncHash.TroubleMemo.ContainsKey($ip) -and $syncHash.TroubleMemo[$ip]) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($syncHash.TroubleMemo[$ip]))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
-                        $st = if ($syncHash.Status.ContainsKey($ip)) { $syncHash.Status[$ip].status } else { "Unknown" }
-                        $lat = if ($syncHash.Status.ContainsKey($ip) -and $null -ne $syncHash.Status[$ip].latency) { "$($syncHash.Status[$ip].latency) ms" } else { "—" }
-                        
-                        $stats = $syncHash.Stats[$ip]
-                        $sla = "100.0%"
-                        $outageCount = 0
-                        $avgLat = "—"
-                        if ($null -ne $stats) {
-                            $total = $stats.Success + $stats.Failed
-                            if ($total -gt 0) {
-                                $slaVal = [math]::Round(($stats.Success / $total) * 100, 2)
-                                $sla = "${slaVal}%"
-                                $totalSuccess += $stats.Success
-                                $totalPings += $total
-                            }
-                            $outageCount = $stats.Outage600msCount + $stats.Outage5sCount
-                            if ($stats.LatCount -gt 0) {
-                                $avgLat = "$([math]::Round($stats.SumLat / $stats.LatCount, 1)) ms"
-                            }
-                        }
-                        
-                        $reportRows += @"
-<tr>
-    <td><strong>$dName</strong><br><small style="color:#64748b;">$ip</small></td>
-    <td>$dGroup</td>
-    <td>$dLoc</td>
-    <td><span class="status-tag $($st.ToLower())">$st</span></td>
-    <td>$lat</td>
-    <td>$avgLat</td>
-    <td><strong>$sla</strong></td>
-    <td>$outageCount 回</td>
-    <td><small>$dManual</small></td>
-</tr>
-"@
-                    }
-                    
-                    $overallSla = if ($totalPings -gt 0) { "$([math]::Round(($totalSuccess / $totalPings) * 100, 2))%" } else { "100.0%" }
-                    $rowsHtml = $reportRows -join "`n"
-                    
-                    $reportHtml = @"
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>ネットワーク機器 定期点検報告書 ($tsNow)</title>
-    <style>
-        @page { size: A4 portrait; margin: 15mm; }
-        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Yu Gothic UI', Meiryo, sans-serif; color: #1e293b; background: #fff; margin: 0; padding: 20px; line-height: 1.5; font-size: 13px; }
-        .report-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px; }
-        .report-title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; }
-        .report-meta { text-align: right; font-size: 12px; color: #64748b; }
-        .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
-        .summary-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; }
-        .summary-box .val { font-size: 24px; font-weight: 800; color: #2563eb; }
-        .summary-box .label { font-size: 11px; color: #64748b; margin-top: 4px; font-weight: 600; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-        th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
-        th { background: #f1f5f9; color: #334155; font-weight: 700; }
-        tr:nth-child(even) { background: #f8fafc; }
-        .status-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; }
-        .status-tag.success { background: #dcfce7; color: #15803d; }
-        .status-tag.failed { background: #fee2e2; color: #b91c1c; }
-        .status-tag.unknown { background: #f1f5f9; color: #64748b; }
-        .print-bar { position: fixed; top: 15px; right: 15px; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; gap: 12px; align-items: center; z-index: 999; }
-        .print-btn { background: #2563eb; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 700; }
-        @media print { .print-bar { display: none; } body { padding: 0; } }
-    </style>
-</head>
-<body>
-    <div class="print-bar">
-        <span>📄 点検報告書プレビュー</span>
-        <button class="print-btn" onclick="window.print()">🖨️ 印刷 / PDF保存</button>
-    </div>
-
-    <div class="report-header">
-        <div>
-            <h1 class="report-title">📊 ネットワーク機器 稼働状況・定期点検報告書</h1>
-            <div style="font-size:12px; color:#64748b; margin-top:4px;">対象期間: $period | 作成日時: $tsNow</div>
-        </div>
-        <div class="report-meta">
-            <div><strong>システム名:</strong> Network Device Monitor</div>
-            <div><strong>総合可用性 (SLA):</strong> <span style="color:#16a34a; font-weight:800; font-size:14px;">$overallSla</span></div>
-        </div>
-    </div>
-
-    <div class="summary-grid">
-        <div class="summary-box">
-            <div class="val">$($syncHash.Devices.Count)</div>
-            <div class="label">登録監視機器数</div>
-        </div>
-        <div class="summary-box">
-            <div class="val" style="color:#16a34a;">$overallSla</div>
-            <div class="label">総合稼働率 (SLA)</div>
-        </div>
-        <div class="summary-box">
-            <div class="val" style="color:#0284c7;">$($syncHash.PollInterval) ms</div>
-            <div class="label">ポーリング頻度</div>
-        </div>
-        <div class="summary-box">
-            <div class="val" style="color:#e11d48;">$(Get-Date -Format 'yyyy/MM/dd')</div>
-            <div class="label">点検実施日</div>
-        </div>
-    </div>
-
-    <h2 style="font-size:15px; margin-bottom:8px; border-left:4px solid #2563eb; padding-left:8px;">1. 機器別 稼働・遅延・SLA一覧</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>機器名 / IP</th>
-                <th>グループ</th>
-                <th>設置場所</th>
-                <th>状態</th>
-                <th>直近遅延</th>
-                <th>平均遅延</th>
-                <th>稼働率 (SLA)</th>
-                <th>瞬断回数</th>
-                <th>マニュアル</th>
-            </tr>
-        </thead>
-        <tbody>
-            $rowsHtml
-        </tbody>
-    </table>
-
-    <div style="margin-top:30px; border-top:1px solid #e2e8f0; padding-top:12px; font-size:11px; color:#94a3b8; text-align:center;">
-        Generated by Network Device Monitor — $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-    </div>
-</body>
-</html>
-"@
+                    $reportHtml = Generate-SessionReportHtml -sync $syncHash -period $period
                     $respBytes = [System.Text.Encoding]::UTF8.GetBytes($reportHtml)
                     $response.ContentType = "text/html; charset=utf-8"
                     $response.ContentLength64 = $respBytes.Length
@@ -4684,6 +5062,21 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                     Write-Host "Appended final summary for $ip to $csvPath" -ForegroundColor Cyan
                 } catch {}
             }
+        }
+    }
+
+    # Generate graphical HTML report in session directory and copy chart.js for offline viewing
+    if ($syncHash.LoggingEnabled -ne $false -and $syncHash.SessionDir -and (Test-Path $syncHash.SessionDir)) {
+        try {
+            $reportFile = Join-Path $syncHash.SessionDir "report.html"
+            $chartJsSrc = Join-Path $PSScriptRoot "public\chart.js"
+            if (Test-Path $chartJsSrc) {
+                Copy-Item -Path $chartJsSrc -Destination $syncHash.SessionDir -Force -ErrorAction SilentlyContinue
+            }
+            $null = Generate-SessionReportHtml -sync $syncHash -period "Session" -savePath $reportFile
+            Write-Host "Generated graph inspection report: $reportFile" -ForegroundColor Green
+        } catch {
+            Write-Host "Error generating final HTML report: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 
