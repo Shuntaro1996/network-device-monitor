@@ -696,29 +696,31 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
 $chartDataJson
     </script>
     <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const rawJson = document.getElementById('report-data').textContent;
-        const reportData = JSON.parse(rawJson);
-        const devices = reportData.devices || [];
+    document.addEventListener('DOMContentLoaded', function() {
+        var rawEl = document.getElementById('report-data');
+        if (!rawEl) return;
+        var reportData = JSON.parse(rawEl.textContent || '{}');
+        var devices = reportData.devices || [];
         if (typeof Chart === 'undefined') {
             console.error('Chart.js is not loaded.');
             return;
         }
 
-        let allTimestamps = [];
-        devices.forEach(d => {
+        var allTimestamps = [];
+        devices.forEach(function(d) {
             if (d.timeSeries && d.timeSeries.length > allTimestamps.length) {
-                allTimestamps = d.timeSeries.map(p => p.t);
+                allTimestamps = d.timeSeries.map(function(p) { return p.t; });
             }
         });
 
         // 1. Unified Latency Chart
-        const latencyDatasets = devices.map(d => {
+        var latencyDatasets = devices.map(function(d) {
+            var devLabel = (d.name || d.ip) + ' (' + d.ip + ')';
             return {
-                label: `${d.name} (${d.ip})`,
-                data: d.timeSeries ? d.timeSeries.map(p => p.lat) : [],
+                label: devLabel,
+                data: d.timeSeries ? d.timeSeries.map(function(p) { return p.lat; }) : [],
                 borderColor: d.color,
-                backgroundColor: d.color + '15',
+                backgroundColor: 'transparent',
                 borderWidth: 1.8,
                 pointRadius: 0,
                 pointHoverRadius: 4,
@@ -728,7 +730,7 @@ $chartDataJson
             };
         });
 
-        const latCtx = document.getElementById('unified-latency-chart');
+        var latCtx = document.getElementById('unified-latency-chart');
         if (latCtx) {
             new Chart(latCtx, {
                 type: 'line',
@@ -741,7 +743,9 @@ $chartDataJson
                         legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: {
                             callbacks: {
-                                label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '応答なし'}`
+                                label: function(ctx) {
+                                    return ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '応答なし');
+                                }
                             }
                         }
                     },
@@ -754,10 +758,11 @@ $chartDataJson
         }
 
         // 2. Unified Jitter Chart
-        const jitterDatasets = devices.map(d => {
+        var jitterDatasets = devices.map(function(d) {
+            var devLabel = (d.name || d.ip) + ' (' + d.ip + ')';
             return {
-                label: `${d.name} (${d.ip})`,
-                data: d.timeSeries ? d.timeSeries.map(p => p.jit) : [],
+                label: devLabel,
+                data: d.timeSeries ? d.timeSeries.map(function(p) { return p.jit; }) : [],
                 borderColor: d.color,
                 borderWidth: 1.5,
                 pointRadius: 0,
@@ -768,7 +773,7 @@ $chartDataJson
             };
         });
 
-        const jitCtx = document.getElementById('unified-jitter-chart');
+        var jitCtx = document.getElementById('unified-jitter-chart');
         if (jitCtx) {
             new Chart(jitCtx, {
                 type: 'line',
@@ -781,7 +786,9 @@ $chartDataJson
                         legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: {
                             callbacks: {
-                                label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '-'}`
+                                label: function(ctx) {
+                                    return ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '-');
+                                }
                             }
                         }
                     },
@@ -794,17 +801,17 @@ $chartDataJson
         }
 
         // 3. Device detail charts
-        devices.forEach((d, idx) => {
-            const canvasEl = document.getElementById(`device-chart-${idx}`);
+        devices.forEach(function(d, idx) {
+            var canvasEl = document.getElementById('device-chart-' + idx);
             if (!canvasEl || !d.timeSeries || d.timeSeries.length === 0) return;
 
-            const labels = d.timeSeries.map(p => p.t);
-            const latData = d.timeSeries.map(p => p.lat);
-            const txData = d.timeSeries.map(p => p.tx);
-            const rxData = d.timeSeries.map(p => p.rx);
-            const hasTraffic = txData.some(v => v != null && v > 0) || rxData.some(v => v != null && v > 0);
+            var labels = d.timeSeries.map(function(p) { return p.t; });
+            var latData = d.timeSeries.map(function(p) { return p.lat; });
+            var txData = d.timeSeries.map(function(p) { return p.tx; });
+            var rxData = d.timeSeries.map(function(p) { return p.rx; });
+            var hasTraffic = txData.some(function(v) { return v != null && v > 0; }) || rxData.some(function(v) { return v != null && v > 0; });
 
-            const datasets = [
+            var datasets = [
                 {
                     label: '応答遅延 (ms)',
                     data: latData,
@@ -840,7 +847,7 @@ $chartDataJson
                 });
             }
 
-            const scales = {
+            var scales = {
                 x: { grid: { color: '#f8fafc' }, ticks: { maxTicksLimit: 8, font: { size: 9 } } },
                 y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: '遅延 (ms)', font: { size: 10 } } }
             };
@@ -855,7 +862,7 @@ $chartDataJson
 
             new Chart(canvasEl, {
                 type: 'line',
-                data: { labels, datasets },
+                data: { labels: labels, datasets: datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
@@ -863,7 +870,7 @@ $chartDataJson
                     plugins: {
                         legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } }
                     },
-                    scales
+                    scales: scales
                 }
             });
         });

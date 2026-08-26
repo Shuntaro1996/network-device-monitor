@@ -2030,14 +2030,15 @@ document.addEventListener('DOMContentLoaded', () => {
             deviceList.appendChild(section);
         }
 
-        let chartDevices = (activeTab === 'all') ? monitoredGlobal : monitoredGlobal.filter(d => (d.group || 'Ungrouped') === activeTab);
+        // グラフは常に全デバイスを対象にする（グループ選択中でも全機器の遅延推移を表示）
+        let chartDevices = monitoredGlobal;
         const unifiedChartContainer = document.getElementById('dashboard-unified-chart-container');
         if (unifiedChartContainer) {
             unifiedChartContainer.innerHTML = '';
             if (chartDevices.length > 0) {
                 const unifiedChartDiv = document.createElement('div');
                 unifiedChartDiv.className = 'dashboard-unified-chart';
-                unifiedChartDiv.innerHTML = `<div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:10px;">${activeTab === 'all' ? '全デバイス' : 'グループ ['+activeTab+']'} の遅延推移 (ms)</div><div style="flex:1;position:relative;width:100%;height:calc(100% - 25px);"><canvas id="dashboard-unified-canvas"></canvas></div>`;
+                unifiedChartDiv.innerHTML = `<div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:10px;">全デバイス の遅延推移 (ms)</div><div style="flex:1;position:relative;width:100%;height:calc(100% - 25px);"><canvas id="dashboard-unified-canvas"></canvas></div>`;
                 unifiedChartContainer.appendChild(unifiedChartDiv);
                 const datasets = chartDevices.map(d => ({ 
                     label: d.name || d.ip, 
