@@ -338,8 +338,8 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         )
 
         $reportRows = @()
-        $totalSuccess = 0
-        $totalPings = 0
+        $allTotalSuccess = 0
+        $allTotalPings = 0
         $totalLatSum = 0.0
         $totalLatCount = 0
         $maxOverallOutage = 0.0
@@ -368,54 +368,68 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             $dManual = if ($sync.TroubleMemo.ContainsKey($ip) -and $sync.TroubleMemo[$ip]) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($sync.TroubleMemo[$ip]))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
             $color   = $palette[$devIdx % $palette.Count]
 
-            $sla = "100.0%"
-            $outageCount = 0
-            $avgLat = "—"
-            $maxLat = "—"
-            $minLat = "—"
-            $maxOutage = "—"
+            $totalPings = 0
+            $success = 0
+            $failed = 0
+            $reachRate = "100.0%"
+            $lossRate = "0.0%"
             $avgJit = "—"
+            $minLat = "—"
+            $maxLat = "—"
+            $avgLat = "—"
+            $maxOutage = "—"
+            $out600ms = "0 回"
+            $out5s = "0 回"
 
             if ($null -ne $stats) {
-                $total = $stats.Success + $stats.Failed
-                if ($total -gt 0) {
-                    $slaVal = [math]::Round(($stats.Success / $total) * 100, 2)
-                    $sla = "${slaVal}%"
-                    $totalSuccess += $stats.Success
-                    $totalPings += $total
+                $totalPings = $stats.Total
+                $success = $stats.Success
+                $failed = $stats.Failed
+                if ($totalPings -gt 0) {
+                    $reachVal = [math]::Round(($success / $totalPings) * 100, 2)
+                    $reachRate = "${reachVal}%"
+                    $lossVal = [math]::Round(($failed / $totalPings) * 100, 2)
+                    $lossRate = "${lossVal}%"
+                    $allTotalSuccess += $success
+                    $allTotalPings += $totalPings
                 }
-                $outageCount = $stats.Outage600msCount + $stats.Outage5sCount
+                if ($stats.JitterCount -gt 0) {
+                    $avgJit = "$([math]::Round($stats.JitterSum / $stats.JitterCount, 2)) ms"
+                }
                 if ($stats.LatCount -gt 0) {
+                    if ($stats.MinLat -ne [double]::MaxValue -and $stats.MinLat -gt 0) { $minLat = "$($stats.MinLat) ms" }
+                    if ($stats.MaxLat -gt 0) { $maxLat = "$($stats.MaxLat) ms" }
                     $avgLatVal = [math]::Round($stats.SumLat / $stats.LatCount, 1)
                     $avgLat = "$avgLatVal ms"
                     $totalLatSum += $stats.SumLat
                     $totalLatCount += $stats.LatCount
                 }
-                if ($stats.MaxLat -gt 0) { $maxLat = "$($stats.MaxLat) ms" }
-                if ($stats.MinLat -ne [double]::MaxValue -and $stats.MinLat -gt 0) { $minLat = "$($stats.MinLat) ms" }
                 if ($stats.MaxOutageSec -gt 0) {
                     $maxOutage = "$([math]::Round($stats.MaxOutageSec, 1)) 秒"
                     if ($stats.MaxOutageSec -gt $maxOverallOutage) { $maxOverallOutage = $stats.MaxOutageSec }
                 }
-                if ($stats.JitterCount -gt 0) {
-                    $avgJit = "$([math]::Round($stats.JitterSum / $stats.JitterCount, 2)) ms"
-                }
+                $out600ms = "$($stats.Outage600msCount) 回"
+                $out5s = "$($stats.Outage5sCount) 回"
             }
 
             $reportRows += @"
 <tr>
     <td><span class="color-dot" style="background-color:$color;"></span><strong>$dName</strong><br><small style="color:#64748b;">$ip</small></td>
-    <td>$dGroup</td>
-    <td>$dLoc</td>
+    <td>$dGroup<br><small style="color:#64748b;">$dLoc</small></td>
     <td><span class="status-tag $($st.ToLower())">$st</span></td>
-    <td>$avgLat</td>
-    <td>$maxLat</td>
-    <td>$minLat</td>
-    <td><strong>$sla</strong></td>
-    <td>$maxOutage</td>
-    <td>$avgJit</td>
-    <td>$outageCount 回</td>
-    <td><small>$dManual</small></td>
+    <td style="text-align:right;">$totalPings</td>
+    <td style="text-align:right; color:#16a34a; font-weight:600;">$success</td>
+    <td style="text-align:right; color:#dc2626; font-weight:600;">$failed</td>
+    <td style="text-align:right; font-weight:700;">$reachRate</td>
+    <td style="text-align:right;">$lossRate</td>
+    <td style="text-align:right;">$avgJit</td>
+    <td style="text-align:right;">$minLat</td>
+    <td style="text-align:right;">$maxLat</td>
+    <td style="text-align:right; font-weight:600; color:#2563eb;">$avgLat</td>
+    <td style="text-align:right; color:#f59e0b; font-weight:600;">$maxOutage</td>
+    <td style="text-align:right;">$out600ms</td>
+    <td style="text-align:right;">$out5s</td>
+    <td style="text-align:center;"><small>$dManual</small></td>
 </tr>
 "@
 
@@ -506,7 +520,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             $devIdx++
         }
 
-        $overallSla = if ($totalPings -gt 0) { "$([math]::Round(($totalSuccess / $totalPings) * 100, 2))%" } else { "100.0%" }
+        $overallSla = if ($allTotalPings -gt 0) { "$([math]::Round(($allTotalSuccess / $allTotalPings) * 100, 2))%" } else { "100.0%" }
         $overallAvgLat = if ($totalLatCount -gt 0) { "$([math]::Round($totalLatSum / $totalLatCount, 1)) ms" } else { "—" }
         $overallMaxOutageStr = if ($maxOverallOutage -gt 0) { "$([math]::Round($maxOverallOutage, 1)) 秒" } else { "0 秒" }
         $rowsHtml = $reportRows -join "`n"
@@ -528,40 +542,40 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     <title>ネットワーク機器 定期点検・折れ線グラフ報告書 ($tsNow)</title>
     $scriptBlock
     <style>
-        @page { size: A4 landscape; margin: 12mm; }
+        @page { size: A4 landscape; margin: 10mm; }
         * { box-sizing: border-box; }
-        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Yu Gothic UI', Meiryo, sans-serif; color: #1e293b; background: #f8fafc; margin: 0; padding: 24px; line-height: 1.5; font-size: 13px; }
-        .container { max-width: 1200px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
-        .report-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #3b82f6; padding-bottom: 14px; margin-bottom: 24px; }
-        .report-title { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px; }
-        .report-meta { text-align: right; font-size: 12px; color: #64748b; }
-        .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
-        .summary-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: center; }
-        .summary-box .val { font-size: 24px; font-weight: 800; color: #2563eb; }
-        .summary-box .label { font-size: 11px; color: #64748b; margin-top: 4px; font-weight: 600; }
-        .section-title { font-size: 15px; font-weight: 700; margin: 28px 0 12px 0; border-left: 4px solid #3b82f6; padding-left: 10px; color: #0f172a; display: flex; align-items: center; gap: 6px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
-        th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
-        th { background: #f1f5f9; color: #334155; font-weight: 700; font-size: 11px; }
+        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Yu Gothic UI', Meiryo, sans-serif; color: #1e293b; background: #f8fafc; margin: 0; padding: 20px; line-height: 1.5; font-size: 12px; }
+        .container { max-width: 1280px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
+        .report-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px; }
+        .report-title { font-size: 20px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px; }
+        .report-meta { text-align: right; font-size: 11px; color: #64748b; }
+        .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+        .summary-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center; }
+        .summary-box .val { font-size: 22px; font-weight: 800; color: #2563eb; }
+        .summary-box .label { font-size: 11px; color: #64748b; margin-top: 2px; font-weight: 600; }
+        .section-title { font-size: 14px; font-weight: 700; margin: 24px 0 10px 0; border-left: 4px solid #3b82f6; padding-left: 8px; color: #0f172a; display: flex; align-items: center; gap: 6px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11px; }
+        th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }
+        th { background: #f1f5f9; color: #334155; font-weight: 700; font-size: 10.5px; white-space: nowrap; }
         tr:nth-child(even) { background: #f8fafc; }
-        .color-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-        .status-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .color-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+        .status-tag { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
         .status-tag.success { background: #dcfce7; color: #15803d; }
         .status-tag.failed { background: #fee2e2; color: #b91c1c; }
         .status-tag.unknown { background: #f1f5f9; color: #64748b; }
-        .chart-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-        .chart-card-title { font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 12px; }
-        .chart-box { position: relative; height: 280px; width: 100%; }
-        .device-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 10px; }
-        .device-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
-        .device-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .device-chart-box { position: relative; height: 180px; width: 100%; }
-        .print-bar { position: fixed; top: 15px; right: 15px; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; gap: 12px; align-items: center; z-index: 999; }
-        .print-btn { background: #2563eb; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 12px; }
+        .chart-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+        .chart-card-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 10px; }
+        .chart-box { position: relative; height: 260px; width: 100%; }
+        .device-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 10px; }
+        .device-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+        .device-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .device-chart-box { position: relative; height: 160px; width: 100%; }
+        .print-bar { position: fixed; top: 15px; right: 15px; background: #0f172a; color: #fff; padding: 8px 16px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; gap: 10px; align-items: center; z-index: 999; }
+        .print-btn { background: #2563eb; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 11px; }
         .print-btn:hover { background: #1d4ed8; }
         @media print {
             .print-bar { display: none; }
-            body { background: #fff; padding: 0; }
+            body { background: #fff; padding: 0; font-size: 10.5px; }
             .container { border: none; box-shadow: none; padding: 0; max-width: 100%; }
             .chart-card, .device-card { break-inside: avoid; }
             table { break-inside: auto; }
@@ -579,11 +593,11 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         <div class="report-header">
             <div>
                 <h1 class="report-title">📊 ネットワーク機器 稼働状況・定期点検報告書</h1>
-                <div style="font-size:12px; color:#64748b; margin-top:4px;">対象期間: $period | 作成日時: $tsNow</div>
+                <div style="font-size:11px; color:#64748b; margin-top:4px;">対象期間: $period | 作成日時: $tsNow</div>
             </div>
             <div class="report-meta">
                 <div><strong>システム名:</strong> Network Device Monitor</div>
-                <div><strong>総合可用性 (SLA):</strong> <span style="color:#16a34a; font-weight:800; font-size:14px;">$overallSla</span></div>
+                <div><strong>総合可用性 (到達率):</strong> <span style="color:#16a34a; font-weight:800; font-size:13px;">$overallSla</span></div>
             </div>
         </div>
 
@@ -594,7 +608,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             </div>
             <div class="summary-box">
                 <div class="val" style="color:#16a34a;">$overallSla</div>
-                <div class="label">総合稼働率 (SLA)</div>
+                <div class="label">全体到達率 (稼働率)</div>
             </div>
             <div class="summary-box">
                 <div class="val" style="color:#0284c7;">$overallAvgLat</div>
@@ -606,28 +620,37 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             </div>
         </div>
 
-        <div class="section-title">1. 機器別 稼働・遅延・SLA一覧</div>
-        <table>
-            <thead>
-                <tr>
-                    <th>機器名 / IP</th>
-                    <th>グループ</th>
-                    <th>設置場所</th>
-                    <th>状態</th>
-                    <th>平均遅延</th>
-                    <th>最大遅延</th>
-                    <th>最小遅延</th>
-                    <th>稼働率 (SLA)</th>
-                    <th>最大瞬断</th>
-                    <th>平均ジッター</th>
-                    <th>瞬断回数</th>
-                    <th>マニュアル</th>
-                </tr>
-            </thead>
-            <tbody>
-                $rowsHtml
-            </tbody>
-        </table>
+        <div class="section-title">1. 機器別 稼働・遅延・統計サマリー一覧</div>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>機器名 / IPアドレス</th>
+                        <th>グループ / 設置場所</th>
+                        <th>状態</th>
+                        <th>総Ping数</th>
+                        <th>成功数</th>
+                        <th>失敗数</th>
+                        <th>到達率 (%)</th>
+                        <th>パケット損失率 (%)</th>
+                        <th>平均ジッター</th>
+                        <th>最小遅延</th>
+                        <th>最大遅延</th>
+                        <th>平均遅延</th>
+                        <th>最大瞬断時間</th>
+                        <th>600ms以上瞬断</th>
+                        <th>5s以上瞬断</th>
+                        <th>マニュアル</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    $rowsHtml
+                </tbody>
+            </table>
+        </div>
+        <div style="font-size:10.5px; color:#64748b; margin-top:6px;">
+            ※ 瞬断回数は、通信断から復帰した時点でカウントされます（計測終了時点で継続中の瞬断は含みません）。
+        </div>
 
         <div class="section-title">2. 全機器 応答遅延（Latency）推移グラフ (ms)</div>
         <div class="chart-card">
@@ -650,7 +673,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             $devCardsHtmlStr
         </div>
 
-        <div style="margin-top:40px; border-top:1px solid #e2e8f0; padding-top:14px; font-size:11px; color:#94a3b8; text-align:center;">
+        <div style="margin-top:30px; border-top:1px solid #e2e8f0; padding-top:12px; font-size:10.5px; color:#94a3b8; text-align:center;">
             Generated by Network Device Monitor — $tsNow
         </div>
     </div>
