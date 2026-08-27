@@ -129,9 +129,32 @@
                     <button id="logging-toggle-btn" class="btn secondary-btn" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; font-weight: 600; min-width: 60px;">ON</button>
                 </div>
 
+                <!-- Guide & License Buttons -->
+                <button id="open-guide-btn-sidebar" title="ネットワーク用語・操作ガイド・使い方" style="
+                    margin-top: 10px;
+                    width: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    background: rgba(59, 130, 246, 0.08);
+                    border: 1px solid rgba(59, 130, 246, 0.3);
+                    border-radius: 10px;
+                    padding: 8px 12px;
+                    color: #60a5fa;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    letter-spacing: 0.01em;
+                ">
+                    <span style="font-size:0.95rem;">❓</span>
+                    <span>操作ガイド・用語集</span>
+                </button>
+
                 <!-- License Info Button -->
                 <button id="oss-license-btn" title="オープンソースライセンス情報" style="
-                    margin-top: 10px;
+                    margin-top: 8px;
                     width: 100%;
                     display: flex;
                     align-items: center;
@@ -159,9 +182,9 @@
         <!-- Main Content Area -->
         <main class="dashboard">
             <div id="view-dashboard" class="tab-view active">
-                <!-- Top Utility Bar (Report Export / Simple Mode / Audit Log) -->
+                <!-- Top Utility Bar (Report Export / Simple Mode / Audit Log / Guide) -->
                 <div class="dashboard-utility-bar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-                    <div style="display:flex; gap:10px; align-items:center;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                         <button id="ui-mode-toggle-btn" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="専門的なグラフを非表示にし、大きなステータス表示のみに切り替えます">
                             <span id="ui-mode-icon">📊</span>
                             <span id="ui-mode-text">詳細表示モード</span>
@@ -170,7 +193,10 @@
                             <span>📄</span> 点検報告書 (PDF/印刷)
                         </button>
                     </div>
-                    <div style="display:flex; gap:10px; align-items:center;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <button id="btn-open-guide-modal" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600; color:#60a5fa; border-color:rgba(59,130,246,0.3);" title="用語解説・操作方法・トラブルシューティングガイドを開きます">
+                            <span>❓</span> 操作ガイド・用語集
+                        </button>
                         <button id="btn-open-audit-modal" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="機器の追加・変更・削除などの操作履歴を閲覧します">
                             <span>🛡️</span> 操作履歴 (Audit Log)
                         </button>
@@ -1163,13 +1189,36 @@
                 <!-- Tab 4: Maintenance & Log Purge -->
                 <div id="cfg-tab-maintenance" class="config-tab-content">
                     <div class="config-section">
-                        <h4 class="config-section-title">🧹 ログ自動クリーンアップ (TTL 保持日数)</h4>
-                        <p class="config-desc">ディスク容量の枯渇を防ぐため、指定した日数を経過した Reports フォルダ内の過去セッションログをサーバーが自動的に安全削除します。</p>
-                        <div class="form-group inline-group" style="margin-top:8px;">
-                            <input type="number" id="modal-config-log-retention" class="form-input" value="30" min="0" max="365" style="max-width:120px;">
-                            <span class="unit-label">日間保持 (0 に設定すると自動削除は無効)</span>
+                        <h4 class="config-section-title">🧹 ログ自動クリーンアップ (保持日数 / Retention)</h4>
+                        <p class="config-desc">ディスク容量の枯渇を防ぐため、指定した日数を経過した Reports フォルダ内の過去セッションログ（CSV / HTML）をサーバーが自動的に安全削除します。</p>
+                        
+                        <div class="form-group inline-group" style="margin-top:8px; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <input type="number" id="modal-config-log-retention" class="form-input" value="30" min="0" max="365" style="max-width:110px;">
+                            <span class="unit-label">日間保持 (0 で自動削除OFF)</span>
                         </div>
-                        <p style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;">※ サーバー起動時および設定保存時に古いセッションログ（`Reports/YYYYMMDD_HHMMSS`）がチェック・パージされます。</p>
+
+                        <!-- Preset Buttons -->
+                        <div style="display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                            <span style="font-size:0.75rem; color:var(--text-muted);">プリセット:</span>
+                            <button type="button" class="btn secondary-btn btn-retention-preset" data-days="7" style="padding:3px 8px; font-size:0.75rem;">7日</button>
+                            <button type="button" class="btn secondary-btn btn-retention-preset" data-days="14" style="padding:3px 8px; font-size:0.75rem;">14日</button>
+                            <button type="button" class="btn secondary-btn btn-retention-preset active" data-days="30" style="padding:3px 8px; font-size:0.75rem;">30日 (推奨)</button>
+                            <button type="button" class="btn secondary-btn btn-retention-preset" data-days="60" style="padding:3px 8px; font-size:0.75rem;">60日</button>
+                            <button type="button" class="btn secondary-btn btn-retention-preset" data-days="90" style="padding:3px 8px; font-size:0.75rem;">90日</button>
+                            <button type="button" class="btn secondary-btn btn-retention-preset" data-days="0" style="padding:3px 8px; font-size:0.75rem;">無期限</button>
+                        </div>
+                        <p style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;">※ サーバー起動時・終了時・設定保存時に古いセッションフォルダ（`Reports/YYYYMMDD_HHMMSS`）が自動パージされます（現在計測中のセッションは保護されます）。</p>
+                    </div>
+
+                    <div class="config-section" style="margin-top:16px; border-top:1px solid var(--glass-border); padding-top:14px;">
+                        <h4 class="config-section-title">⚡ 手動即時クリーンアップ</h4>
+                        <p class="config-desc">今すぐ上記の日数設定に基づいて古いレポートフォルダーをスキャンし、不要な過去ログを削除してディスク容量を解放します。</p>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+                            <button type="button" id="btn-manual-cleanup-reports" class="btn secondary-btn" style="color:#ef4444; border-color:rgba(239,68,68,0.3);">
+                                <span>🧹</span> 今すぐ古いレポートをクリーンアップ
+                            </button>
+                            <span id="manual-cleanup-status" style="font-size:0.8rem; color:var(--text-muted);"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1259,29 +1308,186 @@
         </div>
     </div>
 
-    <!-- Audit Log Modal -->
-    <div id="audit-modal" class="modal-overlay" style="display:none; z-index: 9050;">
-        <div class="modal-content glass-card" style="max-width:780px; width:92%;">
+    <!-- Operation Guide & Glossary Modal -->
+    <div id="guide-modal" class="modal-overlay" style="display:none; z-index: 9200;">
+        <div class="modal-content glass-card" style="max-width:860px; width:94%; max-height:90vh; display:flex; flex-direction:column;">
             <div class="modal-header">
                 <div class="modal-title-group">
-                    <span style="font-size:1.3rem;">🛡️</span>
-                    <h2 class="modal-title">操作履歴・監査ログ (Audit Log)</h2>
+                    <span style="font-size:1.4rem;">❓</span>
+                    <h2 class="modal-title">操作ガイド & ネットワーク用語集</h2>
                 </div>
-                <button class="modal-close-btn" id="close-audit-modal-btn" aria-label="閉じる">✕</button>
+                <button class="modal-close-btn" id="close-guide-modal-btn" aria-label="閉じる">✕</button>
             </div>
-            <div class="modal-body-scroll" style="padding:1.25rem 1.5rem;">
-                <p style="font-size:0.82rem; color:var(--text-muted); margin:0 0 1rem 0;">機器の追加、編集、削除、設定変更などの重要操作履歴（直近200件）を安全に記録・表示しています。</p>
-                <div id="audit-log-list" style="max-height:420px; overflow-y:auto; font-family:'Cascadia Code', Consolas, monospace; font-size:0.82rem; display:flex; flex-direction:column; gap:6px; background:rgba(0,0,0,0.3); border:1px solid var(--glass-border); padding:12px; border-radius:10px;">
-                    <div style="color:var(--text-muted); text-align:center; padding:20px;">履歴を読み込み中...</div>
+            
+            <!-- Guide Subtabs -->
+            <div class="config-tabs-nav" style="padding:0 1.5rem; margin-top:10px;">
+                <button class="config-tab-btn active" data-guide-tab="guide-tab-basics">🔰 基本操作ガイド</button>
+                <button class="config-tab-btn" data-guide-tab="guide-tab-glossary">📖 用語解説辞典</button>
+                <button class="config-tab-btn" data-guide-tab="guide-tab-faq">🛠 トラブルシューティング & FAQ</button>
+            </div>
+
+            <div class="modal-body-scroll" style="padding:1.25rem 1.5rem; flex:1; overflow-y:auto;">
+                <!-- Tab 1: Basics Guide -->
+                <div id="guide-tab-basics" class="guide-tab-content">
+                    <div class="guide-card">
+                        <h3 class="guide-section-title">🚀 監視の基本的な流れ</h3>
+                        <ol class="guide-steps">
+                            <li><strong>自動監視スタート:</strong> サーバー起動と同時に、登録済みの全機器に対してバックグラウンドでPing送信・死活監視が開始されます。</li>
+                            <li><strong>ダッシュボードで状態確認:</strong> 画面上で各機器の稼働状態（🟢 正常 / 🔴 障害 / ⏸ 停止）、応答遅延、ジッター、パケット損失率がリアルタイム（1秒間隔）で更新されます。</li>
+                            <li><strong>機器の追加・管理:</strong> 左メニュー「🖥 機器追加 / 管理」からIPアドレスを指定して追加、または「🔍 自動探索スキャン」でネットワーク内の機器を一括発見・登録できます。</li>
+                            <li><strong>点検報告書の作成:</strong> 右上の「📄 点検報告書 (PDF/印刷)」ボタンを押すと、期間内の総Ping数・稼働率(SLA)・応答遅延グラフをまとめたA4印刷向けレポートが自動生成されます。</li>
+                        </ol>
+                    </div>
+
+                    <div class="guide-card" style="margin-top:14px;">
+                        <h3 class="guide-section-title">🖥️ 画面の見方・機能一覧</h3>
+                        <div class="guide-grid-2col">
+                            <div class="guide-feature-box">
+                                <div class="feature-title">📊 ダッシュボード</div>
+                                <div class="feature-desc">全機器の一覧とリアルタイム遅延グラフ。グループ別のタブ切り替え、機器ダブルクリックでの詳細SNMP情報確認、ホバーでのグラフ強調表示が可能です。</div>
+                            </div>
+                            <div class="guide-feature-box">
+                                <div class="feature-title">🌐 システム構成図 (トポロジー)</div>
+                                <div class="feature-desc">機器同士の接続関係（親子関係）をビジュアルなネットワーク図で可視化。ドラッグ配置やポート接続情報の確認が直感的に行えます。</div>
+                            </div>
+                            <div class="guide-feature-box">
+                                <div class="feature-title">🚀 Iperf3 帯域計測</div>
+                                <div class="feature-desc">ネットワーク機器間の実効通信速度（送信 Tx / 受信 Rx Mbps）を測定。TCP/UDP両対応でボトルネックを特定します。</div>
+                            </div>
+                            <div class="guide-feature-box">
+                                <div class="feature-title">📡 Syslog / Trap 受信</div>
+                                <div class="feature-desc">ルーターやスイッチが送信するシステムログ（LinkDown、認証エラーなど）をリアルタイムに受信・一覧表示します。</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Glossary -->
+                <div id="guide-tab-glossary" class="guide-tab-content" style="display:none;">
+                    <div class="glossary-list">
+                        
+                        <div class="glossary-item">
+                            <div class="glossary-term">
+                                <span class="term-badge badge-primary">SLA / 到達率</span>
+                                <strong>到達率（稼働率 %）</strong>
+                            </div>
+                            <div class="glossary-desc">
+                                送信したPing総数に対して、機器から正常に応答が返ってきた回数の割合です。<br>
+                                <span class="glossary-standard">💡 目安: <strong>99.9%以上</strong> が一般的な企業ネットワークの可用性基準（年間停止時間8.7時間以内）です。</span>
+                            </div>
+                        </div>
+
+                        <div class="glossary-item">
+                            <div class="glossary-term">
+                                <span class="term-badge badge-info">Jitter</span>
+                                <strong>ジッター（通信の揺らぎ / ms）</strong>
+                            </div>
+                            <div class="glossary-desc">
+                                連続するPing応答時間の「ブレ・ばらつき」を表す指標です（RFC 3550準拠）。<br>
+                                応答時間が安定していれば 0 に近く、回線混雑やパケット滞留が起きると跳ね上がります。<br>
+                                <span class="glossary-standard">💡 目安: <strong>5ms未満</strong> が理想。Web会議（Teams/Zoom）やVoIP通話で音途切れ・映像乱れを防ぐ重要な品質指標です。</span>
+                            </div>
+                        </div>
+
+                        <div class="glossary-item">
+                            <div class="glossary-term">
+                                <span class="term-badge badge-warning">Outage</span>
+                                <strong>瞬断時間 & 瞬断回数（600ms / 5s 閾値）</strong>
+                            </div>
+                            <div class="glossary-desc">
+                                ネットワークが一時的に切断されてから復帰するまでの「連続オフライン秒数」です。<br>
+                                <strong>600ms以上瞬断:</strong> Wi-Fiローミングや回線瞬断など、Web会議で一瞬音声が途切れるレベルの障害。<br>
+                                <strong>5秒以上瞬断:</strong> アプリケーションのセッション切断や再接続が発生する重大な通信断。<br>
+                                ※ 瞬断回数は、通信断から正常復帰したタイミングで確定カウントされます。
+                            </div>
+                        </div>
+
+                        <div class="glossary-item">
+                            <div class="glossary-term">
+                                <span class="term-badge badge-purple">Dual-Rate</span>
+                                <strong>超高頻度監視（0.1s デュアルレート方式）</strong>
+                            </div>
+                            <div class="glossary-desc">
+                                最大2台までの重要機器（コアルーターや重要サーバー）を <strong>0.1秒（100ms）間隔</strong> で超高精度監視し、その他の機器は <strong>5.0秒間隔</strong> で継続監視するインテリジェント機能です。<br>
+                                ネットワーク全体の帯域圧迫を防ぎながら、ミリ秒単位の微小なパケットロスや瞬断を見逃さず検出できます。
+                            </div>
+                        </div>
+
+                        <div class="glossary-item">
+                            <div class="glossary-term">
+                                <span class="term-badge badge-success">Dependency</span>
+                                <strong>親機器依存アラート抑制 (Parent Suppression)</strong>
+                            </div>
+                            <div class="glossary-desc">
+                                上位の基幹スイッチがダウンした際、その配下に接続されている数十台のPCやAPが一斉に「オフライン」と判定されて大量のアラートメールが届く現象（アラートの嵐）を自動的に防止します。<br>
+                                親機器が停止中は配下機器の障害通知を自動で保留・静観します。
+                            </div>
+                        </div>
+
+                        <div class="glossary-item">
+                            <div class="glossary-term">
+                                <span class="term-badge badge-secondary">Protocols</span>
+                                <strong>SNMP / LLDP / CDP / MTR / iPerf3</strong>
+                            </div>
+                            <div class="glossary-desc">
+                                <strong>SNMP (v2c/v3):</strong> 機器のCPU・メモリ使用率、LANポートのリンク速度やトラフィック量を内部取得するプロトコル。<br>
+                                <strong>LLDP / CDP:</strong> スイッチ同士が「どのポートにどの隣接機器が繋がっているか」を自動交換するプロトコル。<br>
+                                <strong>MTR (Visual Tracert):</strong> 目的の機器までの経路途中（ホップ）のどこで遅延やパケットロスが起きているかを連続測定する経路診断ツール。<br>
+                                <strong>iPerf3:</strong> 実際に大容量パケットを流して最大通信速度（Mbps）を測定するベンチマークツール。
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Tab 3: FAQ -->
+                <div id="guide-tab-faq" class="guide-tab-content" style="display:none;">
+                    <div class="faq-list">
+                        <div class="faq-item">
+                            <div class="faq-q">❓ 機器が「🔴 障害（オフライン）」と表示されたらどうすればいいですか？</div>
+                            <div class="faq-a">
+                                1. まず上位のルーターやハブが正常か確認してください（親機器がダウンしている場合は配下全体がオフラインになります）。<br>
+                                2. 対象機器カードの「🔍 MTR」ボタンを押して、経路上でどのルーターから応答が途絶えているか確認します。<br>
+                                3. 機器のLANケーブル抜け、電源断、IPアドレス重複がないか現地を確認してください。
+                            </div>
+                        </div>
+
+                        <div class="faq-item">
+                            <div class="faq-q">❓ アラート通知（メール / Webhook）が届きません</div>
+                            <div class="faq-a">
+                                1. 左サイドバーの設定（または管理設定モーダル）で「🔔 Webhook通知」または「📧 メール通知」が「有効」になっているか確認してください。<br>
+                                2. メール設定の場合、「テスト送信」ボタンを押してSMTPサーバーへの接続が可能かテストしてください。<br>
+                                3. 「親機器がダウン時は配下アラートを抑制」がONの場合、上位機器がオフラインの間は配下機器の通知は自動的に保留されます。
+                            </div>
+                        </div>
+
+                        <div class="faq-item">
+                            <div class="faq-q">❓ 長期間運用するとハードディスクの容量を圧迫しませんか？</div>
+                            <div class="faq-a">
+                                本システムには <strong>「ログ自動クリーンアップ機能」</strong> が標準搭載されています。<br>
+                                デフォルトでは30日を超過した古いセッションログ（Reportsフォルダ）が自動で安全削除されるため、ディスク容量がパンクする心配はありません。<br>
+                                保持日数は「🖥 機器追加/管理」→「システム設定」→「🧹 メンテナンス＆ログ」から7日〜180日へ自由に変更可能です。
+                            </div>
+                        </div>
+
+                        <div class="faq-item">
+                            <div class="faq-q">❓ ブラウザを閉じたら監視は止まりますか？</div>
+                            <div class="faq-a">
+                                ブラウザの閉じるボタンを押すと、ハートビート途絶検知によりサーバーは安全にログを保存して終了します。<br>
+                                再度監視を開始する場合は、PowerShell または起動バッチからサーバーを起動してください。
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
+
             <div class="modal-footer" style="justify-content:flex-end;">
-                <button class="btn secondary-btn" id="close-audit-modal-footer-btn">閉じる</button>
+                <button class="btn primary-btn" id="close-guide-modal-footer-btn">理解しました (閉じる)</button>
             </div>
         </div>
     </div>
 
     <div id="toast-container"></div>
-    <script src="app.js?v=62"></script>
+    <script src="app.js?v=63"></script>
 </body>
 </html>

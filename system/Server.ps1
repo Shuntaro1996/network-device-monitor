@@ -279,6 +279,94 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         } catch {}
     }
 
+    # Helper: Auto-purge old Reports/ directories exceeding retention days
+    function Invoke-PurgeOldReports {
+        param(
+            [string]$reportsDirectory,
+            [int]$retentionDays = 30,
+            [string]$activeSessionDir = ""
+        )
+        $result = @{
+            Success = $true
+            DeletedCount = 0
+            FreedBytes = [long]0
+            FreedMb = 0.0
+            Details = @()
+        }
+        if ($retentionDays -le 0) {
+            return $result # 0 means disabled (unlimited retention)
+        }
+        try {
+            if (-not $reportsDirectory) {
+                $reportsDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) "Reports"
+            }
+            if (-not (Test-Path $reportsDirectory)) { return $result }
+
+            $cutoffDate = (Get-Date).AddDays(-$retentionDays)
+            $subDirs = Get-ChildItem -Path $reportsDirectory -Directory -ErrorAction SilentlyContinue
+
+            foreach ($dir in $subDirs) {
+                # 保護: 現在アクティブなセッションディレクトリは絶対に削除しない
+                if ($activeSessionDir) {
+                    $activeItem = Get-Item $activeSessionDir -ErrorAction SilentlyContinue
+                    if ($activeItem -and ($dir.FullName -eq $activeItem.FullName)) {
+                        continue
+                    }
+                }
+
+                $isTarget = $false
+                $folderDate = $null
+
+                # フォルダ名（yyyyMMdd_HHmmss 形式）からの日時判定
+                if ($dir.Name -match '^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$') {
+                    try {
+                        $folderDate = [DateTime]::ParseExact($dir.Name, "yyyyMMdd_HHmmss", [System.Globalization.CultureInfo]::InvariantCulture)
+                        if ($folderDate -lt $cutoffDate) {
+                            $isTarget = $true
+                        }
+                    } catch {}
+                }
+
+                # 日時パースできない場合は LastWriteTime で判定
+                if (-not $folderDate -and $dir.LastWriteTime -lt $cutoffDate) {
+                    $isTarget = $true
+                }
+
+                if ($isTarget) {
+                    try {
+                        # 容量計算
+                        $files = Get-ChildItem -Path $dir.FullName -Recurse -File -ErrorAction SilentlyContinue
+                        $dirBytes = [long]0
+                        if ($files) {
+                            $measured = $files | Measure-Object -Property Length -Sum
+                            if ($measured -and $measured.Sum) { $dirBytes = [long]$measured.Sum }
+                        }
+
+                        Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction Stop
+                        $result.DeletedCount++
+                        $result.FreedBytes += $dirBytes
+                        $result.Details += "Deleted old session: $($dir.Name) ($([math]::Round($dirBytes / 1MB, 2)) MB)"
+                        Write-Host "[Retention Policy] Purged old report session: $($dir.Name) ($([math]::Round($dirBytes / 1MB, 2)) MB)" -ForegroundColor Gray
+                    } catch {
+                        Write-Warning "Failed to purge old report session $($dir.FullName): $($_.Exception.Message)"
+                    }
+                }
+            }
+            $result.FreedMb = [math]::Round($result.FreedBytes / 1MB, 2)
+            if ($result.DeletedCount -gt 0) {
+                try {
+                    $logMsg = "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] [Retention Policy] Purged $($result.DeletedCount) old session(s), freed $($result.FreedMb) MB.`r`n"
+                    [System.IO.File]::AppendAllText((Join-Path $PSScriptRoot "debug.log"), $logMsg, [System.Text.Encoding]::UTF8)
+                } catch {}
+            }
+        } catch {
+            $result.Success = $false
+            $result.Error = $_.Exception.Message
+            Write-Warning "Error during Invoke-PurgeOldReports: $($_.Exception.Message)"
+        }
+        return $result
+    }
+
     # Helper: Generate graphical inspection report (HTML with Chart.js line charts)
     function Generate-SessionReportHtml {
         param(
@@ -1373,6 +1461,13 @@ try {
         Write-Host "debug.log rotated to debug_1.log" -ForegroundColor Gray
     }
 } catch {}
+
+# Issue 1: 古いセッションレポートの自動クリーンアップ（起動時に保持日数を超過した過去ログをパージ）
+if ($syncHash.LogRetentionDays -gt 0) {
+    try {
+        Invoke-PurgeOldReports -reportsDirectory $ReportsDir -retentionDays $syncHash.LogRetentionDays -activeSessionDir $syncHash.SessionDir | Out-Null
+    } catch {}
+}
 
 function Initialize-DeviceLog {
     param([string]$ip)
@@ -3892,7 +3987,9 @@ try {
                         $v = [int]$payload.logRetentionDays
                         if ($v -ge 0 -and $v -le 365) { 
                             $syncHash.LogRetentionDays = $v 
-                            if ($v -gt 0) { Purge-OldReports -reportsDir $ReportsDir -retentionDays $v }
+                            if ($v -gt 0) { 
+                                try { Invoke-PurgeOldReports -reportsDirectory $ReportsDir -retentionDays $v -activeSessionDir $syncHash.SessionDir | Out-Null } catch {}
+                            }
                         }
                     }
                     if ($null -ne $payload.webhookUrl) {
@@ -4966,6 +5063,30 @@ try {
                     }
                     Write-JsonResponse $response @{ logs = $lines }
                 }
+                elseif ($urlPath -eq "/api/system/cleanup-reports" -and $method -eq "POST") {
+                    $retDays = $syncHash.LogRetentionDays
+                    try {
+                        $reader  = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                        $jsonBody = $reader.ReadToEnd()
+                        if (-not [string]::IsNullOrWhiteSpace($jsonBody)) {
+                            $payload = $jsonBody | ConvertFrom-Json
+                            if ($null -ne $payload.retentionDays) {
+                                $retDays = [int]$payload.retentionDays
+                            }
+                        }
+                    } catch {}
+
+                    if ($retDays -le 0) { $retDays = 30 } # 手動クリーンアップで0の場合は安全のため30日以上前を対象
+                    $purgeRes = Invoke-PurgeOldReports -reportsDirectory $ReportsDir -retentionDays $retDays -activeSessionDir $syncHash.SessionDir
+                    Log-Audit -action "CLEANUP_REPORTS" -target "Reports" -details "Manual cleanup executed (Retention: $retDays days). Deleted $($purgeRes.DeletedCount) sessions, freed $($purgeRes.FreedMb) MB." -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
+                    Write-JsonResponse $response @{
+                        status = "success"
+                        deletedCount = $purgeRes.DeletedCount
+                        freedMb = $purgeRes.FreedMb
+                        retentionDays = $retDays
+                        details = $purgeRes.Details
+                    }
+                }
                 elseif ($urlPath -eq "/api/web-check" -and $method -eq "GET") {
                     $targetUrl = $request.QueryString["url"]
                     if ($targetUrl) {
@@ -5248,6 +5369,13 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
         } catch {
             Write-Host "Error generating final HTML report: $($_.Exception.Message)" -ForegroundColor Red
         }
+    }
+
+    # Auto-purge old reports exceeding retention days on server shutdown
+    if ($syncHash.LogRetentionDays -gt 0) {
+        try {
+            Invoke-PurgeOldReports -reportsDirectory $ReportsDir -retentionDays $syncHash.LogRetentionDays -activeSessionDir $syncHash.SessionDir | Out-Null
+        } catch {}
     }
 
     if ($null -ne $syncHash.IperfServerState.Process -and -not $syncHash.IperfServerState.Process.HasExited) {

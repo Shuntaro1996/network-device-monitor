@@ -581,7 +581,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (smtpToInp) smtpToInp.value = systemConfig.smtpTo || '';
 
         const logRetentionInp = document.getElementById('modal-config-log-retention');
-        if (logRetentionInp) logRetentionInp.value = (systemConfig.logRetentionDays != null) ? systemConfig.logRetentionDays : 30;
+        if (logRetentionInp) {
+            const rDays = (systemConfig.logRetentionDays != null) ? systemConfig.logRetentionDays : 30;
+            logRetentionInp.value = rDays;
+            const presets = document.querySelectorAll('.btn-retention-preset');
+            presets.forEach(b => {
+                b.classList.toggle('active', b.dataset.days === String(rDays));
+            });
+        }
 
         systemConfigModal.classList.remove('hidden');
     }
@@ -800,6 +807,117 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             };
             reader.readAsText(file);
+        });
+    }
+
+    // =========================================================================
+    // Operation Guide & Glossary Modal Setup
+    // =========================================================================
+    const guideModal = document.getElementById('guide-modal');
+    const btnOpenGuideModal = document.getElementById('btn-open-guide-modal');
+    const openGuideBtnSidebar = document.getElementById('open-guide-btn-sidebar');
+    const closeGuideModalBtn = document.getElementById('close-guide-modal-btn');
+    const closeGuideModalFooterBtn = document.getElementById('close-guide-modal-footer-btn');
+
+    function openGuideModal(defaultTab = 'guide-tab-basics') {
+        if (!guideModal) return;
+        guideModal.style.display = 'flex';
+        switchGuideTab(defaultTab);
+    }
+
+    function closeGuideModal() {
+        if (!guideModal) return;
+        guideModal.style.display = 'none';
+    }
+
+    function switchGuideTab(targetTabId) {
+        if (!guideModal) return;
+        const tabBtns = guideModal.querySelectorAll('[data-guide-tab]');
+        const tabContents = guideModal.querySelectorAll('.guide-tab-content');
+        tabBtns.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.guideTab === targetTabId);
+        });
+        tabContents.forEach(content => {
+            content.style.display = (content.id === targetTabId) ? 'block' : 'none';
+        });
+    }
+
+    if (btnOpenGuideModal) btnOpenGuideModal.addEventListener('click', () => openGuideModal());
+    if (openGuideBtnSidebar) openGuideBtnSidebar.addEventListener('click', () => openGuideModal());
+    if (closeGuideModalBtn) closeGuideModalBtn.addEventListener('click', closeGuideModal);
+    if (closeGuideModalFooterBtn) closeGuideModalFooterBtn.addEventListener('click', closeGuideModal);
+    if (guideModal) {
+        guideModal.addEventListener('click', (e) => {
+            if (e.target === guideModal) closeGuideModal();
+        });
+        guideModal.querySelectorAll('[data-guide-tab]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                switchGuideTab(btn.dataset.guideTab);
+            });
+        });
+    }
+
+    // =========================================================================
+    // Log Retention Presets & Manual Cleanup
+    // =========================================================================
+    const retentionPresets = document.querySelectorAll('.btn-retention-preset');
+    const logRetentionInp = document.getElementById('modal-config-log-retention');
+    if (retentionPresets.length > 0 && logRetentionInp) {
+        retentionPresets.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const days = btn.dataset.days;
+                logRetentionInp.value = days;
+                retentionPresets.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+
+        logRetentionInp.addEventListener('input', () => {
+            const currentVal = logRetentionInp.value;
+            retentionPresets.forEach(b => {
+                b.classList.toggle('active', b.dataset.days === currentVal);
+            });
+        });
+    }
+
+    const btnManualCleanup = document.getElementById('btn-manual-cleanup-reports');
+    const manualCleanupStatus = document.getElementById('manual-cleanup-status');
+    if (btnManualCleanup) {
+        btnManualCleanup.addEventListener('click', async () => {
+            const days = parseInt(logRetentionInp ? logRetentionInp.value : 30) || 30;
+            const confirmMsg = days > 0
+                ? `${days} 日以上前の過去レポートフォルダを削除しますか？\n（現在実行中のセッションは保護されます）`
+                : `保持日数が「無期限(0)」のため、安全のため30日以上前の過去ログを削除します。よろしいですか？`;
+            if (!confirm(confirmMsg)) return;
+
+            btnManualCleanup.disabled = true;
+            btnManualCleanup.innerHTML = '<span>⏳</span> クリーンアップ実行中...';
+            if (manualCleanupStatus) manualCleanupStatus.textContent = 'スキャン＆削除中...';
+
+            try {
+                const res = await fetch('/api/system/cleanup-reports', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ retentionDays: days })
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    const msg = data.deletedCount > 0
+                        ? `${data.deletedCount} 件の古いセッションを削除し、${data.freedMb} MB を解放しました。`
+                        : `削除対象の古いレポートはありませんでした（ディスクは正常です）。`;
+                    showToast('info', '🧹 クリーンアップ完了', msg, 5000);
+                    if (manualCleanupStatus) manualCleanupStatus.textContent = `完了: ${msg}`;
+                } else {
+                    showToast('error', '❌ エラー', data.error || 'クリーンアップ処理に失敗しました。', 5000);
+                    if (manualCleanupStatus) manualCleanupStatus.textContent = 'エラーが発生しました。';
+                }
+            } catch (err) {
+                showToast('error', '❌ 通信エラー', 'サーバーとの通信に失敗しました。', 5000);
+                if (manualCleanupStatus) manualCleanupStatus.textContent = '通信エラー';
+            } finally {
+                btnManualCleanup.disabled = false;
+                btnManualCleanup.innerHTML = '<span>🧹</span> 今すぐ古いレポートをクリーンアップ';
+            }
         });
     }
 
@@ -2000,17 +2118,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                     <div style="flex:1.1; min-width:0; display:flex; flex-direction:column; gap:1px;">
-                        <span id="traffic-tx-${safeIpId}" style="font-size:0.71rem; color:#60a5fa; white-space:nowrap;">↑ TX: -</span>
-                        <span id="traffic-rx-${safeIpId}" style="font-size:0.71rem; color:#34d399; white-space:nowrap;">↓ RX: -</span>
+                        <span id="traffic-tx-${safeIpId}" style="font-size:0.71rem; color:#60a5fa; white-space:nowrap;" title="SNMP 送信トラフィック速度 (Tx Mbps)">↑ TX: -</span>
+                        <span id="traffic-rx-${safeIpId}" style="font-size:0.71rem; color:#34d399; white-space:nowrap;" title="SNMP 受信トラフィック速度 (Rx Mbps)">↓ RX: -</span>
                     </div>
                     <div style="flex:1.1; min-width:0; display:flex; flex-direction:column; gap:1px;">
-                        <span id="loss-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;">ロス: 0.0%</span>
-                        <span id="jitter-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;">揺らぎ: -</span>
+                        <span id="loss-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;" title="パケット損失率: 直近30回のPing送信に対する失敗割合 (%)">ロス: 0.0%</span>
+                        <span id="jitter-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;" title="ジッター (ms): 応答時間のブレ・揺らぎ (RFC 3550)。5ms未満が理想">揺らぎ: -</span>
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;min-width:110px;">
-                        <span class="header-latency" id="latency-${safeIpId}" style="min-width:50px;text-align:right;font-weight:700;">-</span>
-                        <span id="minmax-${safeIpId}" style="font-size:0.7rem;white-space:nowrap;"><span style="color:#f97316;">最大-</span> / <span style="color:#06b6d4;">最小-</span></span>
-                        <span id="outage-${safeIpId}" style="font-size:0.68rem;white-space:nowrap;color:#94a3b8;" title="最大瞬断時間（連続オフラインの最長時間）">瞬断最大: -</span>
+                        <span class="header-latency" id="latency-${safeIpId}" style="min-width:50px;text-align:right;font-weight:700;" title="現在のPing応答遅延時間 (ms)">-</span>
+                        <span id="minmax-${safeIpId}" style="font-size:0.7rem;white-space:nowrap;" title="セッション中の最大応答遅延 / 最小応答遅延 (ms)"><span style="color:#f97316;">最大-</span> / <span style="color:#06b6d4;">最小-</span></span>
+                        <span id="outage-${safeIpId}" style="font-size:0.68rem;white-space:nowrap;color:#94a3b8;" title="最大瞬断時間: 連続してPingが途絶えた最長秒数">瞬断最大: -</span>
                     </div>
                     <div style="display:flex;align-items:center;flex-shrink:0;">
                         <button class="toggle-monitor-btn" data-ip="${ip}" style="background:transparent;border:none;color:${!isPausedState ? '#f59e0b' : '#10b981'};cursor:pointer;font-size:1.1rem;">${!isPausedState ? '⏸' : '▶'}</button>
