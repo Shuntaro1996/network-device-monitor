@@ -621,6 +621,73 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         $rowsHtml = $reportRows -join "`n"
         $devCardsHtmlStr = $devCardsHtml -join "`n"
 
+        # ── 瞬断・通信切断 発生履歴明細テーブルの構築（どこからどこまでの期間瞬断したか） ──
+        $allOutageEvents = @()
+        foreach ($ip in $devices) {
+            $stats = $sync.Stats[$ip]
+            $dName = if ($sync.DeviceName.ContainsKey($ip) -and $sync.DeviceName[$ip]) { $sync.DeviceName[$ip] } else { $ip }
+            if ($stats -and $stats.OutageEvents -and $stats.OutageEvents.Count -gt 0) {
+                foreach ($ev in $stats.OutageEvents) {
+                    $allOutageEvents += @{
+                        Ip         = $ip
+                        Name       = $dName
+                        StartTime  = $ev.StartTime
+                        EndTime    = $ev.EndTime
+                        DurationMs = $ev.DurationMs
+                        Category   = $ev.Category
+                    }
+                }
+            }
+        }
+
+        $outageDetailsHtml = ""
+        $thresh1Ms = if ($sync.OutageThresh1Ms) { $sync.OutageThresh1Ms } else { 600 }
+        if ($allOutageEvents.Count -gt 0) {
+            $evRows = @()
+            $evIdx = 1
+            foreach ($ev in ($allOutageEvents | Sort-Object { $_.StartTime })) {
+                $badgeStyle = if ($ev.Category -match "重大|5s") { "background:#fef2f2; color:#dc2626; border:1px solid #fecaca;" } else { "background:#fffbeb; color:#d97706; border:1px solid #fde68a;" }
+                $evRows += @"
+<tr>
+    <td style="text-align:center; font-weight:600; color:#64748b;">$evIdx</td>
+    <td><strong>$([System.Web.HttpUtility]::HtmlEncode($ev.Name))</strong><br><small style="color:#64748b;">$($ev.Ip)</small></td>
+    <td style="font-family:monospace; font-weight:600; color:#dc2626;">$($ev.StartTime)</td>
+    <td style="font-family:monospace; font-weight:600; color:#16a34a;">$($ev.EndTime)</td>
+    <td style="text-align:right; font-weight:700; color:#f59e0b;">$($ev.DurationMs) ms</td>
+    <td style="text-align:center;"><span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; $badgeStyle">$($ev.Category)</span></td>
+</tr>
+"@
+                $evIdx++
+            }
+            $evRowsHtml = $evRows -join "`n"
+            $outageDetailsHtml = @"
+<div style="overflow-x:auto;">
+    <table>
+        <thead>
+            <tr>
+                <th style="width:40px; text-align:center;">No</th>
+                <th>機器名 / IPアドレス</th>
+                <th>瞬断開始日時</th>
+                <th>復旧完了日時</th>
+                <th>継続時間 (ms)</th>
+                <th style="text-align:center;">判定区分</th>
+            </tr>
+        </thead>
+        <tbody>
+            $evRowsHtml
+        </tbody>
+    </table>
+</div>
+"@
+        } else {
+            $outageDetailsHtml = @"
+<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px 16px; color:#166534; font-size:13px; display:flex; align-items:center; gap:8px;">
+    <span style="font-size:16px;">✔</span>
+    <span>本計測期間中に規定閾値（${thresh1Ms}ms以上）を超える瞬断・通信途絶は検知されませんでした（完全安定稼働）。</span>
+</div>
+"@
+        }
+
         # Issue 9: 長時間セッションでのメモリ消費を抑えるため、各機器のtimeSeries上限を2000点にクランプ
         foreach ($devObj in $chartDataObj.devices) {
             if ($devObj.timeSeries -and $devObj.timeSeries.Count -gt 2000) {
@@ -761,7 +828,10 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             ※ 瞬断回数は、通信断から復帰した時点でカウントされます（計測終了時点で継続中の瞬断は含みません）。
         </div>
 
-        <div class="section-title">2. 全機器 応答遅延（Latency）推移グラフ (ms)</div>
+        <div class="section-title">2. 瞬断・通信切断 発生履歴明細（発生日時・復旧完了日時・継続時間一覧）</div>
+        $outageDetailsHtml
+
+        <div class="section-title" style="margin-top:24px;">3. 全機器 応答遅延（Latency）推移グラフ (ms)</div>
         <div class="chart-card">
             <div class="chart-card-title">📈 時系列 応答遅延推移 (凡例クリックで各機器の表示/非表示を切り替え可能)</div>
             <div class="chart-box">
@@ -769,7 +839,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             </div>
         </div>
 
-        <div class="section-title">3. 全機器 ジッター（揺らぎ）推移グラフ (ms)</div>
+        <div class="section-title">4. 全機器 ジッター（揺らぎ）推移グラフ (ms)</div>
         <div class="chart-card">
             <div class="chart-card-title">〰️ 時系列 ジッター推移 (通信のブレ・安定度)</div>
             <div class="chart-box">
@@ -777,7 +847,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             </div>
         </div>
 
-        <div class="section-title">4. 機器別 詳細推移グラフ (遅延 & 送受信帯域)</div>
+        <div class="section-title">5. 機器別 詳細推移グラフ (遅延 & 送受信帯域)</div>
         <div class="device-grid">
             $devCardsHtmlStr
         </div>
@@ -1502,6 +1572,7 @@ function Initialize-DeviceLog {
             MaxOutageSec     = 0.0    # 復帰完了した瞬断の中での最大時間（秒）
             Outage600msCount = 0      # 閾値1以上の瞬断回数
             Outage5sCount    = 0      # 閾値2以上の瞬断回数
+            OutageEvents     = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new()) # 瞬断発生履歴明細
             RecentResults    = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new()) # 直近30回の結果(1/0)
             RecentLatencies  = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new()) # 直近30回の遅延
             PacketLossRate   = 0.0    # 直近パケットロス率 (%)
@@ -1803,11 +1874,10 @@ $pingScript = {
 
                         # Device recovered from offline: finalize outage duration & check thresholds
                         if ($null -ne $stats.OutageStartTime -or $stats.CurrentOutageSec -gt 0) {
-                            $outageDurationSec = if ($null -ne $stats.OutageStartTime) {
-                                [math]::Max(0.0, ((Get-Date) - $stats.OutageStartTime).TotalSeconds)
-                            } else {
-                                $stats.CurrentOutageSec
-                            }
+                            $endTime = Get-Date
+                            $startTime = if ($null -ne $stats.OutageStartTime) { $stats.OutageStartTime } else { $endTime.AddSeconds(-$stats.CurrentOutageSec) }
+                            $outageDurationSec = [math]::Max(0.0, ($endTime - $startTime).TotalSeconds)
+                            $durationMs = [math]::Round($outageDurationSec * 1000, 0)
                             
                             # Update max outage only on successful recovery
                             if ($outageDurationSec -gt $stats.MaxOutageSec) {
@@ -1817,8 +1887,36 @@ $pingScript = {
                             # Count thresholds upon recovery
                             $thresh1Sec = [double]$syncHash.OutageThresh1Ms / 1000.0
                             $thresh2Sec = [double]$syncHash.OutageThresh2Ms / 1000.0
-                            if ($outageDurationSec -ge $thresh1Sec) { $stats.Outage600msCount = $stats.Outage600msCount + 1 }
-                            if ($outageDurationSec -ge $thresh2Sec) { $stats.Outage5sCount    = $stats.Outage5sCount    + 1 }
+                            $isThresh1 = ($outageDurationSec -ge $thresh1Sec)
+                            $isThresh2 = ($outageDurationSec -ge $thresh2Sec)
+                            
+                            if ($isThresh1) { $stats.Outage600msCount = $stats.Outage600msCount + 1 }
+                            if ($isThresh2) { $stats.Outage5sCount    = $stats.Outage5sCount    + 1 }
+
+                            # 規定閾値1以上の瞬断イベントを明細として記録（最大200件まで保持）
+                            if ($isThresh1 -or $isThresh2) {
+                                $categoryLabel = if ($isThresh2) {
+                                    if ($syncHash.OutageThresh2Ms -ge 1000) { "$([int]($syncHash.OutageThresh2Ms/1000))s以上 (重大)" } else { "$($syncHash.OutageThresh2Ms)ms以上" }
+                                } else {
+                                    "$($syncHash.OutageThresh1Ms)ms以上"
+                                }
+                                $ev = @{
+                                    StartTime  = $startTime.ToString("yyyy-MM-dd HH:mm:ss")
+                                    EndTime    = $endTime.ToString("yyyy-MM-dd HH:mm:ss")
+                                    DurationMs = $durationMs
+                                    Category   = $categoryLabel
+                                }
+                                if ($null -eq $stats.OutageEvents) {
+                                    $stats.OutageEvents = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
+                                }
+                                [System.Threading.Monitor]::Enter($stats.OutageEvents.SyncRoot)
+                                try {
+                                    if ($stats.OutageEvents.Count -ge 200) { $stats.OutageEvents.RemoveAt(0) }
+                                    $null = $stats.OutageEvents.Add($ev)
+                                } finally {
+                                    [System.Threading.Monitor]::Exit($stats.OutageEvents.SyncRoot)
+                                }
+                            }
                             
                             # Reset current outage tracking
                             $stats.OutageStartTime  = $null
@@ -2982,12 +3080,13 @@ try {
                             $st.currentOutageSec = if ($curOutage -gt 0) { [math]::Round($curOutage, 1) } else { 0 }
                             $st.outage600msCount = $s.Outage600msCount
                             $st.outage5sCount    = $s.Outage5sCount
+                            $st.outageEvents     = if ($s.OutageEvents) { @($s.OutageEvents | Select-Object -Last 5) } else { @() }
                             $st.packetLossRate   = if ($null -ne $s.PacketLossRate) { $s.PacketLossRate } else { 0.0 }
                             $st.jitter           = if ($null -ne $s.Jitter) { $s.Jitter } else { 0.0 }
                             $st.avgJitter        = if ($s.JitterCount -gt 0) { [math]::Round($s.JitterSum / $s.JitterCount, 2) } else { 0.0 }
                         } else {
                             $st.maxOutageSec = 0; $st.currentOutageSec = 0
-                            $st.outage600msCount = 0; $st.outage5sCount = 0
+                            $st.outage600msCount = 0; $st.outage5sCount = 0; $st.outageEvents = @()
                             $st.packetLossRate = 0.0; $st.jitter = 0.0; $st.avgJitter = 0.0
                         }
                         $st.isSuppressed = if ($syncHash.Status.ContainsKey($key) -and $syncHash.Status[$key].ContainsKey('isSuppressed')) { $syncHash.Status[$key].isSuppressed } else { $false }
@@ -5434,7 +5533,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 } else { 'N/A' }
 
                 # Japanese labels via Base64 (avoids PS5 source-encoding issues)
-                $pingB64 = "eyJub3RlIjoi5YKZ6ICD77yI556s5pat5Zue5pWw44Gu6ZuG6KiI44Gr44Gk44GE44Gm77yJIiwiaGVhZGVyIjoiLS0tIOioiOa4rOOCteODnuODquODvCAtLS0iLCJpcCI6IklQ44Ki44OJ44Os44K5Iiwib3V0YWdlQWJvdmUiOiLku6XkuIrjga7nnqzmlq3lm57mlbDvvIjmlq3jgYznmbrnlJ/jgZfjgZ/lm57mlbDvvIkiLCJ0b3RhbFBpbmdzIjoi57ePUGluZ+mAgeS/oeaVsO+8iOippuihjOWbnuaVsO+8iSIsImxhdE1heCI6IuacgOWkp+mBheW7tiAobXMpIiwibGF0QXZnIjoi5bmz5Z2H6YGF5bu2IChtcykiLCJzZXNzaW9uIjoi44K744OD44K344On44Oz77yI6KiI5ris5Zue77yJIiwic3VjY2VzcyI6IuaIkOWKn+aVsO+8iOW/nOetlOOBguOCiu+8iSIsImxhdE91dGFnZSI6IuacgOWkp+eerOaWreaZgumWk++8iOacgOWkp+mAmuS/oeWBnOatouaZgumWk++8iSAobXMpIiwibWF4T3V0YWdlIjoi5pyA5aSn556s5pat5pmC6ZaT77yI5pyA5aSn6YCa5L+h5YGc5q2i5pmC6ZaT77yJIChtcykiLCJwYWNrZXRMb3NzIjoi44OR44Kx44OD44OI5pCN5aSx546HICglKSIsInJlYWNoIjoi5Yiw6YGU546HIC8g5o6l57aa5oCnICglKSIsImppdHRlciI6IuW5s+Wdh+OCuOODg+OCv+ODvCAobXMpIiwibGF0TWluIjoi5pyA5bCP6YGF5bu2IChtcykiLCJmYWlsZWQiOiLlpLHmlZfmlbDvvIjlv5znrZTjgarjgZfjg7vjgr/jgqTjg6DjgqLjgqbjg4jvvIkiLCJub3RlVmFsIjoi44Kq44OV44Op44Kk44Oz44GL44KJ44Kq44Oz44Op44Kk44Oz44Gr5b6p5biw44GX44Gf5pmC54K544Gn44Kr44Km44Oz44OI44CC44K744OD44K344On44Oz57WC5LqG5pmC54K544Gn57aZ57aa5Lit44Gu556s5pat44Gv5ZCr44G/44G+44Gb44KTIn0="
+                $pingB64 = "eyJoZWFkZXIiOiItLS0g6KiI5ris44K144Oe44Oq44O8IC0tLSIsImZhaWxlZCI6IuWkseaVl+aVsO+8iOW/nOetlOOBquOBl+ODu+OCv+OCpOODoOOCouOCpuODiO+8iSIsInJlYWNoIjoi5Yiw6YGU546HIC8g5o6l57aa5oCnICglKSIsIm91dGFnZURldGFpbENvbHMiOiJObyznnqzmlq3plovlp4vml6XmmYIs5b6p5pen5a6M5LqG5pel5pmCLOe2mee2muaZgumWk19tcyzliKTlrprljLrliIYiLCJwYWNrZXRMb3NzIjoi44OR44Kx44OD44OI5pCN5aSx546HICglKSIsImlwIjoiSVDjgqLjg4njg6zjgrkiLCJsYXRBdmciOiLlubPlnYfpgYXlu7YgKG1zKSIsImppdHRlciI6IuW5s+Wdh+OCuOODg+OCv+ODvCAobXMpIiwibm90ZSI6IuWCmeiAg++8iOeerOaWreWbnuaVsOOBrumbhuioiOOBq+OBpOOBhOOBpu+8iSIsIm91dGFnZURldGFpbE5vbmUiOiLvvIjopo/lrprplr7lgKTku6XkuIrjga7nnqzmlq3jga/nmbrnlJ/jgZfjgb7jgZvjgpPjgafjgZfjgZ/vvIkiLCJzdWNjZXNzIjoi5oiQ5Yqf5pWw77yI5b+c562U44GC44KK77yJIiwibm90ZVZhbCI6IuOCquODleODqeOCpOODs+OBi+OCieOCquODs+ODqeOCpOODs+OBq+W+qeW4sOOBl+OBn+aZgueCueOBp+OCq+OCpuODs+ODiOOAguOCu+ODg+OCt+ODp+ODs+e1guS6huaZgueCueOBp+e2mee2muS4reOBrueerOaWreOBr+WQq+OBv+OBvuOBm+OCkyIsIm91dGFnZUFib3ZlIjoi5Lul5LiK44Gu556s5pat5Zue5pWw77yI5pat44GM55m655Sf44GX44Gf5Zue5pWw77yJIiwibGF0TWluIjoi5pyA5bCP6YGF5bu2IChtcykiLCJ0b3RhbFBpbmdzIjoi57ePUGluZ+mAgeS/oeaVsO+8iOippuihjOWbnuaVsO+8iSIsInNlc3Npb24iOiLjgrvjg4Pjgrfjg6fjg7PvvIjoqIjmuKzlm57vvIkiLCJtYXhPdXRhZ2UiOiLmnIDlpKfnnqzmlq3mmYLplpPvvIjmnIDlpKfpgJrkv6HlgZzmraLmmYLplpPvvIkgKG1zKSIsIm91dGFnZURldGFpbEhlYWRlciI6Ii0tLSDnnqzmlq3jg7vpgJrkv6HliIfmlq0g55m655Sf5bGl5q205piO57SwIC0tLSIsImxhdE1heCI6IuacgOWkp+mBheW7tiAobXMpIn0="
                 $pL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($pingB64)) | ConvertFrom-Json
 
                 $lines = [System.Collections.Generic.List[string]]::new()
@@ -5455,6 +5554,21 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 $lines.Add($thresh1Label + $pL.outageAbove + "," + $out600ms)
                 $lines.Add($thresh2Label + $pL.outageAbove + "," + $out5s)
                 $lines.Add($pL.note + "," + $pL.noteVal)
+
+                # 瞬断発生履歴明細（どこからどこまでの期間瞬断したか）の出力
+                $lines.Add("")
+                $lines.Add($pL.outageDetailHeader)
+                if ($stats.OutageEvents -and $stats.OutageEvents.Count -gt 0) {
+                    $lines.Add($pL.outageDetailCols)
+                    $evIdx = 1
+                    foreach ($ev in $stats.OutageEvents) {
+                        $lines.Add("$evIdx,$($ev.StartTime),$($ev.EndTime),$($ev.DurationMs),$($ev.Category)")
+                        $evIdx++
+                    }
+                } else {
+                    $lines.Add($pL.outageDetailNone)
+                }
+
                 $summaryBlock = ($lines -join "`r`n") + "`r`n"
                 try {
                     [System.IO.File]::AppendAllText($csvPath, $summaryBlock, [System.Text.Encoding]::GetEncoding(932))

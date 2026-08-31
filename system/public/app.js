@@ -2445,6 +2445,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     const cntStr = cntParts.length > 0 ? cntParts.join(' / ') : '';
 
                     const isOffline = (data.status === 'Failed' || data.status === 'Error') && curSec > 0;
+                    const evs = data.outageEvents || [];
+                    let lastEvStr = '';
+                    if (evs.length > 0) {
+                        const lastEv = evs[evs.length - 1];
+                        const sTime = (lastEv.StartTime || '').substring(11);
+                        const eTime = (lastEv.EndTime || '').substring(11);
+                        lastEvStr = `直近瞬断: ${sTime}～${eTime} (${lastEv.DurationMs}ms)`;
+                    }
 
                     if (isOffline) {
                         outageEl.style.color = '#ef4444';
@@ -2452,12 +2460,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         let tooltip = `現在オフライン継続中: ${fmtOutageMs(curSec)}${curSec >= 1 ? ` (${curSec.toFixed(1)}秒)` : ''}`;
                         if (maxSec !== null) tooltip += ` / 過去最大瞬断: ${fmtOutageMs(maxSec)}`;
                         if (cntStr) tooltip += ` / ${cntStr}`;
+                        if (lastEvStr) tooltip += ` / ${lastEvStr}`;
                         outageEl.title = tooltip;
                     } else if (maxSec !== null) {
                         outageEl.style.color = '#f97316';
                         outageEl.textContent = `瞬断最大: ${fmtOutageMs(maxSec)}`;
                         let tooltip = `最大瞬断時間: ${fmtOutageMs(maxSec)}${maxSec >= 1 ? ` (${maxSec.toFixed(1)}秒)` : ''}`;
                         if (cntStr) tooltip += ` / ${cntStr}`;
+                        if (lastEvStr) tooltip += ` / ${lastEvStr}`;
                         outageEl.title = tooltip;
                     } else {
                         outageEl.style.color = '#94a3b8';
