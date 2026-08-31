@@ -1487,7 +1487,34 @@
         </div>
     </div>
 
+    <!-- Audit Log Modal (操作履歴・監査ログ) -->
+    <div id="audit-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-modal config-modal-box" style="max-width:840px; width:90%;">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span style="font-size:1.4rem;">🛡️</span>
+                    <div>
+                        <h2 class="modal-title" style="margin:0; font-size:1.15rem;">操作履歴・監査ログ (Audit Log)</h2>
+                        <span style="font-size:0.75rem; color:var(--text-muted);">システムの機器設定変更・追加・削除・しきい値調整などの全操作履歴</span>
+                    </div>
+                </div>
+                <button id="close-audit-modal-btn" class="modal-close-btn">&times;</button>
+            </div>
+
+            <div class="modal-body-scroll config-modal-body" style="max-height:60vh; padding:16px;">
+                <div id="audit-log-list" style="display:flex; flex-direction:column; gap:6px;">
+                    <!-- Audit logs will be injected here via JS -->
+                </div>
+            </div>
+
+            <div class="modal-footer" style="justify-content:space-between;">
+                <span style="font-size:0.75rem; color:var(--text-muted);">※ 直近200件の操作ログが Reports/audit.log に永続保存されています</span>
+                <button class="btn primary-btn" id="close-audit-modal-footer-btn">閉じる</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container"></div>
-    <script src="app.js?v=66"></script>
+    <script src="app.js?v=67"></script>
 </body>
 </html>
