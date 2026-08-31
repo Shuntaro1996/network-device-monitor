@@ -541,11 +541,35 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
                 $out5s = "$($stats.Outage5sCount) 回"
             }
 
+            # 監視頻度 (Ping間隔) の算出
+            $baseIntervalMs = if ($sync.PollInterval -gt 0) { [int]$sync.PollInterval } else { 1000 }
+            $highFreqIps = if ($sync.HighFreqTargetIps) { ($sync.HighFreqTargetIps -split ',') | ForEach-Object { $_.Trim() } } else { @() }
+            $isUltraHighFreq = ($baseIntervalMs -le 100)
+
+            $freqDisplay = if ($isUltraHighFreq) {
+                if ($highFreqIps -contains $ip) {
+                    "0.1s (100ms)"
+                } else {
+                    "5.0s (5秒)"
+                }
+            } else {
+                if ($baseIntervalMs -ge 1000) {
+                    if ($baseIntervalMs % 1000 -eq 0) {
+                        "$([int]($baseIntervalMs / 1000))s ($([int]($baseIntervalMs / 1000))秒)"
+                    } else {
+                        "$([math]::Round($baseIntervalMs / 1000, 1))s"
+                    }
+                } else {
+                    "$([math]::Round($baseIntervalMs / 1000, 2))s (${baseIntervalMs}ms)"
+                }
+            }
+
             $reportRows += @"
 <tr>
-    <td><span class="color-dot" style="background-color:$color;"></span><strong>$dName</strong><br><small style="color:#64748b;">$ip</small></td>
+    <td><span class="color-dot" style="background-color:$color;"></span><strong>$([System.Web.HttpUtility]::HtmlEncode($dName))</strong><br><small style="color:#64748b;">$ip</small></td>
     <td>$dGroup<br><small style="color:#64748b;">$dLoc</small></td>
     <td><span class="status-tag $($st.ToLower())">$st</span></td>
+    <td style="text-align:center; font-weight:600; color:#475569; white-space:nowrap;">$freqDisplay</td>
     <td style="text-align:right;">$totalPings</td>
     <td style="text-align:right; color:#16a34a; font-weight:600;">$success</td>
     <td style="text-align:right; color:#dc2626; font-weight:600;">$failed</td>
@@ -981,6 +1005,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
                         <th>機器名 / IPアドレス</th>
                         <th>グループ / 設置場所</th>
                         <th>状態</th>
+                        <th>監視頻度</th>
                         <th>総Ping数</th>
                         <th>成功数</th>
                         <th>失敗数</th>
@@ -5960,11 +5985,26 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 $pingB64 = "eyJoZWFkZXIiOiItLS0g6KiI5ris44K144Oe44Oq44O8IC0tLSIsImZhaWxlZCI6IuWkseaVl+aVsO+8iOW/nOetlOOBquOBl+ODu+OCv+OCpOODoOOCouOCpuODiO+8iSIsInJlYWNoIjoi5Yiw6YGU546HIC8g5o6l57aa5oCnICglKSIsIm91dGFnZURldGFpbENvbHMiOiJObyznnqzmlq3plovlp4vml6XmmYIs5b6p5pen5a6M5LqG5pel5pmCLOe2mee2muaZgumWk19tcyzliKTlrprljLrliIYiLCJwYWNrZXRMb3NzIjoi44OR44Kx44OD44OI5pCN5aSx546HICglKSIsImlwIjoiSVDjgqLjg4njg6zjgrkiLCJsYXRBdmciOiLlubPlnYfpgYXlu7YgKG1zKSIsImppdHRlciI6IuW5s+Wdh+OCuOODg+OCv+ODvCAobXMpIiwibm90ZSI6IuWCmeiAg++8iOeerOaWreWbnuaVsOOBrumbhuioiOOBq+OBpOOBhOOBpu+8iSIsIm91dGFnZURldGFpbE5vbmUiOiLvvIjopo/lrprplr7lgKTku6XkuIrjga7nnqzmlq3jga/nmbrnlJ/jgZfjgb7jgZvjgpPjgafjgZfjgZ/vvIkiLCJzdWNjZXNzIjoi5oiQ5Yqf5pWw77yI5b+c562U44GC44KK77yJIiwibm90ZVZhbCI6IuOCquODleODqeOCpOODs+OBi+OCieOCquODs+ODqeOCpOODs+OBq+W+qeW4sOOBl+OBn+aZgueCueOBp+OCq+OCpuODs+ODiOOAguOCu+ODg+OCt+ODp+ODs+e1guS6huaZgueCueOBp+e2mee2muS4reOBrueerOaWreOBr+WQq+OBv+OBvuOBm+OCkyIsIm91dGFnZUFib3ZlIjoi5Lul5LiK44Gu556s5pat5Zue5pWw77yI5pat44GM55m655Sf44GX44Gf5Zue5pWw77yJIiwibGF0TWluIjoi5pyA5bCP6YGF5bu2IChtcykiLCJ0b3RhbFBpbmdzIjoi57ePUGluZ+mAgeS/oeaVsO+8iOippuihjOWbnuaVsO+8iSIsInNlc3Npb24iOiLjgrvjg4Pjgrfjg6fjg7PvvIjoqIjmuKzlm57vvIkiLCJtYXhPdXRhZ2UiOiLmnIDlpKfnnqzmlq3mmYLplpPvvIjmnIDlpKfpgJrkv6HlgZzmraLmmYLplpPvvIkgKG1zKSIsIm91dGFnZURldGFpbEhlYWRlciI6Ii0tLSDnnqzmlq3jg7vpgJrkv6HliIfmlq0g55m655Sf5bGl5q205piO57SwIC0tLSIsImxhdE1heCI6IuacgOWkp+mBheW7tiAobXMpIn0="
                 $pL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($pingB64)) | ConvertFrom-Json
 
+                $baseIntervalMs = if ($syncHash.PollInterval -gt 0) { [int]$syncHash.PollInterval } else { 1000 }
+                $highFreqIps = if ($syncHash.HighFreqTargetIps) { ($syncHash.HighFreqTargetIps -split ',') | ForEach-Object { $_.Trim() } } else { @() }
+                $isUltraHighFreq = ($baseIntervalMs -le 100)
+
+                $devIntervalStr = if ($isUltraHighFreq) {
+                    if ($highFreqIps -contains $ip) { "0.1s (100ms)" } else { "5.0s (5秒)" }
+                } else {
+                    if ($baseIntervalMs -ge 1000) {
+                        if ($baseIntervalMs % 1000 -eq 0) { "$([int]($baseIntervalMs / 1000))s ($([int]($baseIntervalMs / 1000))秒)" } else { "$([math]::Round($baseIntervalMs / 1000, 1))s" }
+                    } else {
+                        "$([math]::Round($baseIntervalMs / 1000, 2))s (${baseIntervalMs}ms)"
+                    }
+                }
+
                 $lines = [System.Collections.Generic.List[string]]::new()
                 $lines.Add("")
                 $lines.Add($pL.header)
                 $lines.Add($pL.session + "," + $Tstr)
                 $lines.Add($pL.ip + "," + $ip)
+                $lines.Add("監視頻度（Ping間隔）," + $devIntervalStr)
                 $lines.Add($pL.totalPings + "," + $total)
                 $lines.Add($pL.success + "," + $success)
                 $lines.Add($pL.failed + "," + $failed)
