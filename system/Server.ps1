@@ -688,6 +688,126 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
 "@
         }
 
+        # ── Iperf3 計測結果ログ（iperf_*.log）の収集・グラフデータ構築 ──
+        $iperfResults = @()
+        $iperfCardsHtml = @()
+        $iperfCardIdx = 0
+        
+        $sessDir = if ($sync.SessionDir -and (Test-Path $sync.SessionDir)) { $sync.SessionDir } else { $null }
+        if ($sessDir) {
+            $iperfLogFiles = Get-ChildItem -Path $sessDir -Filter "iperf_*.log" -ErrorAction SilentlyContinue
+            foreach ($logFile in $iperfLogFiles) {
+                try {
+                    $logSafeIp = $logFile.BaseName -replace '^iperf_', ''
+                    $targetIp  = $logSafeIp -replace '_', '.'
+                    $dName = if ($sync.DeviceName.ContainsKey($targetIp) -and $sync.DeviceName[$targetIp]) { $sync.DeviceName[$targetIp] } else { $targetIp }
+                    $logContent = [System.IO.File]::ReadAllLines($logFile.FullName, [System.Text.Encoding]::UTF8)
+                    
+                    $isUdp = $false
+                    $bwPoints = @()
+                    $jitPoints = @()
+                    $protoStr = "TCP"
+                    $summaryObj = @{
+                        Target = "$dName ($targetIp)"
+                        Protocol = "TCP"
+                        Duration = "—"
+                        Transfer = "—"
+                        AvgBw = "—"
+                        MaxBw = "—"
+                        MinBw = "—"
+                        Jitter = "—"
+                        Loss = "—"
+                        Retr = "—"
+                        Evaluation = "—"
+                    }
+
+                    foreach ($l in $logContent) {
+                        if ($l -match 'Command:\s*iperf3\s+.*?-u' -or $l -match '通信プロトコル\s*:\s*UDP') { $isUdp = $true; $protoStr = "UDP" }
+                        
+                        # UDP line
+                        if ($l -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+([0-9.]+)\s+([KMG]?)Bytes\s+([0-9.]+)\s+([KMG]?)bits/sec\s+([0-9.]+)\s+ms\s+(\d+)/(\d+)\s+\(([0-9.]+)%\)') {
+                            $isUdp = $true; $protoStr = "UDP"
+                            $sT = [double]$Matches[1]; $eT = [double]$Matches[2]
+                            $bwR = [double]$Matches[5]; $bwU = $Matches[6]
+                            $jM = [double]$Matches[7]
+                            $bwM = switch ($bwU) { 'K' { $bwR / 1000.0 } 'G' { $bwR * 1000.0 } default { $bwR } }
+                            if ($l -notmatch 'sender|receiver|SUM' -and ($eT - $sT) -le 1.5) {
+                                $bwPoints += @{ sec = $eT; val = [math]::Round($bwM, 2); label = "${sT}-${eT}s" }
+                                $jitPoints += @{ sec = $eT; val = [math]::Round($jM, 3); label = "${sT}-${eT}s" }
+                            }
+                        }
+                        # TCP line
+                        elseif ($l -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+([0-9.]+)\s+([KMG]?)Bytes\s+([0-9.]+)\s+([KMG]?)bits/sec' -and $l -notmatch 'sender|receiver|SUM') {
+                            $sT = [double]$Matches[1]; $eT = [double]$Matches[2]
+                            $bwR = [double]$Matches[5]; $bwU = $Matches[6]
+                            $bwM = switch ($bwU) { 'K' { $bwR / 1000.0 } 'G' { $bwR * 1000.0 } default { $bwR } }
+                            if (($eT - $sT) -le 1.5) {
+                                $bwPoints += @{ sec = $eT; val = [math]::Round($bwM, 2); label = "${sT}-${eT}s" }
+                            }
+                        }
+
+                        # Summary lines parser
+                        if ($l -match '通信プロトコル\s*:\s*(.+)') { $summaryObj.Protocol = $Matches[1].Trim() }
+                        if ($l -match '合計計測時間\s*:\s*(.+)') { $summaryObj.Duration = $Matches[1].Trim() }
+                        if ($l -match '合計データ転送量\s*:\s*(.+)') { $summaryObj.Transfer = $Matches[1].Trim() }
+                        if ($l -match '平均帯域.*:\s*(.+)') { $summaryObj.AvgBw = $Matches[1].Trim() }
+                        if ($l -match '最大帯域\s*:\s*(.+)') { $summaryObj.MaxBw = $Matches[1].Trim() }
+                        if ($l -match '最小帯域\s*:\s*(.+)') { $summaryObj.MinBw = $Matches[1].Trim() }
+                        if ($l -match '平均ジッター.*:\s*(.+)') { $summaryObj.Jitter = $Matches[1].Trim() }
+                        if ($l -match 'パケット損失率.*:\s*(.+)') { $summaryObj.Loss = $Matches[1].Trim() }
+                        if ($l -match 'TCP再送パケット数\s*:\s*(.+)') { $summaryObj.Retr = $Matches[1].Trim() }
+                        if ($l -match '品質評価.*:\s*(.+)') { $summaryObj.Evaluation = $Matches[1].Trim() }
+                    }
+
+                    if ($bwPoints.Count -gt 0) {
+                        $iperfResults += @{
+                            target     = $targetIp
+                            name       = $dName
+                            protocol   = $protoStr
+                            isUdp      = $isUdp
+                            bwPoints   = $bwPoints
+                            jitPoints  = $jitPoints
+                            summary    = $summaryObj
+                        }
+
+                        $protoBadge = if ($isUdp) { "background:#0284c7; color:#fff;" } else { "background:#3b82f6; color:#fff;" }
+                        $cardHtml = @"
+<div class="device-card" style="margin-bottom:16px;">
+    <div class="device-card-header">
+        <div>
+            <span style="display:inline-block; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700; $protoBadge">$protoStr</span>
+            <strong style="margin-left:6px;">$([System.Web.HttpUtility]::HtmlEncode($dName))</strong> <span style="font-size:12px; color:#64748b;">($targetIp)</span>
+        </div>
+        <span style="font-size:12px; font-weight:600; color:#16a34a;">$([System.Web.HttpUtility]::HtmlEncode($summaryObj.Evaluation))</span>
+    </div>
+    <div style="padding:8px 12px; background:#f8fafc; border-bottom:1px solid #e2e8f0; font-size:12px; display:flex; flex-wrap:wrap; gap:16px;">
+        <div>平均スループット: <strong>$($summaryObj.AvgBw)</strong></div>
+        <div>計測時間: <strong>$($summaryObj.Duration)</strong></div>
+        <div>転送量: <strong>$($summaryObj.Transfer)</strong></div>
+        $(if ($isUdp) { "<div>ジッター: <strong>$($summaryObj.Jitter)</strong></div><div>損失率: <strong>$($summaryObj.Loss)</strong></div>" } else { "<div>再送: <strong>$($summaryObj.Retr)</strong></div>" })
+    </div>
+    <div class="device-chart-box" style="height:180px;">
+        <canvas id="iperf-report-chart-$iperfCardIdx"></canvas>
+    </div>
+</div>
+"@
+                        $iperfCardsHtml += $cardHtml
+                        $iperfCardIdx++
+                    }
+                } catch { }
+            }
+        }
+        $chartDataObj.iperfResults = $iperfResults
+        $iperfSectionHtml = if ($iperfCardsHtml.Count -gt 0) {
+            $iperfCardsHtml -join "`n"
+        } else {
+            @"
+<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px 16px; color:#64748b; font-size:12px;">
+    ※ 本セッション中に Iperf3 帯域計測は実行されませんでした（またはログがありません）。
+</div>
+"@
+        }
+
         # Issue 9: 長時間セッションでのメモリ消費を抑えるため、各機器のtimeSeries上限を2000点にクランプ
         foreach ($devObj in $chartDataObj.devices) {
             if ($devObj.timeSeries -and $devObj.timeSeries.Count -gt 2000) {
@@ -850,6 +970,11 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         <div class="section-title">5. 機器別 詳細推移グラフ (遅延 & 送受信帯域)</div>
         <div class="device-grid">
             $devCardsHtmlStr
+        </div>
+
+        <div class="section-title" style="margin-top:24px;">6. Iperf3 帯域計測・スループット診断結果 (グラフ & サマリー一覧)</div>
+        <div class="device-grid" style="grid-template-columns: 1fr;">
+            $iperfSectionHtml
         </div>
 
         <div style="margin-top:30px; border-top:1px solid #e2e8f0; padding-top:12px; font-size:10.5px; color:#94a3b8; text-align:center;">
@@ -1022,6 +1147,74 @@ $chartDataJson
                     beginAtZero: true,
                     grid: { drawOnChartArea: false },
                     title: { display: true, text: '帯域 (Mbps)', font: { size: 10 } }
+                };
+            }
+
+            new Chart(canvasEl, {
+                type: 'line',
+                data: { labels: labels, datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } }
+                    },
+                    scales: scales
+                }
+            });
+        });
+
+        // 4. Iperf3 Result Charts
+        var iperfResults = reportData.iperfResults || [];
+        iperfResults.forEach(function(ipf, idx) {
+            var canvasEl = document.getElementById('iperf-report-chart-' + idx);
+            if (!canvasEl || !ipf.bwPoints || ipf.bwPoints.length === 0) return;
+
+            var labels = ipf.bwPoints.map(function(p) { return p.label; });
+            var bwData = ipf.bwPoints.map(function(p) { return p.val; });
+
+            var datasets = [
+                {
+                    label: 'スループット (Mbps)',
+                    data: bwData,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#60a5fa',
+                    tension: 0.3,
+                    fill: true,
+                    yAxisID: 'y'
+                }
+            ];
+
+            if (ipf.isUdp && ipf.jitPoints && ipf.jitPoints.length > 0) {
+                var jitData = ipf.jitPoints.map(function(p) { return p.val; });
+                datasets.push({
+                    label: 'ジッター (ms)',
+                    data: jitData,
+                    borderColor: '#f59e0b',
+                    borderWidth: 1.5,
+                    borderDash: [4, 4],
+                    pointRadius: 2,
+                    tension: 0.2,
+                    fill: false,
+                    yAxisID: 'yJitter'
+                });
+            }
+
+            var scales = {
+                x: { grid: { color: '#f8fafc' }, ticks: { maxTicksLimit: 12, font: { size: 9 } } },
+                y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: '帯域 (Mbps)', font: { size: 10 } } }
+            };
+
+            if (ipf.isUdp && ipf.jitPoints && ipf.jitPoints.length > 0) {
+                scales.yJitter = {
+                    position: 'right',
+                    beginAtZero: true,
+                    grid: { drawOnChartArea: false },
+                    title: { display: true, text: 'ジッター (ms)', font: { size: 10 } }
                 };
             }
 

@@ -5830,19 +5830,40 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!iperfChart || !output) return;
         const lines = output.split('\n');
         const dataPoints = [];
+        let hasUdpJitter = false;
+
         lines.forEach(line => {
-            // Parse iperf3 interval lines
-            const match = line.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\s+sec.*?(\d+(?:\.\d+)?)\s+([KMGb]?bits\/sec)/i);
-            if (match) {
-                const start = parseFloat(match[1]);
-                const end = parseFloat(match[2]);
-                let mbits = parseFloat(match[3]);
-                const unitRaw = match[4];
+            if (line.includes('sender') || line.includes('receiver') || line.includes('SUM')) return;
+
+            // Check for UDP line: [  5]   0.00-1.00   sec  1.19 MBytes  10.0 Mbits/sec  0.035 ms  0/892 (0%)
+            const udpMatch = line.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\s+sec.*?(\d+(?:\.\d+)?)\s+([KMGb]?bits\/sec)\s+(\d+(?:\.\d+)?)\s+ms/i);
+            if (udpMatch) {
+                const start = parseFloat(udpMatch[1]);
+                const end = parseFloat(udpMatch[2]);
+                let mbits = parseFloat(udpMatch[3]);
+                const unitRaw = udpMatch[4];
+                const jitMs = parseFloat(udpMatch[5]);
                 if (/Gbits/i.test(unitRaw)) mbits *= 1000;
                 else if (/Kbits/i.test(unitRaw)) mbits /= 1000;
 
                 if (end - start <= 1.5) {
-                    dataPoints.push({ sec: end, val: mbits, label: `${start}-${end}s` });
+                    hasUdpJitter = true;
+                    dataPoints.push({ sec: end, val: mbits, jit: jitMs, label: `${start}-${end}s` });
+                }
+            } else {
+                // Parse standard TCP/generic interval lines
+                const match = line.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\s+sec.*?(\d+(?:\.\d+)?)\s+([KMGb]?bits\/sec)/i);
+                if (match) {
+                    const start = parseFloat(match[1]);
+                    const end = parseFloat(match[2]);
+                    let mbits = parseFloat(match[3]);
+                    const unitRaw = match[4];
+                    if (/Gbits/i.test(unitRaw)) mbits *= 1000;
+                    else if (/Kbits/i.test(unitRaw)) mbits /= 1000;
+
+                    if (end - start <= 1.5) {
+                        dataPoints.push({ sec: end, val: mbits, jit: null, label: `${start}-${end}s` });
+                    }
                 }
             }
         });
@@ -5862,6 +5883,34 @@ document.addEventListener('DOMContentLoaded', () => {
             const trimmedPoints = uniquePoints.length > 60 ? uniquePoints.slice(-60) : uniquePoints;
             iperfChart.data.labels = trimmedPoints.map(p => p.label);
             iperfChart.data.datasets[0].data = trimmedPoints.map(p => p.val);
+
+            // If UDP jitter is detected, add or update dataset[1]
+            if (hasUdpJitter) {
+                if (iperfChart.data.datasets.length < 2) {
+                    iperfChart.data.datasets.push({
+                        label: 'ジッター (ms)',
+                        data: [],
+                        borderColor: '#f59e0b',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#fbbf24',
+                        borderDash: [3, 3],
+                        fill: false,
+                        tension: 0.2,
+                        yAxisID: 'yJitter'
+                    });
+                    if (!iperfChart.options.scales.yJitter) {
+                        iperfChart.options.scales.yJitter = {
+                            position: 'right',
+                            beginAtZero: true,
+                            grid: { drawOnChartArea: false },
+                            ticks: { font: { size: 10 } },
+                            title: { display: true, text: 'ジッター (ms)', font: { size: 10, weight: 'bold' } }
+                        };
+                    }
+                }
+                iperfChart.data.datasets[1].data = trimmedPoints.map(p => p.jit);
+            }
             iperfChart.update();
         }
     }
