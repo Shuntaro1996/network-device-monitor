@@ -6002,7 +6002,6 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 $lines = [System.Collections.Generic.List[string]]::new()
                 $lines.Add("")
                 $lines.Add($pL.header)
-                $lines.Add($pL.session + "," + $Tstr)
                 $lines.Add($pL.ip + "," + $ip)
                 $lines.Add("監視頻度（Ping間隔）," + $devIntervalStr)
                 $lines.Add($pL.totalPings + "," + $total)
