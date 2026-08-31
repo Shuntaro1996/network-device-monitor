@@ -721,8 +721,17 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
                         Evaluation = "—"
                     }
 
+                    $execStartTime = $null
                     foreach ($l in $logContent) {
+                        if ($l -match 'Execution at\s+([0-9\-:\s]+)') {
+                            try { $execStartTime = [datetime]::ParseExact($Matches[1].Trim(), "yyyy-MM-dd HH:mm:ss", $null) } catch {}
+                        }
                         if ($l -match 'Command:\s*iperf3\s+.*?-u' -or $l -match '通信プロトコル\s*:\s*UDP') { $isUdp = $true; $protoStr = "UDP" }
+
+                        $lineTs = ""
+                        if ($l -match '^\[([0-9]{2}:[0-9]{2}:[0-9]{2})\]') {
+                            $lineTs = $Matches[1]
+                        }
                         
                         # UDP line
                         if ($l -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+([0-9.]+)\s+([KMG]?)Bytes\s+([0-9.]+)\s+([KMG]?)bits/sec\s+([0-9.]+)\s+ms\s+(\d+)/(\d+)\s+\(([0-9.]+)%\)') {
@@ -731,9 +740,10 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
                             $bwR = [double]$Matches[5]; $bwU = $Matches[6]
                             $jM = [double]$Matches[7]
                             $bwM = switch ($bwU) { 'K' { $bwR / 1000.0 } 'G' { $bwR * 1000.0 } default { $bwR } }
+                            $lbl = if ($lineTs) { $lineTs } elseif ($execStartTime) { $execStartTime.AddSeconds($eT).ToString("HH:mm:ss") } else { "${sT}-${eT}s" }
                             if ($l -notmatch 'sender|receiver|SUM' -and ($eT - $sT) -le 1.5) {
-                                $bwPoints += @{ sec = $eT; val = [math]::Round($bwM, 2); label = "${sT}-${eT}s" }
-                                $jitPoints += @{ sec = $eT; val = [math]::Round($jM, 3); label = "${sT}-${eT}s" }
+                                $bwPoints += @{ sec = $eT; val = [math]::Round($bwM, 2); label = $lbl }
+                                $jitPoints += @{ sec = $eT; val = [math]::Round($jM, 3); label = $lbl }
                             }
                         }
                         # TCP line
@@ -741,8 +751,9 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
                             $sT = [double]$Matches[1]; $eT = [double]$Matches[2]
                             $bwR = [double]$Matches[5]; $bwU = $Matches[6]
                             $bwM = switch ($bwU) { 'K' { $bwR / 1000.0 } 'G' { $bwR * 1000.0 } default { $bwR } }
+                            $lbl = if ($lineTs) { $lineTs } elseif ($execStartTime) { $execStartTime.AddSeconds($eT).ToString("HH:mm:ss") } else { "${sT}-${eT}s" }
                             if (($eT - $sT) -le 1.5) {
-                                $bwPoints += @{ sec = $eT; val = [math]::Round($bwM, 2); label = "${sT}-${eT}s" }
+                                $bwPoints += @{ sec = $eT; val = [math]::Round($bwM, 2); label = $lbl }
                             }
                         }
 

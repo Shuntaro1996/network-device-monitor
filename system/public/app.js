@@ -5835,6 +5835,9 @@ document.addEventListener('DOMContentLoaded', () => {
         lines.forEach(line => {
             if (line.includes('sender') || line.includes('receiver') || line.includes('SUM')) return;
 
+            const timeMatch = line.match(/^\[(\d{2}:\d{2}:\d{2})\]/);
+            const tsStr = timeMatch ? timeMatch[1] : null;
+
             // Check for UDP line: [  5]   0.00-1.00   sec  1.19 MBytes  10.0 Mbits/sec  0.035 ms  0/892 (0%)
             const udpMatch = line.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\s+sec.*?(\d+(?:\.\d+)?)\s+([KMGb]?bits\/sec)\s+(\d+(?:\.\d+)?)\s+ms/i);
             if (udpMatch) {
@@ -5848,7 +5851,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (end - start <= 1.5) {
                     hasUdpJitter = true;
-                    dataPoints.push({ sec: end, val: mbits, jit: jitMs, label: `${start}-${end}s` });
+                    dataPoints.push({ sec: end, val: mbits, jit: jitMs, label: tsStr || `${start}-${end}s` });
                 }
             } else {
                 // Parse standard TCP/generic interval lines
@@ -5862,7 +5865,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     else if (/Kbits/i.test(unitRaw)) mbits /= 1000;
 
                     if (end - start <= 1.5) {
-                        dataPoints.push({ sec: end, val: mbits, jit: null, label: `${start}-${end}s` });
+                        dataPoints.push({ sec: end, val: mbits, jit: null, label: tsStr || `${start}-${end}s` });
                     }
                 }
             }
