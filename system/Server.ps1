@@ -2031,10 +2031,10 @@ $pingScript = {
                         
                         $writeSuccess = $false
                         try {
-                            # CSV log rotation (max 5MB, keep up to 10 old files as _1.csv, _2.csv, etc.)
+                            # CSV log rotation (max 10MB, keep up to 10 old files as _1.csv, _2.csv, etc. => max ~100MB per device)
                             if (Test-Path $csvPath) {
                                 $fileInfo = Get-Item $csvPath
-                                if ($fileInfo.Length -gt 5MB) {
+                                if ($fileInfo.Length -gt 10MB) {
                                     $maxRotations = 10
                                     for ($i = ($maxRotations - 1); $i -ge 1; $i--) {
                                         $oldPath = Join-Path $syncHash.SessionDir "${safeIp}_${i}.csv"
