@@ -374,6 +374,40 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         return $result
     }
 
+    # Helper: Clean iperf3 log lines by removing connection-error-only failed execution blocks
+    function Clean-IperfLogLines([string[]]$lines) {
+        if (-not $lines -or $lines.Count -eq 0) { return @() }
+        
+        $cleanBlocks = @()
+        $currentBlock = @()
+        $inBlock = $false
+        $hasBw = $false
+
+        foreach ($line in $lines) {
+            if ($line -match '^=== iperf3 Execution at ') {
+                if ($currentBlock.Count -gt 0 -and $hasBw) {
+                    $cleanBlocks += $currentBlock
+                }
+                $currentBlock = @($line)
+                $inBlock = $true
+                $hasBw = $false
+            } else {
+                if ($inBlock) {
+                    $currentBlock += $line
+                    if ($line -match '\[\s*\d+\]\s+[0-9.]+\s*-\s*[0-9.]+\s+sec\s+[0-9.]+\s+[KMG]?Bytes\s+[0-9.]+\s+[KMG]?bits/sec' -and $line -notmatch 'sender|receiver|SUM') {
+                        $hasBw = $true
+                    }
+                } else {
+                    $cleanBlocks += $line
+                }
+            }
+        }
+        if ($currentBlock.Count -gt 0 -and $hasBw) {
+            $cleanBlocks += $currentBlock
+        }
+        return $cleanBlocks
+    }
+
     # Helper: Generate graphical inspection report (HTML with Chart.js line charts)
     function Generate-SessionReportHtml {
         param(
@@ -698,11 +732,23 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             $iperfLogFiles = Get-ChildItem -Path $sessDir -Filter "iperf_*.log" -ErrorAction SilentlyContinue
             foreach ($logFile in $iperfLogFiles) {
                 try {
+                    $rawLines = [System.IO.File]::ReadAllLines($logFile.FullName, [System.Text.Encoding]::UTF8)
+                    $logContent = Clean-IperfLogLines $rawLines
+                    
+                    if (-not $logContent -or $logContent.Count -eq 0) {
+                        # 全てのブロックがコネクションエラー等で有効データがない場合はファイルを削除してスキップ
+                        try { Remove-Item $logFile.FullName -Force -ErrorAction SilentlyContinue } catch {}
+                        continue
+                    }
+                    if ($logContent.Count -lt $rawLines.Count) {
+                        # エラーブロックが除去された場合はクリーンなログで上書き再保存
+                        try { [System.IO.File]::WriteAllLines($logFile.FullName, $logContent, [System.Text.Encoding]::UTF8) } catch {}
+                    }
+                    
                     $logSafeIp = $logFile.BaseName -replace '^iperf_', ''
                     $targetIp  = $logSafeIp -replace '_', '.'
                     $dName = if ($sync.DeviceName.ContainsKey($targetIp) -and $sync.DeviceName[$targetIp]) { $sync.DeviceName[$targetIp] } else { $targetIp }
-                    $logContent = [System.IO.File]::ReadAllLines($logFile.FullName, [System.Text.Encoding]::UTF8)
-                    
+
                     $isUdp = $false
                     $bwPoints = @()
                     $jitPoints = @()
@@ -4813,9 +4859,11 @@ try {
                                 $tmpLiveLog = Join-Path ([System.IO.Path]::GetTempPath()) "ndm_iperf_tmp_$([guid]::NewGuid().ToString('N')).log"
                                 
                                 # ログ保存先（機器別ログ iperf_${safeIp}.log の1つだけに一本化）
-                                $logFiles = @(
-                                    (Join-Path $sessDir "iperf_${safeIp}.log")
-                                )
+                                $primaryLogFile = Join-Path $sessDir "iperf_${safeIp}.log"
+                                $preExecLines = if (Test-Path $primaryLogFile) {
+                                    try { [System.IO.File]::ReadAllLines($primaryLogFile, [System.Text.Encoding]::UTF8) } catch { @() }
+                                } else { @() }
+                                $logFiles = @($primaryLogFile)
 
                                 # ヘルパー: ログファイルに追記
                                 function Write-IperfLogs([string]$text) {
@@ -5150,6 +5198,33 @@ try {
                                             $summaryText = ($iLines -join "`r`n")
                                             Write-IperfLogs $summaryText
                                             $sync.IperfState.Output += "`r`n" + $summaryText + "`r`n"
+                                        } else {
+                                            # 有効なデータ転送行が1件も得られなかった（コネクションエラー・相手停止・タイムアウト等）
+                                            $isConnError = $false
+                                            if ($logContent) {
+                                                foreach ($l in $logContent) {
+                                                    if ($l -match 'error\s*-\s*unable to connect|Connection refused|Connection reset|Timed out|No route to host|unable to receive control message|unable to resolve|interrupt\s*-') {
+                                                        $isConnError = $true
+                                                        break
+                                                    }
+                                                }
+                                            }
+
+                                            # コネクションエラーまたは完全失敗の場合、今回の実行ブロックをファイルから自動ロールバック
+                                            if ($isConnError -or $sync.IperfState.StopRequested -or ($bwValues.Count -eq 0)) {
+                                                try {
+                                                    if ($preExecLines -and $preExecLines.Count -gt 0) {
+                                                        # 過去の正常ログが存在する場合は、今回の失敗分を除去して過去ログのみで上書き再保存
+                                                        [System.IO.File]::WriteAllLines($primaryLogFile, $preExecLines, [System.Text.Encoding]::UTF8)
+                                                    } else {
+                                                        # 過去ログが元々存在しなかった（初回実行でエラー）場合はファイルごと安全に削除
+                                                        if (Test-Path $primaryLogFile) { Remove-Item $primaryLogFile -Force -ErrorAction SilentlyContinue }
+                                                    }
+                                                    $nowTs = Get-Date -Format "HH:mm:ss"
+                                                    $cleanMsg = "`r`n[$nowTs] ⚠️ コネクションエラー（接続失敗）が検知されたため、この失敗試行のログは自動削除されました。`r`n"
+                                                    $sync.IperfState.Output += $cleanMsg
+                                                } catch {}
+                                            }
                                         }
                                     } catch {
                                         $summaryErr = "Summary calculation error: $($_.Exception.Message)"
@@ -5187,6 +5262,16 @@ try {
                         Get-ChildItem -Path $syncHash.SessionDir -Filter "iperf_*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
                     }
                     if ($primaryLog -and (Test-Path $primaryLog)) {
+                        try {
+                            $rawL = [System.IO.File]::ReadAllLines($primaryLog, [System.Text.Encoding]::UTF8)
+                            $cleanL = Clean-IperfLogLines $rawL
+                            if ($cleanL.Count -gt 0) {
+                                if ($cleanL.Count -lt $rawL.Count) {
+                                    [System.IO.File]::WriteAllLines($primaryLog, $cleanL, [System.Text.Encoding]::UTF8)
+                                }
+                            }
+                        } catch {}
+
                         $logBytes = [System.IO.File]::ReadAllBytes($primaryLog)
                         $filename = [System.IO.Path]::GetFileName($primaryLog)
                         $response.ContentType = "text/plain; charset=utf-8"
