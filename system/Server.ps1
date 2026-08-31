@@ -4669,7 +4669,6 @@ try {
                                     [long]$byteOffset = 0
                                     while (-not $proc.HasExited) {
                                         Start-Sleep -Milliseconds 200
-                                        if (-not (Test-Path $tmpLiveLog)) { continue }
                                         try {
                                             $fs = New-Object System.IO.FileStream(
                                                 $tmpLiveLog,
@@ -4747,28 +4746,105 @@ try {
                                     Write-IperfLogs "=== iperf3 $endLabel at $tsEnd ==="
                                     Write-IperfLogs "-----------------------------------------------------------"
 
-                                    # ── 統計サマリー集計 ──────────────────────────────────────
+                                    # ── 統計サマリー集計 (TCP / UDP モード別最適化) ──────────────────────────────────────
                                     try {
                                         $primaryLogFile = Join-Path $sessDir "iperf_${safeIp}.log"
                                         $logContent     = Get-Content $primaryLogFile -Encoding UTF8 -ErrorAction SilentlyContinue
+                                        
+                                        # UDPモード判定: コマンドオプションに -u/--udp が含まれるか、ログに出現するか
+                                        $isUdpMode = ($iperfArgs -match '(\s|^)-u(\s|$)' -or $iperfArgs -match '--udp' -or ($opts -and ($opts -match '(\s|^)-u(\s|$)' -or $opts -match '--udp')))
+                                        
                                         $bwValues       = [System.Collections.Generic.List[double]]::new()
+                                        $transferValues = [System.Collections.Generic.List[double]]::new() # MBytes
+                                        $jitterValues   = [System.Collections.Generic.List[double]]::new() # ms
                                         $totalTimeSec   = 0.0
+                                        $tcpRetransmits = 0
+                                        $hasTcpRetr     = $false
+                                        $udpLostPackets = 0
+                                        $udpTotalPackets= 0
+                                        $udpLossPercent = 0.0
+                                        $hasUdpLossInfo = $false
+                                        $udpFinalJitter = $null
+
                                         foreach ($logLine in $logContent) {
-                                            if ($logLine -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+[0-9.]+\s+[KMG]?Bytes\s+([0-9.]+)\s+([KMG]?)bits/sec' `
-                                                -and $logLine -notmatch 'sender|receiver|SUM') {
+                                            # UDP毎秒行: [  5]   0.00-1.00   sec  1.19 MBytes  10.0 Mbits/sec  0.035 ms  0/892 (0%)
+                                            if ($logLine -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+([0-9.]+)\s+([KMG]?)Bytes\s+([0-9.]+)\s+([KMG]?)bits/sec\s+([0-9.]+)\s+ms\s+(\d+)/(\d+)\s+\(([0-9.]+)%\)') {
+                                                $isUdpMode = $true
                                                 $startT = [double]$Matches[1]
                                                 $endT   = [double]$Matches[2]
-                                                $bwRaw  = [double]$Matches[3]
-                                                $unit   = $Matches[4]
-                                                $bwMbps = switch ($unit) {
+                                                $tfRaw  = [double]$Matches[3]
+                                                $tfUnit = $Matches[4]
+                                                $bwRaw  = [double]$Matches[5]
+                                                $bwUnit = $Matches[6]
+                                                $jitMs  = [double]$Matches[7]
+                                                $lost   = [int]$Matches[8]
+                                                $tot    = [int]$Matches[9]
+                                                $lossP  = [double]$Matches[10]
+
+                                                $bwMbps = switch ($bwUnit) {
                                                     'K' { $bwRaw / 1000.0 }
                                                     'G' { $bwRaw * 1000.0 }
                                                     default { $bwRaw }
                                                 }
+                                                $tfMBytes = switch ($tfUnit) {
+                                                    'K' { $tfRaw / 1024.0 }
+                                                    'G' { $tfRaw * 1024.0 }
+                                                    default { $tfRaw }
+                                                }
+
+                                                if ($logLine -match 'receiver') {
+                                                    $udpFinalJitter = $jitMs
+                                                    $udpLostPackets = $lost
+                                                    $udpTotalPackets= $tot
+                                                    $udpLossPercent = $lossP
+                                                    $hasUdpLossInfo = $true
+                                                } elseif ($logLine -notmatch 'sender|SUM') {
+                                                    $intervalLen = $endT - $startT
+                                                    if ($intervalLen -gt 0.0 -and $intervalLen -le 1.5) {
+                                                        $bwValues.Add($bwMbps)
+                                                        $transferValues.Add($tfMBytes)
+                                                        $jitterValues.Add($jitMs)
+                                                        if ($endT -gt $totalTimeSec) { $totalTimeSec = $endT }
+                                                    }
+                                                }
+                                            }
+                                            # TCP毎秒行: [  5]   0.00-1.00   sec  11.2 MBytes  94.1 Mbits/sec  [0    200 KBytes]
+                                            elseif ($logLine -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+([0-9.]+)\s+([KMG]?)Bytes\s+([0-9.]+)\s+([KMG]?)bits/sec(?:\s+(\d+))?' `
+                                                -and $logLine -notmatch 'sender|receiver|SUM') {
+                                                $startT = [double]$Matches[1]
+                                                $endT   = [double]$Matches[2]
+                                                $tfRaw  = [double]$Matches[3]
+                                                $tfUnit = $Matches[4]
+                                                $bwRaw  = [double]$Matches[5]
+                                                $bwUnit = $Matches[6]
+                                                $retr   = $Matches[7]
+
+                                                $bwMbps = switch ($bwUnit) {
+                                                    'K' { $bwRaw / 1000.0 }
+                                                    'G' { $bwRaw * 1000.0 }
+                                                    default { $bwRaw }
+                                                }
+                                                $tfMBytes = switch ($tfUnit) {
+                                                    'K' { $tfRaw / 1024.0 }
+                                                    'G' { $tfRaw * 1024.0 }
+                                                    default { $tfRaw }
+                                                }
                                                 $intervalLen = $endT - $startT
                                                 if ($intervalLen -gt 0.0 -and $intervalLen -le 1.5) {
                                                     $bwValues.Add($bwMbps)
+                                                    $transferValues.Add($tfMBytes)
+                                                    if ($retr) {
+                                                        $tcpRetransmits += [int]$retr
+                                                        $hasTcpRetr = $true
+                                                    }
                                                     if ($endT -gt $totalTimeSec) { $totalTimeSec = $endT }
+                                                }
+                                            }
+                                            # TCP最終sender行の再送数チェック
+                                            elseif ($logLine -match 'sender' -and $logLine -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+[0-9.]+\s+[KMG]?Bytes\s+[0-9.]+\s+[KMG]?bits/sec(?:\s+(\d+))') {
+                                                if ($Matches[3]) {
+                                                    $tcpRetransmits = [int]$Matches[3]
+                                                    $hasTcpRetr = $true
                                                 }
                                             }
                                         }
@@ -4791,31 +4867,90 @@ try {
                                             $abovePct   = [math]::Round($aboveCount / $n * 100, 1)
                                             $belowPct   = [math]::Round($belowCount / $n * 100, 1)
 
-                                            # Japanese labels via Base64
-                                            $iperfB64 = "eyJoZWFkZXIiOiAiPT09PT09PT09PSBpcGVyZjMg57Wx6KiI44K144Oe44Oq44O8ID09PT09PT09PT0iLCAidGFyZ2V0IjogIuaOpee2muWFiCAoSVAv44OJ44Oh44Kk44OzKSIsICJkdXJhdGlvbiI6ICLlkIjoqIjoqIjmuKzmmYLplpMiLCAiYXZnIjogIuW5s+Wdh+W4r+Wfn+W5hSIsICJtZWRpYW4iOiAi5Lit5aSu5YCkIiwgIm1heEJ3IjogIuacgOWkp+W4r+Wfn+W5hSIsICJtaW5CdyI6ICLmnIDlsI/luK/ln5/luYUiLCAic3RkRGV2IjogIuaomea6luWBj+W3riIsICJ0aHJlc2giOiAi5biv5Z+f6Za+5YCkIiwgImFib3ZlIjogIumWvuWApOS7peS4iiIsICJiZWxvdyI6ICLplr7lgKTmnKrmuoAiLCAiZm9vdGVyIjogIj09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PSJ9"
+                                            $totTransferMB = ($transferValues | Measure-Object -Sum).Sum
+                                            $totTransferStr = if ($totTransferMB -ge 1024.0) {
+                                                ("{0:F2} GBytes" -f ($totTransferMB / 1024.0))
+                                            } else {
+                                                ("{0:F1} MBytes" -f $totTransferMB)
+                                            }
+
+                                            # Japanese labels via Base64 (avoids PS5 source-encoding issues)
+                                            $iperfB64 = "eyJtZWRpYW4iOiLkuK3lpK7lgKQiLCJ0YXJnZXQiOiLmjqXntprlhYggKElQL+ODieODoeOCpOODsykiLCJ0aHJlc2giOiLluK/ln5/plr7lgKQiLCJsb3NzUmF0ZSI6IuODkeOCseODg+ODiOaQjeWkseeOhyAoUmF0ZSkiLCJldmFsVWRwR29vZCI6IuKchSDlhKrnp4DvvIhWb0lQ44O75pig5YOP5Lya6K2w44O744Oq44Ki44Or44K/44Kk44Og6YCa5L+h44Gr5pyA6YGp77yJIiwiaml0dGVyQXZnIjoi5bmz5Z2H44K444OD44K/44O8ICjmj7rjgonjgY4pIiwiZXZhbFRjcEdvb2QiOiLinIUg5YSq56eA44O75qW144KB44Gm5a6J5a6a77yI44OR44Kx44OD44OI5YaN6YCB44Gq44GX77yJIiwiaml0dGVyTWF4Ijoi5pyA5aSn44K444OD44K/44O8ICjmj7rjgonjgY4pIiwiYmVsb3ciOiLplr7lgKTmnKrmuoAiLCJtYXhNaW5CdyI6IuacgOWkp+W4r+WfnyAvIOacgOWwj+W4r+WfnyIsImV2YWxUaXRsZSI6IuWTgeizquipleS+oSIsImR1cmF0aW9uIjoi5ZCI6KiI6KiI5ris5pmC6ZaTIiwiZXZhbFRjcFdhcm4iOiLimqDvuI8g5rOo5oSP77yI44OR44Kx44OD44OI5YaN6YCB44GM55m655Sf77yJIiwiZXZhbFVkcEZhaXIiOiLwn5+iIOiJr+Wlve+8iOS4gOiIrOeahOOBqumAmuS/oeOBq+aUr+manOOBquOBl++8iSIsImhlYWRlclVkcCI6Ij09PT09PT09PT09PT09PT09PT09IGlwZXJmMyDntbHoqIjjgrXjg57jg6rjg7wgKFVEUCkgPT09PT09PT09PT09PT09PT09PT0iLCJhYm92ZSI6IumWvuWApOS7peS4iiIsInRyYW5zZmVyIjoi5ZCI6KiI44OH44O844K/6Lui6YCB6YePIiwiZXZhbFVkcFdhcm4iOiLimqDvuI8g6KaB6Kq/5p+777yI44OR44Kx44OD44OI56C05qOE44G+44Gf44Gv44K444OD44K/44O86YGO5aSn77yJIiwidGNwUmV0ciI6IlRDUOWGjemAgeODkeOCseODg+ODiOaVsCIsImZvb3RlciI6Ij09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PSIsImxvc3RQYWNrZXRzIjoi44OR44Kx44OD44OI5pCN5aSx5pWwIChMb3NzKSIsImF2Z0J3Ijoi5bmz5Z2H5biv5Z+fICjjgrnjg6vjg7zjg5fjg4Pjg4gpIiwiaGVhZGVyVGNwIjoiPT09PT09PT09PT09PT09PT09PT0gaXBlcmYzIOe1seioiOOCteODnuODquODvCAoVENQKSA9PT09PT09PT09PT09PT09PT09PSIsIm1pbkJ3Ijoi5pyA5bCP5biv5Z+fIiwicHJvdG9jb2wiOiLpgJrkv6Hjg5fjg63jg4jjgrPjg6siLCJzdGREZXYiOiLmqJnmupblgY/lt64iLCJtYXhCdyI6IuacgOWkp+W4r+WfnyJ9"
                                             $iL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($iperfB64)) | ConvertFrom-Json
 
                                             $targetDisplay = if ($sync.DeviceName -and $sync.DeviceName.ContainsKey($tIp) -and $sync.DeviceName[$tIp] -ne $tIp) { "$tIp ($($sync.DeviceName[$tIp]))" } else { $tIp }
 
                                             $iLines = [System.Collections.Generic.List[string]]::new()
                                             $iLines.Add("")
-                                            $iLines.Add($iL.header)
-                                            $iLines.Add($iL.target   + " : " + $targetDisplay)
-                                            $iLines.Add($iL.duration + "   : " + ("{0:F1}" -f $totalTimeSec) + " sec")
-                                            $iLines.Add($iL.avg      + "     : " + ("{0:F2}" -f $avg) + " Mbps")
-                                            $iLines.Add($iL.median   + "         : " + ("{0:F2}" -f $median) + " Mbps")
-                                            $iLines.Add($iL.maxBw    + "     : " + ("{0:F2}" -f $maxBw) + " Mbps")
-                                            $iLines.Add($iL.minBw    + "     : " + ("{0:F2}" -f $minBw) + " Mbps")
-                                            $iLines.Add($iL.stdDev   + "       : " + ("{0:F2}" -f $stdDev) + " Mbps")
-                                            $iLines.Add($iL.thresh   + "       : " + $bwThresh + " Mbps")
-                                            $iLines.Add($iL.above    + " (" + $bwThresh + " Mbps~) : " + $aboveCount + " / " + $abovePct + " %")
-                                            $iLines.Add($iL.below    + " (~"+ $bwThresh + " Mbps) : " + $belowCount + " / " + $belowPct + " %")
-                                            $iLines.Add($iL.footer)
+
+                                            if ($isUdpMode) {
+                                                # ─── UDP モード専用サマリー ───
+                                                $avgJit = if ($jitterValues.Count -gt 0) { ($jitterValues | Measure-Object -Average).Average } else { 0.0 }
+                                                $maxJit = if ($jitterValues.Count -gt 0) { ($jitterValues | Measure-Object -Maximum).Maximum } else { 0.0 }
+                                                if ($null -ne $udpFinalJitter -and $udpFinalJitter -gt 0) { $avgJit = $udpFinalJitter }
+
+                                                $evalUdp = if ($hasUdpLossInfo -and $udpLossPercent -eq 0.0 -and $avgJit -lt 5.0) {
+                                                    $iL.evalUdpGood
+                                                } elseif ($hasUdpLossInfo -and $udpLossPercent -lt 1.0 -and $avgJit -lt 20.0) {
+                                                    $iL.evalUdpFair
+                                                } else {
+                                                    $iL.evalUdpWarn
+                                                }
+
+                                                $iLines.Add($iL.headerUdp)
+                                                $iLines.Add($iL.target      + "         : " + $targetDisplay)
+                                                $iLines.Add($iL.protocol    + "       : UDP")
+                                                $iLines.Add($iL.duration    + "       : " + ("{0:F1}" -f $totalTimeSec) + " sec")
+                                                $iLines.Add($iL.transfer    + "   : " + $totTransferStr)
+                                                $iLines.Add($iL.avgBw       + " : " + ("{0:F2}" -f $avg) + " Mbps")
+                                                $iLines.Add($iL.maxMinBw    + "   : " + ("{0:F2}" -f $maxBw) + " Mbps / " + ("{0:F2}" -f $minBw) + " Mbps")
+                                                $iLines.Add($iL.jitterAvg   + "   : " + ("{0:F3}" -f $avgJit) + " ms")
+                                                $iLines.Add($iL.jitterMax   + "   : " + ("{0:F3}" -f $maxJit) + " ms")
+                                                if ($hasUdpLossInfo) {
+                                                    $iLines.Add($iL.lostPackets + "     : " + $udpLostPackets + " / " + $udpTotalPackets + " パケット")
+                                                    $iLines.Add($iL.lossRate    + "     : " + ("{0:F2}" -f $udpLossPercent) + " %")
+                                                }
+                                                $iLines.Add($iL.thresh      + "           : " + $bwThresh + " Mbps")
+                                                $iLines.Add($iL.above       + " (" + $bwThresh + " Mbps~) : " + $aboveCount + " / " + $abovePct + " %")
+                                                $iLines.Add($iL.below       + " (~"+ $bwThresh + " Mbps) : " + $belowCount + " / " + $belowPct + " %")
+                                                $iLines.Add($iL.evalTitle   + "           : " + $evalUdp)
+                                                $iLines.Add($iL.footer)
+                                            } else {
+                                                # ─── TCP モード専用サマリー ───
+                                                $evalTcp = if ($hasTcpRetr -and $tcpRetransmits -gt 0) {
+                                                    $iL.evalTcpWarn + " ($tcpRetransmits 回)"
+                                                } else {
+                                                    $iL.evalTcpGood
+                                                }
+
+                                                $iLines.Add($iL.headerTcp)
+                                                $iLines.Add($iL.target      + "         : " + $targetDisplay)
+                                                $iLines.Add($iL.protocol    + "       : TCP")
+                                                $iLines.Add($iL.duration    + "       : " + ("{0:F1}" -f $totalTimeSec) + " sec")
+                                                $iLines.Add($iL.transfer    + "   : " + $totTransferStr)
+                                                $iLines.Add($iL.avgBw       + " : " + ("{0:F2}" -f $avg) + " Mbps")
+                                                $iLines.Add($iL.median      + "             : " + ("{0:F2}" -f $median) + " Mbps")
+                                                $iLines.Add($iL.maxBw       + "             : " + ("{0:F2}" -f $maxBw) + " Mbps")
+                                                $iLines.Add($iL.minBw       + "             : " + ("{0:F2}" -f $minBw) + " Mbps")
+                                                $iLines.Add($iL.stdDev      + "           : " + ("{0:F2}" -f $stdDev) + " Mbps")
+                                                if ($hasTcpRetr) {
+                                                    $iLines.Add($iL.tcpRetr + "      : " + $tcpRetransmits + " 回")
+                                                }
+                                                $iLines.Add($iL.thresh      + "           : " + $bwThresh + " Mbps")
+                                                $iLines.Add($iL.above       + " (" + $bwThresh + " Mbps~) : " + $aboveCount + " / " + $abovePct + " %")
+                                                $iLines.Add($iL.below       + " (~"+ $bwThresh + " Mbps) : " + $belowCount + " / " + $belowPct + " %")
+                                                $iLines.Add($iL.evalTitle   + "           : " + $evalTcp)
+                                                $iLines.Add($iL.footer)
+                                            }
+
                                             $summaryText = ($iLines -join "`r`n")
                                             Write-IperfLogs $summaryText
                                             $sync.IperfState.Output += "`r`n" + $summaryText + "`r`n"
                                         }
-                                    } catch {}
+                                    } catch {
+                                        $summaryErr = "Summary calculation error: $($_.Exception.Message)"
+                                        Write-IperfLogs $summaryErr
+                                    }
                                     Write-IperfLogs "`r`n"
                                     $sync.IperfState.Running       = $false
                                     $sync.IperfState.Process       = $null
