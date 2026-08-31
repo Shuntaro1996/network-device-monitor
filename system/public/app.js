@@ -2128,7 +2128,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;min-width:110px;">
                         <span class="header-latency" id="latency-${safeIpId}" style="min-width:50px;text-align:right;font-weight:700;" title="現在のPing応答遅延時間 (ms)">-</span>
                         <span id="minmax-${safeIpId}" style="font-size:0.7rem;white-space:nowrap;" title="セッション中の最大応答遅延 / 最小応答遅延 (ms)"><span style="color:#f97316;">最大-</span> / <span style="color:#06b6d4;">最小-</span></span>
-                        <span id="outage-${safeIpId}" style="font-size:0.68rem;white-space:nowrap;color:#94a3b8;" title="最大瞬断時間: 連続してPingが途絶えた最長秒数">瞬断最大: -</span>
+                        <span id="outage-${safeIpId}" style="font-size:0.68rem;white-space:nowrap;color:#94a3b8;" title="最大瞬断時間: 連続してPingが途絶えた最長ミリ秒数 (ms)">瞬断最大: -</span>
                     </div>
                     <div style="display:flex;align-items:center;flex-shrink:0;">
                         <button class="toggle-monitor-btn" data-ip="${ip}" style="background:transparent;border:none;color:${!isPausedState ? '#f59e0b' : '#10b981'};cursor:pointer;font-size:1.1rem;">${!isPausedState ? '⏸' : '▶'}</button>
@@ -2429,12 +2429,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     const curSec   = (data.currentOutageSec != null && data.currentOutageSec > 0) ? data.currentOutageSec : 0;
                     const cnt600   = (data.outage600msCount != null) ? data.outage600msCount : 0;
                     const cnt5s    = (data.outage5sCount    != null) ? data.outage5sCount    : 0;
-                    const fmtSec   = s => s >= 60 ? `${Math.floor(s/60)}分${(s%60).toFixed(0)}秒` : `${s.toFixed(1)}秒`;
+                    const fmtOutageMs = s => {
+                        if (s == null || s <= 0) return '-';
+                        const ms = Math.round(s * 1000);
+                        return `${ms}ms`;
+                    };
                     
                     // Build threshold labels from current config
                     const t1ms = (systemConfig.outageThresh1Ms) || 600;
                     const t2ms = (systemConfig.outageThresh2Ms) || 5000;
-                    const fmtMs = ms => ms >= 1000 ? `${(ms/1000).toFixed(ms%1000===0?0:1)}秒` : `${ms}ms`;
+                    const fmtMs = ms => `${ms}ms`;
                     const cntParts = [];
                     if (cnt600 > 0) cntParts.push(`${fmtMs(t1ms)}以上: ${cnt600}回`);
                     if (cnt5s  > 0) cntParts.push(`${fmtMs(t2ms)}以上: ${cnt5s}回`);
@@ -2444,15 +2448,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (isOffline) {
                         outageEl.style.color = '#ef4444';
-                        outageEl.textContent = `瞬断中: ${fmtSec(curSec)}`;
-                        let tooltip = `現在オフライン継続中: ${fmtSec(curSec)}`;
-                        if (maxSec !== null) tooltip += ` / 過去最大瞬断: ${fmtSec(maxSec)}`;
+                        outageEl.textContent = `瞬断中: ${fmtOutageMs(curSec)}`;
+                        let tooltip = `現在オフライン継続中: ${fmtOutageMs(curSec)}${curSec >= 1 ? ` (${curSec.toFixed(1)}秒)` : ''}`;
+                        if (maxSec !== null) tooltip += ` / 過去最大瞬断: ${fmtOutageMs(maxSec)}`;
                         if (cntStr) tooltip += ` / ${cntStr}`;
                         outageEl.title = tooltip;
                     } else if (maxSec !== null) {
                         outageEl.style.color = '#f97316';
-                        outageEl.textContent = `瞬断最大: ${fmtSec(maxSec)}`;
-                        let tooltip = `最大瞬断時間: ${fmtSec(maxSec)}`;
+                        outageEl.textContent = `瞬断最大: ${fmtOutageMs(maxSec)}`;
+                        let tooltip = `最大瞬断時間: ${fmtOutageMs(maxSec)}${maxSec >= 1 ? ` (${maxSec.toFixed(1)}秒)` : ''}`;
                         if (cntStr) tooltip += ` / ${cntStr}`;
                         outageEl.title = tooltip;
                     } else {
@@ -2601,6 +2605,22 @@ document.addEventListener('DOMContentLoaded', () => {
             fetch('/api/heartbeat', { method: 'GET', cache: 'no-store' }).catch(() => {});
         }
     }, 2500);
+
+    // Send immediate heartbeat & refresh status when tab becomes visible or focused
+    const sendImmediateHeartbeat = () => {
+        if (navigator.onLine !== false && !document.hidden) {
+            fetch('/api/heartbeat', { method: 'GET', cache: 'no-store' }).catch(() => {});
+            if (typeof fetchStatus === 'function') {
+                fetchStatus();
+            }
+        }
+    };
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            sendImmediateHeartbeat();
+        }
+    });
+    window.addEventListener('focus', sendImmediateHeartbeat);
 
     // Trigger server shutdown and log save when browser window/tab is closed
     const sendShutdownBeacon = () => {
@@ -4180,6 +4200,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const topoNodeRenderCache = {};
+    const topoEdgeRenderCache = {};
+
     function updateTopologyStatus() {
         if (!networkInstance || !nodesDataSet || !viewTopology.classList.contains('active')) return;
         const activeDevices = devices.filter(d => d.enabled !== false);
@@ -4218,15 +4241,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const safeGroup = escapeXml(d.group || 'Ungrouped');
             const safeLatencyTooltip = escapeXml(latencyTooltipText || '');
             const safeBandwidthTooltip = escapeXml(bandwidthText || '');
+            const newTitle = `${safeName}\nIP: ${safeIp}\nGroup: ${safeGroup}${safeLatencyTooltip}${safeBandwidthTooltip}`;
 
-            try {
-                nodesDataSet.update({
-                    id: d.ip,
-                    image: svgUrl,
-                    label: '',
-                    title: `${safeName}\nIP: ${safeIp}\nGroup: ${safeGroup}${safeLatencyTooltip}${safeBandwidthTooltip}`
-                });
-            } catch (e) {}
+            // Diff check: only update nodesDataSet if SVG or tooltip has changed
+            const cacheKey = d.ip;
+            const prev = topoNodeRenderCache[cacheKey];
+            if (!prev || prev.svgUrl !== svgUrl || prev.title !== newTitle) {
+                topoNodeRenderCache[cacheKey] = { svgUrl: svgUrl, title: newTitle };
+                try {
+                    nodesDataSet.update({
+                        id: d.ip,
+                        image: svgUrl,
+                        label: '',
+                        title: newTitle
+                    });
+                } catch (e) {}
+            }
         });
 
         if (edgesDataSet) {
@@ -4234,12 +4264,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 const allEdges = edgesDataSet.get();
                 allEdges.forEach(edge => {
                     const estyle = getEdgeStyle(edge.from, edge.to);
-                    edgesDataSet.update({
-                        id: edge.id,
-                        color: estyle.color,
-                        width: estyle.width,
-                        dashes: estyle.dashes
-                    });
+                    const edgeKey = edge.id;
+                    const prevE = topoEdgeRenderCache[edgeKey];
+                    const eColor = estyle.color;
+                    const eWidth = estyle.width;
+                    const eDashes = estyle.dashes;
+
+                    if (!prevE || prevE.color !== eColor || prevE.width !== eWidth || prevE.dashes !== eDashes) {
+                        topoEdgeRenderCache[edgeKey] = { color: eColor, width: eWidth, dashes: eDashes };
+                        edgesDataSet.update({
+                            id: edge.id,
+                            color: eColor,
+                            width: eWidth,
+                            dashes: eDashes
+                        });
+                    }
                 });
             } catch (e) {}
         }
@@ -5810,8 +5849,9 @@ document.addEventListener('DOMContentLoaded', () => {
         uniquePoints.sort((a, b) => a.sec - b.sec);
 
         if (uniquePoints.length > 0) {
-            iperfChart.data.labels = uniquePoints.map(p => p.label);
-            iperfChart.data.datasets[0].data = uniquePoints.map(p => p.val);
+            const trimmedPoints = uniquePoints.length > 60 ? uniquePoints.slice(-60) : uniquePoints;
+            iperfChart.data.labels = trimmedPoints.map(p => p.label);
+            iperfChart.data.datasets[0].data = trimmedPoints.map(p => p.val);
             iperfChart.update();
         }
     }

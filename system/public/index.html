@@ -1392,12 +1392,12 @@
                         <div class="glossary-item">
                             <div class="glossary-term">
                                 <span class="term-badge badge-warning">Outage</span>
-                                <strong>瞬断時間 & 瞬断回数（600ms / 5s 閾値）</strong>
+                                <strong>瞬断時間 & 瞬断回数（600ms / 5000ms 閾値）</strong>
                             </div>
                             <div class="glossary-desc">
-                                ネットワークが一時的に切断されてから復帰するまでの「連続オフライン秒数」です。<br>
+                                ネットワークが一時的に切断されてから復帰するまでの「連続オフライン時間（ミリ秒 / ms）」です。<br>
                                 <strong>600ms以上瞬断:</strong> Wi-Fiローミングや回線瞬断など、Web会議で一瞬音声が途切れるレベルの障害。<br>
-                                <strong>5秒以上瞬断:</strong> アプリケーションのセッション切断や再接続が発生する重大な通信断。<br>
+                                <strong>5000ms (5秒) 以上瞬断:</strong> アプリケーションのセッション切断や再接続が発生する重大な通信断。<br>
                                 ※ 瞬断回数は、通信断から正常復帰したタイミングで確定カウントされます。
                             </div>
                         </div>
@@ -1488,6 +1488,6 @@
     </div>
 
     <div id="toast-container"></div>
-    <script src="app.js?v=63"></script>
+    <script src="app.js?v=64"></script>
 </body>
 </html>

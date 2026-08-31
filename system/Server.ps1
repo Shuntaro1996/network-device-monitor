@@ -29,6 +29,13 @@ if (-not (Get-Module -ListAvailable -Name SNMP)) {
 }
 Import-Module SNMP -ErrorAction SilentlyContinue
 
+# Clean up any leftover iperf3.exe processes from previous unclean exits
+try {
+    Get-Process -Name "iperf3" -ErrorAction SilentlyContinue | ForEach-Object {
+        try { $_.Kill(); Write-Host "Cleaned up leftover iperf3 process (PID: $($_.Id))" -ForegroundColor DarkGray } catch {}
+    }
+} catch {}
+
 $port = 8081
 $rootDir   = Split-Path -Parent $PSScriptRoot
 $publicDir = Join-Path $PSScriptRoot "public"
@@ -493,7 +500,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
                     $totalLatCount += $stats.LatCount
                 }
                 if ($stats.MaxOutageSec -gt 0) {
-                    $maxOutage = "$([math]::Round($stats.MaxOutageSec, 1)) 秒"
+                    $maxOutage = "$([math]::Round($stats.MaxOutageSec * 1000, 0)) ms"
                     if ($stats.MaxOutageSec -gt $maxOverallOutage) { $maxOverallOutage = $stats.MaxOutageSec }
                 }
                 $out600ms = "$($stats.Outage600msCount) 回"
@@ -610,7 +617,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
 
         $overallSla = if ($allTotalPings -gt 0) { "$([math]::Round(($allTotalSuccess / $allTotalPings) * 100, 2))%" } else { "100.0%" }
         $overallAvgLat = if ($totalLatCount -gt 0) { "$([math]::Round($totalLatSum / $totalLatCount, 1)) ms" } else { "—" }
-        $overallMaxOutageStr = if ($maxOverallOutage -gt 0) { "$([math]::Round($maxOverallOutage, 1)) 秒" } else { "0 秒" }
+        $overallMaxOutageStr = if ($maxOverallOutage -gt 0) { "$([math]::Round($maxOverallOutage * 1000, 0)) ms" } else { "0 ms" }
         $rowsHtml = $reportRows -join "`n"
         $devCardsHtmlStr = $devCardsHtml -join "`n"
 
@@ -1073,7 +1080,7 @@ $chartDataJson
     $syncHash.HasClientConnected = $false
     $syncHash.LastClientActivity = [DateTime]::UtcNow
     $syncHash.AutoShutdownOnDisconnect = $true
-    $syncHash.HeartbeatTimeoutSec = 20  # リロード・一時的なネット切断での誤終了を防ぐため20秒に設定
+    $syncHash.HeartbeatTimeoutSec = 60  # ブラウザのバックグラウンドスロットリングやタブ切替・リロードでの誤終了を防ぐため60秒に設定
     $syncHash.DevicesLock = [object]::new()  # Issue 5: デバイス設定保存専用ロックオブジェクト（$syncHash全体ロックを回避）
     $syncHash.Listener  = $null   # will be set after listener creation
     $syncHash.PSScriptRoot = $PSScriptRoot
@@ -1120,7 +1127,7 @@ $chartDataJson
         } catch {
             Write-Host "Error reading devices.json: $_" -ForegroundColor Red
         }
-} elseif (Test-Path $devicesFileTxt) {
+    } elseif (Test-Path $devicesFileTxt) {
     $migratedArray = @()
     foreach ($line in [System.IO.File]::ReadAllLines($devicesFileTxt)) {
         $line = $line.Trim()
@@ -2039,33 +2046,38 @@ $bwRunspace.SessionStateProxy.SetVariable("AppDir",   $PSScriptRoot)
 $bwScriptBlock = {
     $bwScriptPath = Join-Path $AppDir "Measure-Bandwidth.ps1"
     while ($syncHash.Running) {
-        $devices = $syncHash.Devices
-        foreach ($ip in $devices) {
-            if ($syncHash.IsMonitored.ContainsKey($ip) -and -not $syncHash.IsMonitored[$ip]) {
-                $syncHash.Bandwidth[$ip] = "-"
-                continue
-            }
-            try {
-                if ($syncHash.Status[$ip].status -eq "Success") {
-                    $output = & $bwScriptPath -IpList $ip -NoCsv -NoReport *>&1 | Out-String
-                    if ($output -match "Result:\s*([\d\.]+)\s*Mbps") {
-                        $syncHash.Bandwidth[$ip] = $matches[1]
-                    } else {
-                        $syncHash.Bandwidth[$ip] = "Failed"
+        try {
+            $devices = $syncHash.Devices
+            if ($null -ne $devices) {
+                foreach ($ip in $devices) {
+                    if ($syncHash.IsMonitored.ContainsKey($ip) -and -not $syncHash.IsMonitored[$ip]) {
+                        $syncHash.Bandwidth[$ip] = "-"
+                        continue
                     }
-                } else {
-                    $syncHash.Bandwidth[$ip] = "-"
+                    try {
+                        if ($syncHash.Status[$ip].status -eq "Success") {
+                            $output = & $bwScriptPath -IpList $ip -NoCsv -NoReport *>&1 | Out-String
+                            if ($output -match "Result:\s*([\d\.]+)\s*Mbps") {
+                                $syncHash.Bandwidth[$ip] = $matches[1]
+                            } else {
+                                $syncHash.Bandwidth[$ip] = "Failed"
+                            }
+                        } else {
+                            $syncHash.Bandwidth[$ip] = "-"
+                        }
+                    } catch {
+                        $syncHash.Bandwidth[$ip] = "Error"
+                        try {
+                            $errMsg = "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] Bandwidth measure error for ${ip}: $($_.Exception.Message)`r`n"
+                            [System.IO.File]::AppendAllText((Join-Path $AppDir "debug.log"), $errMsg, [System.Text.Encoding]::UTF8)
+                        } catch {}
+                    }
                 }
-            } catch {
-                $syncHash.Bandwidth[$ip] = "Error"
-                # Issue 6: 帯域測定エラーをdebug.logに記録して問題発生を気づけるようにする
-                try {
-                    $errMsg = "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] Bandwidth measure error for ${ip}: $($_.Exception.Message)`r`n"
-                    [System.IO.File]::AppendAllText((Join-Path $AppDir "debug.log"), $errMsg, [System.Text.Encoding]::UTF8)
-                } catch {}
             }
+            Start-Sleep -Seconds 10
+        } catch {
+            Start-Sleep -Seconds 5
         }
-        Start-Sleep -Seconds 10
     }
 }
 $bwPipeline = $bwRunspace.CreatePipeline()
@@ -2088,129 +2100,149 @@ $snmpScriptBlock = {
     $lastSnmpQueryTime = @{}
     
     while ($syncHash.Running) {
-        if ($syncHash.PollInterval -lt 0) {
-            Start-Sleep -Seconds 2
-            continue
-        }
-        $devices = $syncHash.Devices
-        foreach ($ip in $devices) {
-            if ($syncHash.IsMonitored.ContainsKey($ip) -and -not $syncHash.IsMonitored[$ip]) {
-                $syncHash.Traffic[$ip] = @{ tx = "-"; rx = "-" }
+        try {
+            if ($syncHash.PollInterval -lt 0) {
+                Start-Sleep -Seconds 2
                 continue
             }
-            
-            $now = Get-Date
-            if ($snmpFailedDevices.ContainsKey($ip) -and $snmpFailedDevices[$ip] -ge 3) {
-                if ($lastSnmpQueryTime.ContainsKey($ip)) {
-                    $elapsed = ($now - $lastSnmpQueryTime[$ip]).TotalSeconds
-                    if ($elapsed -lt 60) {
-                        continue
+            # Snapshot array reference for thread-safety (Issue 8)
+            $devices = $syncHash.Devices
+            if ($null -eq $devices -or $devices.Count -eq 0) {
+                Start-Sleep -Seconds 2
+                continue
+            }
+
+            foreach ($ip in $devices) {
+                if ($syncHash.IsMonitored.ContainsKey($ip) -and -not $syncHash.IsMonitored[$ip]) {
+                    $syncHash.Traffic[$ip] = @{ tx = "-"; rx = "-" }
+                    continue
+                }
+                
+                $now = Get-Date
+                # Backoff for failed devices: 1 fail = 30s, 2 fails = 60s, 3+ fails = 120s (Issue 3)
+                $failCount = if ($snmpFailedDevices.ContainsKey($ip)) { [int]$snmpFailedDevices[$ip] } else { 0 }
+                if ($failCount -ge 1) {
+                    $backoffSec = if ($failCount -ge 3) { 120 } elseif ($failCount -ge 2) { 60 } else { 30 }
+                    if ($lastSnmpQueryTime.ContainsKey($ip)) {
+                        $elapsed = ($now - $lastSnmpQueryTime[$ip]).TotalSeconds
+                        if ($elapsed -lt $backoffSec) {
+                            continue
+                        }
                     }
                 }
-            }
-            
-            $comm = if ($syncHash.Community.ContainsKey($ip)) { $syncHash.Community[$ip] } else { "public" }
-            if ($syncHash.Status[$ip].status -eq "Success") {
-                $lastSnmpQueryTime[$ip] = $now
-                try {
-                    $version = if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" }
-                    $user = if ($syncHash.SnmpUser.ContainsKey($ip)) { $syncHash.SnmpUser[$ip] } else { "" }
-                    $authProto = if ($syncHash.SnmpAuthProto.ContainsKey($ip)) { $syncHash.SnmpAuthProto[$ip] } else { "none" }
-                    $authPass = if ($syncHash.SnmpAuthPass.ContainsKey($ip)) { $syncHash.SnmpAuthPass[$ip] } else { "" }
-                    $privProto = if ($syncHash.SnmpPrivProto.ContainsKey($ip)) { $syncHash.SnmpPrivProto[$ip] } else { "none" }
-                    $privPass = if ($syncHash.SnmpPrivPass.ContainsKey($ip)) { $syncHash.SnmpPrivPass[$ip] } else { "" }
+                
+                $comm = if ($syncHash.Community.ContainsKey($ip)) { $syncHash.Community[$ip] } else { "public" }
+                if ($syncHash.Status.ContainsKey($ip) -and $syncHash.Status[$ip].status -eq "Success") {
+                    $lastSnmpQueryTime[$ip] = $now
+                    try {
+                        $version = if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" }
+                        $user = if ($syncHash.SnmpUser.ContainsKey($ip)) { $syncHash.SnmpUser[$ip] } else { "" }
+                        $authProto = if ($syncHash.SnmpAuthProto.ContainsKey($ip)) { $syncHash.SnmpAuthProto[$ip] } else { "none" }
+                        $authPass = if ($syncHash.SnmpAuthPass.ContainsKey($ip)) { $syncHash.SnmpAuthPass[$ip] } else { "" }
+                        $privProto = if ($syncHash.SnmpPrivProto.ContainsKey($ip)) { $syncHash.SnmpPrivProto[$ip] } else { "none" }
+                        $privPass = if ($syncHash.SnmpPrivPass.ContainsKey($ip)) { $syncHash.SnmpPrivPass[$ip] } else { "" }
 
-                    $inData  = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.10" -TimeOut 1000 -ErrorAction SilentlyContinue
-                    $outData = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.16" -TimeOut 1000 -ErrorAction SilentlyContinue
-                    
-                    # Fetch Error and Discard counters
-                    $inErrData  = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.14" -TimeOut 1000 -ErrorAction SilentlyContinue
-                    $outErrData = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.20" -TimeOut 1000 -ErrorAction SilentlyContinue
-                    $inDiscData = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.13" -TimeOut 1000 -ErrorAction SilentlyContinue
-                    $outDiscData= Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.19" -TimeOut 1000 -ErrorAction SilentlyContinue
+                        # Initial probe (InOctets): if this times out, skip all subsequent 5 OID queries immediately (Issue 3)
+                        $inData = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.10" -TimeOut 800 -ErrorAction SilentlyContinue
+                        if (-not $inData) {
+                            $snmpFailedDevices[$ip] = [int]($snmpFailedDevices[$ip]) + 1
+                            $syncHash.Traffic[$ip] = @{ tx = "-"; rx = "-" }
+                            continue
+                        }
 
-                    if ($inData -and $outData) {
-                        $snmpFailedDevices[$ip] = 0
-                        $totalIn = 0; $totalOut = 0
-                        foreach ($x in $inData)  { if ($x.Data -notmatch "Null") { $totalIn += [uint64]($x.Data) } }
-                        foreach ($x in $outData) { if ($x.Data -notmatch "Null") { $totalOut += [uint64]($x.Data) } }
+                        $outData = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.16" -TimeOut 800 -ErrorAction SilentlyContinue
                         
-                        if ($lastOctets.ContainsKey($ip)) {
-                            $prev = $lastOctets[$ip]
-                            $sec = ($now - $prev.time).TotalSeconds
-                            if ($sec -gt 0) {
-                                $deltaIn = $totalIn - $prev.in
-                                $deltaOut = $totalOut - $prev.out
-                                if ($deltaIn -lt 0) { $deltaIn += 4294967296 }
-                                if ($deltaOut -lt 0) { $deltaOut += 4294967296 }
-                                
-                                $rxMbps = [math]::Round(($deltaIn * 8) / $sec / 1000000, 2)
-                                $txMbps = [math]::Round(($deltaOut * 8) / $sec / 1000000, 2)
-                                $syncHash.Traffic[$ip] = @{ tx = $txMbps; rx = $rxMbps }
-                            }
-                        } else {
-                            $syncHash.Traffic[$ip] = @{ tx = "Calc..."; rx = "Calc..." }
-                        }
-                        $lastOctets[$ip] = @{ in = $totalIn; out = $totalOut; time = $now }
+                        # Fetch Error and Discard counters
+                        $inErrData  = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.14" -TimeOut 800 -ErrorAction SilentlyContinue
+                        $outErrData = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.20" -TimeOut 800 -ErrorAction SilentlyContinue
+                        $inDiscData = Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.13" -TimeOut 800 -ErrorAction SilentlyContinue
+                        $outDiscData= Invoke-SnmpWalkUnified -IP $ip -Community $comm -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart "1.3.6.1.2.1.2.2.1.19" -TimeOut 800 -ErrorAction SilentlyContinue
 
-                        # Process Errors and Discards
-                        $currentIpErrors = @{}
-                        foreach ($e in $inErrData) {
-                            $idx = $e.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.2\.2\.1\.14\.', ''
-                            if ($idx) {
-                                if (-not $currentIpErrors.ContainsKey($idx)) { $currentIpErrors[$idx] = @{ inErr = 0; outErr = 0; inDisc = 0; outDisc = 0; dInErr = 0; dOutErr = 0; dInDisc = 0; dOutDisc = 0 } }
-                                $currentIpErrors[$idx].inErr = [uint64]($e.Data)
+                        if ($inData -and $outData) {
+                            $snmpFailedDevices[$ip] = 0
+                            $totalIn = 0; $totalOut = 0
+                            foreach ($x in $inData)  { if ($x.Data -notmatch "Null") { $totalIn += [uint64]($x.Data) } }
+                            foreach ($x in $outData) { if ($x.Data -notmatch "Null") { $totalOut += [uint64]($x.Data) } }
+                            
+                            if ($lastOctets.ContainsKey($ip)) {
+                                $prev = $lastOctets[$ip]
+                                $sec = ($now - $prev.time).TotalSeconds
+                                if ($sec -gt 0) {
+                                    $deltaIn = $totalIn - $prev.in
+                                    $deltaOut = $totalOut - $prev.out
+                                    if ($deltaIn -lt 0) { $deltaIn += 4294967296 }
+                                    if ($deltaOut -lt 0) { $deltaOut += 4294967296 }
+                                    
+                                    $rxMbps = [math]::Round(($deltaIn * 8) / $sec / 1000000, 2)
+                                    $txMbps = [math]::Round(($deltaOut * 8) / $sec / 1000000, 2)
+                                    $syncHash.Traffic[$ip] = @{ tx = $txMbps; rx = $rxMbps }
+                                }
+                            } else {
+                                $syncHash.Traffic[$ip] = @{ tx = "Calc..."; rx = "Calc..." }
                             }
-                        }
-                        foreach ($e in $outErrData) {
-                            $idx = $e.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.2\.2\.1\.20\.', ''
-                            if ($idx) {
-                                if (-not $currentIpErrors.ContainsKey($idx)) { $currentIpErrors[$idx] = @{ inErr = 0; outErr = 0; inDisc = 0; outDisc = 0; dInErr = 0; dOutErr = 0; dInDisc = 0; dOutDisc = 0 } }
-                                $currentIpErrors[$idx].outErr = [uint64]($e.Data)
-                            }
-                        }
-                        foreach ($e in $inDiscData) {
-                            $idx = $e.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.2\.2\.1\.13\.', ''
-                            if ($idx) {
-                                if (-not $currentIpErrors.ContainsKey($idx)) { $currentIpErrors[$idx] = @{ inErr = 0; outErr = 0; inDisc = 0; outDisc = 0; dInErr = 0; dOutErr = 0; dInDisc = 0; dOutDisc = 0 } }
-                                $currentIpErrors[$idx].inDisc = [uint64]($e.Data)
-                            }
-                        }
-                        foreach ($e in $outDiscData) {
-                            $idx = $e.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.2\.2\.1\.19\.', ''
-                            if ($idx) {
-                                if (-not $currentIpErrors.ContainsKey($idx)) { $currentIpErrors[$idx] = @{ inErr = 0; outErr = 0; inDisc = 0; outDisc = 0; dInErr = 0; dOutErr = 0; dInDisc = 0; dOutDisc = 0 } }
-                                $currentIpErrors[$idx].outDisc = [uint64]($e.Data)
-                            }
-                        }
+                            $lastOctets[$ip] = @{ in = $totalIn; out = $totalOut; time = $now }
 
-                        if ($lastErrors.ContainsKey($ip)) {
-                            foreach ($idx in $currentIpErrors.Keys) {
-                                if ($lastErrors[$ip].ContainsKey($idx)) {
-                                    $prevE = $lastErrors[$ip][$idx]
-                                    $currentIpErrors[$idx].dInErr  = [math]::Max(0, $currentIpErrors[$idx].inErr - $prevE.inErr)
-                                    $currentIpErrors[$idx].dOutErr = [math]::Max(0, $currentIpErrors[$idx].outErr - $prevE.outErr)
-                                    $currentIpErrors[$idx].dInDisc = [math]::Max(0, $currentIpErrors[$idx].inDisc - $prevE.inDisc)
-                                    $currentIpErrors[$idx].dOutDisc= [math]::Max(0, $currentIpErrors[$idx].outDisc - $prevE.outDisc)
+                            # Process Errors and Discards
+                            $currentIpErrors = @{}
+                            foreach ($e in $inErrData) {
+                                $idx = $e.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.2\.2\.1\.14\.', ''
+                                if ($idx) {
+                                    if (-not $currentIpErrors.ContainsKey($idx)) { $currentIpErrors[$idx] = @{ inErr = 0; outErr = 0; inDisc = 0; outDisc = 0; dInErr = 0; dOutErr = 0; dInDisc = 0; dOutDisc = 0 } }
+                                    $currentIpErrors[$idx].inErr = [uint64]($e.Data)
                                 }
                             }
+                            foreach ($e in $outErrData) {
+                                $idx = $e.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.2\.2\.1\.20\.', ''
+                                if ($idx) {
+                                    if (-not $currentIpErrors.ContainsKey($idx)) { $currentIpErrors[$idx] = @{ inErr = 0; outErr = 0; inDisc = 0; outDisc = 0; dInErr = 0; dOutErr = 0; dInDisc = 0; dOutDisc = 0 } }
+                                    $currentIpErrors[$idx].outErr = [uint64]($e.Data)
+                                }
+                            }
+                            foreach ($e in $inDiscData) {
+                                $idx = $e.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.2\.2\.1\.13\.', ''
+                                if ($idx) {
+                                    if (-not $currentIpErrors.ContainsKey($idx)) { $currentIpErrors[$idx] = @{ inErr = 0; outErr = 0; inDisc = 0; outDisc = 0; dInErr = 0; dOutErr = 0; dInDisc = 0; dOutDisc = 0 } }
+                                    $currentIpErrors[$idx].inDisc = [uint64]($e.Data)
+                                }
+                            }
+                            foreach ($e in $outDiscData) {
+                                $idx = $e.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.2\.2\.1\.19\.', ''
+                                if ($idx) {
+                                    if (-not $currentIpErrors.ContainsKey($idx)) { $currentIpErrors[$idx] = @{ inErr = 0; outErr = 0; inDisc = 0; outDisc = 0; dInErr = 0; dOutErr = 0; dInDisc = 0; dOutDisc = 0 } }
+                                    $currentIpErrors[$idx].outDisc = [uint64]($e.Data)
+                                }
+                            }
+
+                            if ($lastErrors.ContainsKey($ip)) {
+                                foreach ($idx in $currentIpErrors.Keys) {
+                                    if ($lastErrors[$ip].ContainsKey($idx)) {
+                                        $prevE = $lastErrors[$ip][$idx]
+                                        $currentIpErrors[$idx].dInErr  = [math]::Max(0, $currentIpErrors[$idx].inErr - $prevE.inErr)
+                                        $currentIpErrors[$idx].dOutErr = [math]::Max(0, $currentIpErrors[$idx].outErr - $prevE.outErr)
+                                        $currentIpErrors[$idx].dInDisc = [math]::Max(0, $currentIpErrors[$idx].inDisc - $prevE.inDisc)
+                                        $currentIpErrors[$idx].dOutDisc= [math]::Max(0, $currentIpErrors[$idx].outDisc - $prevE.outDisc)
+                                    }
+                                }
+                            }
+                            $lastErrors[$ip] = $currentIpErrors
+                            $syncHash.InterfaceErrors[$ip] = $currentIpErrors
+                        } else {
+                            $snmpFailedDevices[$ip] = [int]($snmpFailedDevices[$ip]) + 1
+                            $syncHash.Traffic[$ip] = @{ tx = "-"; rx = "-" }
                         }
-                        $lastErrors[$ip] = $currentIpErrors
-                        $syncHash.InterfaceErrors[$ip] = $currentIpErrors
-                    } else {
+                    } catch {
                         $snmpFailedDevices[$ip] = [int]($snmpFailedDevices[$ip]) + 1
-                        $syncHash.Traffic[$ip] = @{ tx = "-"; rx = "-" }
+                        $syncHash.Traffic[$ip] = @{ tx = "Error"; rx = "Error" }
                     }
-                } catch {
-                    $snmpFailedDevices[$ip] = [int]($snmpFailedDevices[$ip]) + 1
-                    $syncHash.Traffic[$ip] = @{ tx = "Error"; rx = "Error" }
+                } else {
+                    $syncHash.Traffic[$ip] = @{ tx = "-"; rx = "-" }
                 }
-            } else {
-                $syncHash.Traffic[$ip] = @{ tx = "-"; rx = "-" }
             }
+            $sleepSec = if ($null -ne $syncHash.PollInterval) { [math]::Max(1, [int]($syncHash.PollInterval / 1000)) } else { 5 }
+            Start-Sleep -Seconds $sleepSec
+        } catch {
+            Start-Sleep -Seconds 2
         }
-        $sleepSec = if ($null -ne $syncHash.PollInterval) { [math]::Max(1, [int]($syncHash.PollInterval / 1000)) } else { 5 }
-        Start-Sleep -Seconds $sleepSec
     }
 }
 $snmpScriptBlockCombined = [scriptblock]::Create($snmpHelpersScript.ToString() + "`n" + $snmpScriptBlock.ToString())
@@ -2972,27 +3004,32 @@ try {
 
                     if ($payload.ip) {
                         $ipToRemove = $payload.ip.Trim()
-                        $newArr = [System.Collections.Generic.List[string]]::new()
-                        foreach ($d in $syncHash.Devices) {
-                            if ($d -ne $ipToRemove) { $newArr.Add($d) }
+                        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
+                        try {
+                            $newArr = [System.Collections.Generic.List[string]]::new()
+                            foreach ($d in $syncHash.Devices) {
+                                if ($d -ne $ipToRemove) { $newArr.Add($d) }
+                            }
+                            $syncHash.Devices = $newArr.ToArray()
+                            
+                            if ($syncHash.Community.ContainsKey($ipToRemove)) { $syncHash.Community.Remove($ipToRemove) }
+                            if ($syncHash.DeviceName.ContainsKey($ipToRemove)) { $syncHash.DeviceName.Remove($ipToRemove) }
+                            if ($syncHash.IsMonitored.ContainsKey($ipToRemove)) { $syncHash.IsMonitored.Remove($ipToRemove) }
+                            if ($syncHash.Group.ContainsKey($ipToRemove)) { $syncHash.Group.Remove($ipToRemove) }
+                            if ($syncHash.Image.ContainsKey($ipToRemove)) { $syncHash.Image.Remove($ipToRemove) }
+                            if ($syncHash.ConnectedTo.ContainsKey($ipToRemove)) { $syncHash.ConnectedTo.Remove($ipToRemove) }
+                            if ($syncHash.History.ContainsKey($ipToRemove)) { $syncHash.History.Remove($ipToRemove) }
+                            
+                            if ($syncHash.Location.ContainsKey($ipToRemove)) { $syncHash.Location.Remove($ipToRemove) }
+                            if ($syncHash.VendorContact.ContainsKey($ipToRemove)) { $syncHash.VendorContact.Remove($ipToRemove) }
+                            if ($syncHash.TroubleMemo.ContainsKey($ipToRemove)) { $syncHash.TroubleMemo.Remove($ipToRemove) }
+                            if ($syncHash.DeviceType.ContainsKey($ipToRemove)) { $syncHash.DeviceType.Remove($ipToRemove) }
+                            if ($syncHash.WebUrl.ContainsKey($ipToRemove)) { $syncHash.WebUrl.Remove($ipToRemove) }
+                            
+                            Save-DevicesJson
+                        } finally {
+                            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
                         }
-                        $syncHash.Devices = $newArr.ToArray()
-                        
-                        if ($syncHash.Community.ContainsKey($ipToRemove)) { $syncHash.Community.Remove($ipToRemove) }
-                        if ($syncHash.DeviceName.ContainsKey($ipToRemove)) { $syncHash.DeviceName.Remove($ipToRemove) }
-                        if ($syncHash.IsMonitored.ContainsKey($ipToRemove)) { $syncHash.IsMonitored.Remove($ipToRemove) }
-                        if ($syncHash.Group.ContainsKey($ipToRemove)) { $syncHash.Group.Remove($ipToRemove) }
-                        if ($syncHash.Image.ContainsKey($ipToRemove)) { $syncHash.Image.Remove($ipToRemove) }
-                        if ($syncHash.ConnectedTo.ContainsKey($ipToRemove)) { $syncHash.ConnectedTo.Remove($ipToRemove) }
-                        if ($syncHash.History.ContainsKey($ipToRemove)) { $syncHash.History.Remove($ipToRemove) }
-                        
-                        if ($syncHash.Location.ContainsKey($ipToRemove)) { $syncHash.Location.Remove($ipToRemove) }
-                        if ($syncHash.VendorContact.ContainsKey($ipToRemove)) { $syncHash.VendorContact.Remove($ipToRemove) }
-                        if ($syncHash.TroubleMemo.ContainsKey($ipToRemove)) { $syncHash.TroubleMemo.Remove($ipToRemove) }
-                        if ($syncHash.DeviceType.ContainsKey($ipToRemove)) { $syncHash.DeviceType.Remove($ipToRemove) }
-                        if ($syncHash.WebUrl.ContainsKey($ipToRemove)) { $syncHash.WebUrl.Remove($ipToRemove) }
-                        
-                        Save-DevicesJson
                         Log-Audit -action "DEVICE_DELETE" -target $ipToRemove -details "Device $ipToRemove deleted" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                         
                         Write-JsonResponse $response @{ status = "success" }
@@ -3028,54 +3065,59 @@ try {
                         $snmpPrivProto = if ($payload.snmpPrivProto) { $payload.snmpPrivProto.Trim() } else { "none" }
                         $snmpPrivPass = if ($payload.snmpPrivPass) { $payload.snmpPrivPass } else { "" }
                         
-                        $isNew = $true
-                        foreach ($d in $syncHash.Devices) {
-                            if ($d -eq $ip) { $isNew = $false; break }
-                        }
-                        
-                        if ($isNew) {
-                            $newArr = [System.Collections.Generic.List[string]]::new()
-                            foreach ($d in $syncHash.Devices) { $newArr.Add($d) }
-                            $newArr.Add($ip)
-                            $syncHash.Devices = $newArr.ToArray()
+                        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
+                        try {
+                            $isNew = $true
+                            foreach ($d in $syncHash.Devices) {
+                                if ($d -eq $ip) { $isNew = $false; break }
+                            }
+                            
+                            if ($isNew) {
+                                $newArr = [System.Collections.Generic.List[string]]::new()
+                                foreach ($d in $syncHash.Devices) { $newArr.Add($d) }
+                                $newArr.Add($ip)
+                                $syncHash.Devices = $newArr.ToArray()
+                                
+                                if ($enabled) {
+                                    Initialize-DeviceLog -ip $ip
+                                }
+                            }
+                            
+                            if ($syncHash.Group.ContainsKey($ip) -and $syncHash.Group[$ip] -ne $group) {
+                                $syncHash.X[$ip] = $null
+                                $syncHash.Y[$ip] = $null
+                            }
+
+                            $syncHash.Community[$ip] = $comm
+                            $syncHash.DeviceName[$ip] = $name
+                            $syncHash.Group[$ip] = $group
+                            $syncHash.IsMonitored[$ip] = $enabled
+                            $syncHash.Image[$ip] = $image
+                            $syncHash.ConnectedTo[$ip] = $connectedTo
+                            
+                            $syncHash.SnmpVersion[$ip] = $snmpVersion
+                            $syncHash.SnmpUser[$ip] = $snmpUser
+                            $syncHash.SnmpAuthProto[$ip] = $snmpAuthProto
+                            $syncHash.SnmpAuthPass[$ip] = $snmpAuthPass
+                            $syncHash.SnmpPrivProto[$ip] = $snmpPrivProto
+                            $syncHash.SnmpPrivPass[$ip] = $snmpPrivPass
+                            $syncHash.Location[$ip] = if ($null -ne $payload.location) { [string]$payload.location } else { "" }
+                            $syncHash.VendorContact[$ip] = if ($null -ne $payload.vendorContact) { [string]$payload.vendorContact } else { "" }
+                            $syncHash.TroubleMemo[$ip] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
+                            $syncHash.DeviceType[$ip] = if ($null -ne $payload.deviceType) { [string]$payload.deviceType } else { "network" }
+                            $syncHash.WebUrl[$ip] = if ($null -ne $payload.webUrl) { [string]$payload.webUrl } else { "" }
+
+                            if ($null -ne $payload.x) { $syncHash.X[$ip] = $payload.x }
+                            if ($null -ne $payload.y) { $syncHash.Y[$ip] = $payload.y }
                             
                             if ($enabled) {
                                 Initialize-DeviceLog -ip $ip
                             }
-                        }
-                        
-                        if ($syncHash.Group.ContainsKey($ip) -and $syncHash.Group[$ip] -ne $group) {
-                            $syncHash.X[$ip] = $null
-                            $syncHash.Y[$ip] = $null
-                        }
 
-                        $syncHash.Community[$ip] = $comm
-                        $syncHash.DeviceName[$ip] = $name
-                        $syncHash.Group[$ip] = $group
-                        $syncHash.IsMonitored[$ip] = $enabled
-                        $syncHash.Image[$ip] = $image
-                        $syncHash.ConnectedTo[$ip] = $connectedTo
-                        
-                        $syncHash.SnmpVersion[$ip] = $snmpVersion
-                        $syncHash.SnmpUser[$ip] = $snmpUser
-                        $syncHash.SnmpAuthProto[$ip] = $snmpAuthProto
-                        $syncHash.SnmpAuthPass[$ip] = $snmpAuthPass
-                        $syncHash.SnmpPrivProto[$ip] = $snmpPrivProto
-                        $syncHash.SnmpPrivPass[$ip] = $snmpPrivPass
-                        $syncHash.Location[$ip] = if ($null -ne $payload.location) { [string]$payload.location } else { "" }
-                        $syncHash.VendorContact[$ip] = if ($null -ne $payload.vendorContact) { [string]$payload.vendorContact } else { "" }
-                        $syncHash.TroubleMemo[$ip] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
-                        $syncHash.DeviceType[$ip] = if ($null -ne $payload.deviceType) { [string]$payload.deviceType } else { "network" }
-                        $syncHash.WebUrl[$ip] = if ($null -ne $payload.webUrl) { [string]$payload.webUrl } else { "" }
-
-                        if ($null -ne $payload.x) { $syncHash.X[$ip] = $payload.x }
-                        if ($null -ne $payload.y) { $syncHash.Y[$ip] = $payload.y }
-                        
-                        if ($enabled) {
-                            Initialize-DeviceLog -ip $ip
+                            Save-DevicesJson
+                        } finally {
+                            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
                         }
-
-                        Save-DevicesJson
                         Log-Audit -action "DEVICE_ADD" -target $ip -details "Device $name ($ip) registered" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                         Write-JsonResponse $response @{ status = "success" }
                     } else {
@@ -3089,64 +3131,70 @@ try {
 
                     if ($null -ne $payload) {
                         $ipRegex = '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
-                        foreach ($item in $payload) {
-                            if ($item.ip) {
-                                $ip = $item.ip.Trim()
-                                if ($ip -notmatch $ipRegex) { continue }
-                                
-                                $comm = if ($item.community) { $item.community.Trim() } else { "public" }
-                                $name = if ($item.name) { $item.name.Trim() } else { $ip }
-                                $group = if ($null -ne $item.group) { $item.group.Trim() } else { "" }
-                                $enabled = if ($null -ne $item.enabled) { [bool]$item.enabled } else { $true }
-                                $image = if ($item.image) { $item.image.Trim() } else { "" }
-                                $connectedTo = if ($item.connectedTo) { $item.connectedTo.Trim() } else { "" }
-                                
-                                # SNMPv3 parameters
-                                $snmpVersion = if ($item.snmpVersion) { $item.snmpVersion.Trim() } else { "v2c" }
-                                $snmpUser = if ($item.snmpUser) { $item.snmpUser.Trim() } else { "" }
-                                $snmpAuthProto = if ($item.snmpAuthProto) { $item.snmpAuthProto.Trim() } else { "none" }
-                                $snmpAuthPass = if ($item.snmpAuthPass) { $item.snmpAuthPass } else { "" }
-                                $privProto = if ($item.snmpPrivProto) { $item.snmpPrivProto.Trim() } else { "none" }
-                                $privPass = if ($item.snmpPrivPass) { $item.snmpPrivPass } else { "" }
-                                
-                                $isNew = $true
-                                foreach ($d in $syncHash.Devices) {
-                                    if ($d -eq $ip) { $isNew = $false; break }
-                                }
-                                
-                                if ($isNew) {
-                                    $newArr = [System.Collections.Generic.List[string]]::new()
-                                    foreach ($d in $syncHash.Devices) { $newArr.Add($d) }
-                                    $newArr.Add($ip)
-                                    $syncHash.Devices = $newArr.ToArray()
-                                }
-                                
-                                if ($syncHash.Group.ContainsKey($ip) -and $syncHash.Group[$ip] -ne $group) {
-                                    $syncHash.X[$ip] = $null
-                                    $syncHash.Y[$ip] = $null
-                                }
+                        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
+                        try {
+                            foreach ($item in $payload) {
+                                if ($item.ip) {
+                                    $ip = $item.ip.Trim()
+                                    if ($ip -notmatch $ipRegex) { continue }
+                                    
+                                    $comm = if ($item.community) { $item.community.Trim() } else { "public" }
+                                    $name = if ($item.name) { $item.name.Trim() } else { $ip }
+                                    $group = if ($null -ne $item.group) { $item.group.Trim() } else { "" }
+                                    $enabled = if ($null -ne $item.enabled) { [bool]$item.enabled } else { $true }
+                                    $image = if ($item.image) { $item.image.Trim() } else { "" }
+                                    $connectedTo = if ($item.connectedTo) { $item.connectedTo.Trim() } else { "" }
+                                    
+                                    # SNMPv3 parameters
+                                    $snmpVersion = if ($item.snmpVersion) { $item.snmpVersion.Trim() } else { "v2c" }
+                                    $snmpUser = if ($item.snmpUser) { $item.snmpUser.Trim() } else { "" }
+                                    $snmpAuthProto = if ($item.snmpAuthProto) { $item.snmpAuthProto.Trim() } else { "none" }
+                                    $snmpAuthPass = if ($item.snmpAuthPass) { $item.snmpAuthPass } else { "" }
+                                    $privProto = if ($item.snmpPrivProto) { $item.snmpPrivProto.Trim() } else { "none" }
+                                    $privPass = if ($item.snmpPrivPass) { $item.snmpPrivPass } else { "" }
+                                    
+                                    $isNew = $true
+                                    foreach ($d in $syncHash.Devices) {
+                                        if ($d -eq $ip) { $isNew = $false; break }
+                                    }
+                                    
+                                    if ($isNew) {
+                                        $newArr = [System.Collections.Generic.List[string]]::new()
+                                        foreach ($d in $syncHash.Devices) { $newArr.Add($d) }
+                                        $newArr.Add($ip)
+                                        $syncHash.Devices = $newArr.ToArray()
+                                    }
+                                    
+                                    if ($syncHash.Group.ContainsKey($ip) -and $syncHash.Group[$ip] -ne $group) {
+                                        $syncHash.X[$ip] = $null
+                                        $syncHash.Y[$ip] = $null
+                                    }
 
-                                $syncHash.Community[$ip] = $comm
-                                $syncHash.DeviceName[$ip] = $name
-                                $syncHash.Group[$ip] = $group
-                                $syncHash.IsMonitored[$ip] = $enabled
-                                $syncHash.Image[$ip] = $image
-                                $syncHash.ConnectedTo[$ip] = $connectedTo
-                                
-                                $syncHash.SnmpVersion[$ip] = $snmpVersion
-                                $syncHash.SnmpUser[$ip] = $snmpUser
-                                $syncHash.SnmpAuthProto[$ip] = $snmpAuthProto
-                                $syncHash.SnmpAuthPass[$ip] = $snmpAuthPass
-                                $syncHash.SnmpPrivProto[$ip] = $privProto
-                                $syncHash.SnmpPrivPass[$ip] = $privPass
+                                    $syncHash.Community[$ip] = $comm
+                                    $syncHash.DeviceName[$ip] = $name
+                                    $syncHash.Group[$ip] = $group
+                                    $syncHash.IsMonitored[$ip] = $enabled
+                                    $syncHash.Image[$ip] = $image
+                                    $syncHash.ConnectedTo[$ip] = $connectedTo
+                                    
+                                    $syncHash.SnmpVersion[$ip] = $snmpVersion
+                                    $syncHash.SnmpUser[$ip] = $snmpUser
+                                    $syncHash.SnmpAuthProto[$ip] = $snmpAuthProto
+                                    $syncHash.SnmpAuthPass[$ip] = $snmpAuthPass
+                                    $syncHash.SnmpPrivProto[$ip] = $privProto
+                                    $syncHash.SnmpPrivPass[$ip] = $privPass
 
-                                if ($null -ne $item.x) { $syncHash.X[$ip] = $item.x }
-                                if ($null -ne $item.y) { $syncHash.Y[$ip] = $item.y }
+                                    if ($null -ne $item.x) { $syncHash.X[$ip] = $item.x }
+                                    if ($null -ne $item.y) { $syncHash.Y[$ip] = $item.y }
 
-                                if ($enabled) {
-                                    Initialize-DeviceLog -ip $ip
+                                    if ($enabled) {
+                                        Initialize-DeviceLog -ip $ip
+                                    }
                                 }
                             }
+                            Save-DevicesJson
+                        } finally {
+                            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
                         }
                         Save-DevicesJson
                         Write-JsonResponse $response @{ status = "success" }
@@ -3177,335 +3225,346 @@ try {
                         continue
                     }
                     
-                    $community = $device.community
-                    $isOnline = $false
-                    if ($syncHash.Status.ContainsKey($ip)) {
-                        if ($syncHash.Status[$ip].status -eq "Success") {
-                            $isOnline = $true
-                        }
-                    }
+                    $respRef = $response
+                    $devRef  = $device
+                    $ipRef   = $ip
                     
-                    $snmpData = @{}
-                    $success = $false
-                    
-                    if ($isOnline) {
+                    [System.Threading.ThreadPool]::QueueUserWorkItem({
                         try {
-                            $version = if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" }
-                            $user = if ($syncHash.SnmpUser.ContainsKey($ip)) { $syncHash.SnmpUser[$ip] } else { "" }
-                            $authProto = if ($syncHash.SnmpAuthProto.ContainsKey($ip)) { $syncHash.SnmpAuthProto[$ip] } else { "none" }
-                            $authPass = if ($syncHash.SnmpAuthPass.ContainsKey($ip)) { $syncHash.SnmpAuthPass[$ip] } else { "" }
-                            $privProto = if ($syncHash.SnmpPrivProto.ContainsKey($ip)) { $syncHash.SnmpPrivProto[$ip] } else { "none" }
-                            $privPass = if ($syncHash.SnmpPrivPass.ContainsKey($ip)) { $syncHash.SnmpPrivPass[$ip] } else { "" }
-
-                            # Scoped wrappers to route through our unified helpers
-                            function Invoke-SnmpGet {
-                                param([string]$IP, [string]$Community, [string]$OID, $Version, $TimeOut, $ErrorAction)
-                                Invoke-SnmpGetUnified -IP $IP -Community $Community -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -Oids $OID -Timeout $TimeOut -ErrorAction $ErrorAction
-                            }
-                            function Invoke-SnmpWalk {
-                                param([string]$IP, [string]$Community, [string]$OID, $Version, $TimeOut, $ErrorAction)
-                                Invoke-SnmpWalkUnified -IP $IP -Community $Community -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart $OID -Timeout $TimeOut -ErrorAction $ErrorAction
+                            $community = $devRef.community
+                            $isOnline = $false
+                            if ($syncHash.Status.ContainsKey($ipRef)) {
+                                if ($syncHash.Status[$ipRef].status -eq "Success") {
+                                    $isOnline = $true
+                                }
                             }
                             
-                            $sysName = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.1.5.0" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue).Data
-                            $sysDescr = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.1.1.0" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue).Data
-                            $sysUpTimeTicks = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.1.3.0" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue).Data
-                            
-                            if ($sysDescr) {
-                                $success = $true
-                                
-                                $uptimeStr = ""
-                                if ($sysUpTimeTicks -and [int64]::TryParse($sysUpTimeTicks, [ref]$null)) {
-                                    $ticks = [int64]$sysUpTimeTicks
-                                    $totalSec = $ticks / 100
-                                    $days = [math]::Floor($totalSec / 86400)
-                                    $hours = [math]::Floor(($totalSec % 86400) / 3600)
-                                    $mins = [math]::Floor(($totalSec % 3600) / 60)
-                                    $uptimeStr = "${days}d ${hours}h ${mins}m"
-                                } else {
-                                    $uptimeStr = "Unknown"
-                                }
-                                
-                                # Interfaces Table
-                                $ifIndexes = Invoke-SnmpWalk -IP $ip -Community $community -OID "1.3.6.1.2.1.2.2.1.1" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
-                                $ifTable = @()
-                                foreach ($row in $ifIndexes) {
-                                    $idx = $row.Data
-                                    if ($idx) {
-                                        $ifDesc = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.2.2.1.2.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $ifName = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.31.1.1.1.1.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $admin = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.2.2.1.7.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $oper = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.2.2.1.8.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $speed = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.2.2.1.5.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $highSpeed = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.31.1.1.1.15.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $inOctets = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.2.2.1.10.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $outOctets = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.2.2.1.16.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $inErrors = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.2.2.1.14.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $outErrors = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.2.2.1.20.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        
-                                        $speedStr = ""
-                                        if ($highSpeed -and $highSpeed -ne "Null" -and [int64]$highSpeed -gt 0) {
-                                            $speedStr = "$highSpeed Mbps"
-                                        } elseif ($speed -and $speed -ne "Null" -and [int64]$speed -gt 0) {
-                                            $mb = [math]::Round([int64]$speed / 1000000)
-                                            $speedStr = "$mb Mbps"
-                                        }
-                                        
-                                        $currentBw = "-"
-                                        if ($syncHash.Traffic.ContainsKey($ip) -and $null -ne $syncHash.Traffic[$ip]) {
-                                            $currentBw = "Tx: $($syncHash.Traffic[$ip].tx) / Rx: $($syncHash.Traffic[$ip].rx) Mbps"
-                                        }
-                                        
-                                        $ifTable += @{
-                                            index = $idx
-                                            name = if ($ifName -and $ifName -ne "Null") { $ifName } else { $ifDesc }
-                                            adminStatus = if ($admin -eq "1") { "up" } else { "down" }
-                                            operStatus = if ($oper -eq "1") { "up" } else { "down" }
-                                            speed = $speedStr
-                                            inOctets = $inOctets
-                                            outOctets = $outOctets
-                                            inErrors = $inErrors
-                                            outErrors = $outErrors
-                                            bandwidth = $currentBw
-                                        }
-                                    }
-                                }
-                                
-                                # Routing Table
-                                $routeRows = Invoke-SnmpWalk -IP $ip -Community $community -OID ".1.3.6.1.2.1.4.21.1.1" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
-                                $routingTable = @()
-                                foreach ($rRow in $routeRows) {
-                                    $dest = $rRow.Data
-                                    if ($dest -and $dest -ne "Null") {
-                                        $nextHop = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.4.21.1.7.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $mask = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.4.21.1.11.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $ifIndex = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.4.21.1.2.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $type = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.4.21.1.8.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $proto = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.4.21.1.9.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        
-                                        $typeStr = switch ($type) {
-                                            "1" { "other" }
-                                            "2" { "invalid" }
-                                            "3" { "direct" }
-                                            "4" { "indirect" }
-                                            default { "unknown" }
-                                        }
-                                        
-                                        $protoStr = switch ($proto) {
-                                            "1" { "other" }
-                                            "2" { "local" }
-                                            "3" { "netmgmt" }
-                                            "4" { "icmp" }
-                                            "5" { "egp" }
-                                            "6" { "ggp" }
-                                            "7" { "hello" }
-                                            "8" { "rip" }
-                                            "9" { "is-is" }
-                                            "10" { "es-is" }
-                                            "11" { "ciscoIgrp" }
-                                            "12" { "bbnSpfIgp" }
-                                            "13" { "ospf" }
-                                            "14" { "bgp" }
-                                            default { "static" }
-                                        }
-                                        
-                                        $routingTable += @{
-                                            destination = $dest
-                                            nextHop = $nextHop
-                                            mask = $mask
-                                            interface = $ifIndex
-                                            type = $typeStr
-                                            proto = $protoStr
-                                        }
-                                    }
-                                }
-                                
-                                # ARP Table
-                                $arpRows = Invoke-SnmpWalk -IP $ip -Community $community -OID ".1.3.6.1.2.1.4.22.1.3" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
-                                $arpTable = @()
-                                foreach ($aRow in $arpRows) {
-                                    $netAddr = $aRow.Data
-                                    if ($netAddr -and $netAddr -ne "Null") {
-                                        $instance = $aRow.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.4\.22\.1\.3\.', ''
-                                        if ($instance) {
-                                            $physAddr = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.4.22.1.2.$instance" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                            $ifIdx = $instance -replace '\..*$', ''
-                                            $arpTable += @{
-                                                interface = $ifIdx
-                                                ipAddress = $netAddr
-                                                macAddress = $physAddr
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                # TCP Connections
-                                $tcpRows = Invoke-SnmpWalk -IP $ip -Community $community -OID ".1.3.6.1.2.1.6.13.1.1" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
-                                $tcpConnections = @()
-                                foreach ($tRow in $tcpRows) {
-                                    $instance = $tRow.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.6\.13\.1\.1\.', ''
-                                    if ($instance) {
-                                        $parts = $instance -split '\.'
-                                        if ($parts.Count -eq 10) {
-                                            $localIp = ($parts[0..3]) -join '.'
-                                            $localPort = $parts[4]
-                                            $remIp = ($parts[5..8]) -join '.'
-                                            $remPort = $parts[9]
-                                            
-                                            $stateVal = $tRow.Data
-                                            $stateStr = switch ($stateVal) {
-                                                "1" { "CLOSED" }
-                                                "2" { "LISTEN" }
-                                                "3" { "SYN_SENT" }
-                                                "4" { "SYN_RECEIVED" }
-                                                "5" { "ESTABLISHED" }
-                                                "6" { "FIN_WAIT_1" }
-                                                "7" { "FIN_WAIT_2" }
-                                                "8" { "CLOSE_WAIT" }
-                                                "9" { "LAST_ACK" }
-                                                "10" { "CLOSING" }
-                                                "11" { "TIME_WAIT" }
-                                                default { "UNKNOWN" }
-                                            }
-                                            
-                                            $tcpConnections += @{
-                                                localAddress = "$($localIp):$($localPort)"
-                                                remoteAddress = "$($remIp):$($remPort)"
-                                                state = $stateStr
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                # CPU Load
-                                $cpuLoad = $null
-                                $cpuLoads = Invoke-SnmpWalk -IP $ip -Community $community -OID ".1.3.6.1.2.1.25.3.3.1.2" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
-                                if ($cpuLoads) {
-                                    $totalCpu = 0
-                                    $cnt = 0
-                                    foreach ($c in $cpuLoads) {
-                                        if ([int]::TryParse($c.Data, [ref]$null)) {
-                                            $totalCpu += [int]$c.Data
-                                            $cnt++
-                                        }
-                                    }
-                                    if ($cnt -gt 0) {
-                                        $cpuLoad = [math]::Round($totalCpu / $cnt)
-                                    }
-                                }
-                                
-                                # Memory/Storage
-                                $ramUsed = $null; $ramTotal = $null
-                                $diskUsed = $null; $diskTotal = $null
-                                $storageIndexes = Invoke-SnmpWalk -IP $ip -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.1" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
-                                foreach ($sRow in $storageIndexes) {
-                                    $sIdx = $sRow.Data
-                                    if ($sIdx) {
-                                        $sType = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.2.$sIdx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $sUnits = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.4.$sIdx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $sSize = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.5.$sIdx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        $sUsed = (Invoke-SnmpGet -IP $ip -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.6.$sIdx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
-                                        
-                                        if ($sUnits -and $sSize -and [int64]::TryParse($sUnits, [ref]$null) -and [int64]::TryParse($sSize, [ref]$null)) {
-                                            $units = [int64]$sUnits
-                                            $sizeBytes = [int64]$sSize * $units
-                                            $usedBytes = [int64]$sUsed * $units
-                                            
-                                            if ($sType -like "*hrStorageRam*" -or $sType -eq ".1.3.6.1.2.1.25.2.1.2") {
-                                                $ramTotal = $sizeBytes
-                                                $ramUsed = $usedBytes
-                                            } elseif ($sType -like "*hrStorageFixedDisk*" -or $sType -eq ".1.3.6.1.2.1.25.2.1.4") {
-                                                $diskTotal = $sizeBytes
-                                                $diskUsed = $usedBytes
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                # Vendor Details
-                                $vendor = @{}
-                                if ($device.image -eq "camera" -or $device.name -like "*カメラ*") {
-                                    $vendor.type = "Camera"
-                                    $vendor.resolution = "1920x1080"
-                                    $vendor.fps = 30
-                                    $vendor.temperature = "42.0 °C"
-                                    $vendor.fanSpeed = "1600 RPM"
-                                } elseif ($device.image -eq "power" -or $device.name -like "*UPS*" -or $device.name -like "*電源*") {
-                                    $vendor.type = "UPS"
-                                    $vendor.batteryStatus = "88%"
-                                    $vendor.voltage = "100.8 V"
-                                    $vendor.load = "32.0 %"
-                                } elseif ($device.image -eq "switch" -or $device.image -eq "bridge" -or $device.name -like "*Switch*" -or $device.name -like "*SW*" -or $device.name -like "*BR*") {
-                                    $vendor.type = "Switch"
-                                    $vendor.fanStatus = "OK"
-                                    $vendor.powerRedundancy = "Active / Redundant"
-                                    $vendor.chassisTemp = "36.5 °C"
-                                }
-                                
-                                # Enhance interface data with errors/discards
-                                $ifErrors = if ($syncHash.InterfaceErrors.ContainsKey($ip)) { $syncHash.InterfaceErrors[$ip] } else { @{} }
-                                $enhancedInterfaces = foreach ($iface in $ifTable) {
-                                    $idx = [string]$iface.index
-                                    if ($ifErrors.ContainsKey($idx)) {
-                                        $err = $ifErrors[$idx]
-                                        $iface.inErrors  = $err.inErr
-                                        $iface.outErrors = $err.outErr
-                                        $iface.inDiscards = $err.inDisc
-                                        $iface.outDiscards = $err.outDisc
-                                        $iface.deltaInErrors  = $err.dInErr
-                                        $iface.deltaOutErrors = $err.dOutErr
-                                        $iface.deltaInDiscards = $err.dInDisc
-                                        $iface.deltaOutDiscards = $err.dOutDisc
-                                    } else {
-                                        $iface.inErrors  = 0; $iface.outErrors = 0
-                                        $iface.inDiscards = 0; $iface.outDiscards = 0
-                                        $iface.deltaInErrors  = 0; $iface.deltaOutErrors = 0
-                                        $iface.deltaInDiscards = 0; $iface.deltaOutDiscards = 0
-                                    }
-                                    $iface
-                                }
-
-                                $snmpData = @{
-                                    sysName = $sysName
-                                    sysDescr = $sysDescr
-                                    sysUpTime = $uptimeStr
-                                    interfaces = $enhancedInterfaces
-                                    routes = $routingTable
-                                    arp = $arpTable
-                                    tcp = $tcpConnections
-                                    cpu = $cpuLoad
-                                    ramUsed = $ramUsed
-                                    ramTotal = $ramTotal
-                                    diskUsed = $diskUsed
-                                    diskTotal = $diskTotal
-                                    vendor = $vendor
-                                }
-                            }
-                        } catch {
+                            $snmpData = @{}
                             $success = $false
+                            
+                            if ($isOnline) {
+                                try {
+                                    $version   = if ($syncHash.SnmpVersion.ContainsKey($ipRef))   { $syncHash.SnmpVersion[$ipRef] } else { "v2c" }
+                                    $user      = if ($syncHash.SnmpUser.ContainsKey($ipRef))      { $syncHash.SnmpUser[$ipRef] } else { "" }
+                                    $authProto = if ($syncHash.SnmpAuthProto.ContainsKey($ipRef)) { $syncHash.SnmpAuthProto[$ipRef] } else { "none" }
+                                    $authPass  = if ($syncHash.SnmpAuthPass.ContainsKey($ipRef))  { $syncHash.SnmpAuthPass[$ipRef] } else { "" }
+                                    $privProto = if ($syncHash.SnmpPrivProto.ContainsKey($ipRef)) { $syncHash.SnmpPrivProto[$ipRef] } else { "none" }
+                                    $privPass  = if ($syncHash.SnmpPrivPass.ContainsKey($ipRef))  { $syncHash.SnmpPrivPass[$ipRef] } else { "" }
+
+                                    # Scoped wrappers to route through our unified helpers
+                                    function Invoke-SnmpGet {
+                                        param([string]$IP, [string]$Community, [string]$OID, $Version, $TimeOut, $ErrorAction)
+                                        Invoke-SnmpGetUnified -IP $IP -Community $Community -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -Oids $OID -Timeout $TimeOut -ErrorAction $ErrorAction
+                                    }
+                                    function Invoke-SnmpWalk {
+                                        param([string]$IP, [string]$Community, [string]$OID, $Version, $TimeOut, $ErrorAction)
+                                        Invoke-SnmpWalkUnified -IP $IP -Community $Community -Version $version -User $user -AuthProto $authProto -AuthPass $authPass -PrivProto $privProto -PrivPass $privPass -OIDStart $OID -Timeout $TimeOut -ErrorAction $ErrorAction
+                                    }
+                                    
+                                    $sysName       = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.1.5.0" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue).Data
+                                    $sysDescr      = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.1.1.0" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue).Data
+                                    $sysUpTimeTicks = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.1.3.0" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue).Data
+                                    
+                                    if ($sysDescr) {
+                                        $success = $true
+                                        
+                                        $uptimeStr = ""
+                                        if ($sysUpTimeTicks -and [int64]::TryParse($sysUpTimeTicks, [ref]$null)) {
+                                            $ticks    = [int64]$sysUpTimeTicks
+                                            $totalSec = $ticks / 100
+                                            $days     = [math]::Floor($totalSec / 86400)
+                                            $hours    = [math]::Floor(($totalSec % 86400) / 3600)
+                                            $mins     = [math]::Floor(($totalSec % 3600) / 60)
+                                            $uptimeStr = "$($days)d $($hours)h $($mins)m"
+                                        } else {
+                                            $uptimeStr = "Unknown"
+                                        }
+                                        
+                                        # Interfaces Table
+                                        $ifIndexes = Invoke-SnmpWalk -IP $ipRef -Community $community -OID "1.3.6.1.2.1.2.2.1.1" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
+                                        $ifTable = @()
+                                        foreach ($row in $ifIndexes) {
+                                            $idx = $row.Data
+                                            if ($idx) {
+                                                $ifDesc    = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.2.2.1.2.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $ifName    = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.31.1.1.1.1.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $admin     = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.2.2.1.7.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $oper      = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.2.2.1.8.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $speed     = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.2.2.1.5.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $highSpeed = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.31.1.1.1.15.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $inOctets  = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.2.2.1.10.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $outOctets = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.2.2.1.16.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $inErrors  = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.2.2.1.14.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $outErrors = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.2.2.1.20.$idx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                
+                                                $speedStr = ""
+                                                if ($highSpeed -and $highSpeed -ne "Null" -and [int64]$highSpeed -gt 0) {
+                                                    $speedStr = "$highSpeed Mbps"
+                                                } elseif ($speed -and $speed -ne "Null" -and [int64]$speed -gt 0) {
+                                                    $mb = [math]::Round([int64]$speed / 1000000)
+                                                    $speedStr = "$mb Mbps"
+                                                }
+                                                
+                                                $currentBw = "-"
+                                                if ($syncHash.Traffic.ContainsKey($ipRef) -and $null -ne $syncHash.Traffic[$ipRef]) {
+                                                    $currentBw = "Tx: $($syncHash.Traffic[$ipRef].tx) / Rx: $($syncHash.Traffic[$ipRef].rx) Mbps"
+                                                }
+                                                
+                                                $ifTable += @{
+                                                    index       = $idx
+                                                    name        = if ($ifName -and $ifName -ne "Null") { $ifName } else { $ifDesc }
+                                                    adminStatus = if ($admin -eq "1") { "up" } else { "down" }
+                                                    operStatus  = if ($oper -eq "1") { "up" } else { "down" }
+                                                    speed       = $speedStr
+                                                    inOctets    = $inOctets
+                                                    outOctets   = $outOctets
+                                                    inErrors    = $inErrors
+                                                    outErrors   = $outErrors
+                                                    bandwidth   = $currentBw
+                                                }
+                                            }
+                                        }
+                                        
+                                        # Routing Table
+                                        $routeRows = Invoke-SnmpWalk -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.4.21.1.1" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
+                                        $routingTable = @()
+                                        foreach ($rRow in $routeRows) {
+                                            $dest = $rRow.Data
+                                            if ($dest -and $dest -ne "Null") {
+                                                $nextHop = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.4.21.1.7.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $mask    = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.4.21.1.11.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $ifIndex = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.4.21.1.2.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $type    = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.4.21.1.8.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $proto   = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.4.21.1.9.$dest" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                
+                                                $typeStr = switch ($type) {
+                                                    "1" { "other" }
+                                                    "2" { "invalid" }
+                                                    "3" { "direct" }
+                                                    "4" { "indirect" }
+                                                    default { "unknown" }
+                                                }
+                                                
+                                                $protoStr = switch ($proto) {
+                                                    "1" { "other" }
+                                                    "2" { "local" }
+                                                    "3" { "netmgmt" }
+                                                    "4" { "icmp" }
+                                                    "5" { "egp" }
+                                                    "6" { "ggp" }
+                                                    "7" { "hello" }
+                                                    "8" { "rip" }
+                                                    "9" { "is-is" }
+                                                    "10" { "es-is" }
+                                                    "11" { "ciscoIgrp" }
+                                                    "12" { "bbnSpfIgp" }
+                                                    "13" { "ospf" }
+                                                    "14" { "bgp" }
+                                                    default { "static" }
+                                                }
+                                                
+                                                $routingTable += @{
+                                                    destination = $dest
+                                                    nextHop     = $nextHop
+                                                    mask        = $mask
+                                                    interface   = $ifIndex
+                                                    type        = $typeStr
+                                                    proto       = $protoStr
+                                                }
+                                            }
+                                        }
+                                        
+                                        # ARP Table
+                                        $arpRows = Invoke-SnmpWalk -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.4.22.1.3" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
+                                        $arpTable = @()
+                                        foreach ($aRow in $arpRows) {
+                                            $netAddr = $aRow.Data
+                                            if ($netAddr -and $netAddr -ne "Null") {
+                                                $instance = $aRow.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.4\.22\.1\.3\.', ''
+                                                if ($instance) {
+                                                    $physAddr = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.4.22.1.2.$instance" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                    $ifIdx    = $instance -replace '\..*$', ''
+                                                    $arpTable += @{
+                                                        interface  = $ifIdx
+                                                        ipAddress  = $netAddr
+                                                        macAddress = $physAddr
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        # TCP Connections
+                                        $tcpRows = Invoke-SnmpWalk -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.6.13.1.1" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
+                                        $tcpConnections = @()
+                                        foreach ($tRow in $tcpRows) {
+                                            $instance = $tRow.Oid -replace '^.*\.1\.3\.6\.1\.2\.1\.6\.13\.1\.1\.', ''
+                                            if ($instance) {
+                                                $parts = $instance -split '\.'
+                                                if ($parts.Count -eq 10) {
+                                                    $localIp   = ($parts[0..3]) -join '.'
+                                                    $localPort = $parts[4]
+                                                    $remIp     = ($parts[5..8]) -join '.'
+                                                    $remPort   = $parts[9]
+                                                    
+                                                    $stateVal = $tRow.Data
+                                                    $stateStr = switch ($stateVal) {
+                                                        "1" { "CLOSED" }
+                                                        "2" { "LISTEN" }
+                                                        "3" { "SYN_SENT" }
+                                                        "4" { "SYN_RECEIVED" }
+                                                        "5" { "ESTABLISHED" }
+                                                        "6" { "FIN_WAIT_1" }
+                                                        "7" { "FIN_WAIT_2" }
+                                                        "8" { "CLOSE_WAIT" }
+                                                        "9" { "LAST_ACK" }
+                                                        "10" { "CLOSING" }
+                                                        "11" { "TIME_WAIT" }
+                                                        default { "UNKNOWN" }
+                                                    }
+                                                    
+                                                    $tcpConnections += @{
+                                                        localAddress  = "$($localIp):$($localPort)"
+                                                        remoteAddress = "$($remIp):$($remPort)"
+                                                        state         = $stateStr
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        # CPU Load
+                                        $cpuLoad  = $null
+                                        $cpuLoads = Invoke-SnmpWalk -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.25.3.3.1.2" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
+                                        if ($cpuLoads) {
+                                            $totalCpu = 0
+                                            $cnt = 0
+                                            foreach ($c in $cpuLoads) {
+                                                if ([int]::TryParse($c.Data, [ref]$null)) {
+                                                    $totalCpu += [int]$c.Data
+                                                    $cnt++
+                                                }
+                                            }
+                                            if ($cnt -gt 0) {
+                                                $cpuLoad = [math]::Round($totalCpu / $cnt)
+                                            }
+                                        }
+                                        
+                                        # Memory/Storage
+                                        $ramUsed = $null; $ramTotal = $null
+                                        $diskUsed = $null; $diskTotal = $null
+                                        $storageIndexes = Invoke-SnmpWalk -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.1" -Version V2 -TimeOut 1000 -ErrorAction SilentlyContinue
+                                        foreach ($sRow in $storageIndexes) {
+                                            $sIdx = $sRow.Data
+                                            if ($sIdx) {
+                                                $sType  = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.2.$sIdx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $sUnits = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.4.$sIdx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $sSize  = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.5.$sIdx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                $sUsed  = (Invoke-SnmpGet -IP $ipRef -Community $community -OID ".1.3.6.1.2.1.25.2.3.1.6.$sIdx" -Version V2 -TimeOut 500 -ErrorAction SilentlyContinue).Data
+                                                
+                                                if ($sUnits -and $sSize -and [int64]::TryParse($sUnits, [ref]$null) -and [int64]::TryParse($sSize, [ref]$null)) {
+                                                    $units = [int64]$sUnits
+                                                    $sizeBytes = [int64]$sSize * $units
+                                                    $usedBytes = [int64]$sUsed * $units
+                                                    
+                                                    if ($sType -like "*hrStorageRam*" -or $sType -eq ".1.3.6.1.2.1.25.2.1.2") {
+                                                        $ramTotal = $sizeBytes
+                                                        $ramUsed = $usedBytes
+                                                    } elseif ($sType -like "*hrStorageFixedDisk*" -or $sType -eq ".1.3.6.1.2.1.25.2.1.4") {
+                                                        $diskTotal = $sizeBytes
+                                                        $diskUsed = $usedBytes
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        # Vendor Details
+                                        $vendor = @{}
+                                        if ($devRef.image -eq "camera" -or $devRef.name -like "*カメラ*") {
+                                            $vendor.type = "Camera"
+                                            $vendor.resolution = "1920x1080"
+                                            $vendor.fps = 30
+                                            $vendor.temperature = "42.0 °C"
+                                            $vendor.fanSpeed = "1600 RPM"
+                                        } elseif ($devRef.image -eq "power" -or $devRef.name -like "*UPS*" -or $devRef.name -like "*電源*") {
+                                            $vendor.type = "UPS"
+                                            $vendor.batteryStatus = "88%"
+                                            $vendor.voltage = "100.8 V"
+                                            $vendor.load = "32.0 %"
+                                        } elseif ($devRef.image -eq "switch" -or $devRef.image -eq "bridge" -or $devRef.name -like "*Switch*" -or $devRef.name -like "*SW*" -or $devRef.name -like "*BR*") {
+                                            $vendor.type = "Switch"
+                                            $vendor.fanStatus = "OK"
+                                            $vendor.powerRedundancy = "Active / Redundant"
+                                            $vendor.chassisTemp = "36.5 °C"
+                                        }
+                                        
+                                        # Enhance interface data with errors/discards
+                                        $ifErrors = if ($syncHash.InterfaceErrors.ContainsKey($ipRef)) { $syncHash.InterfaceErrors[$ipRef] } else { @{} }
+                                        $enhancedInterfaces = foreach ($iface in $ifTable) {
+                                            $idx = [string]$iface.index
+                                            if ($ifErrors.ContainsKey($idx)) {
+                                                $err = $ifErrors[$idx]
+                                                $iface.inErrors  = $err.inErr
+                                                $iface.outErrors = $err.outErr
+                                                $iface.inDiscards = $err.inDisc
+                                                $iface.outDiscards = $err.outDisc
+                                                $iface.deltaInErrors  = $err.dInErr
+                                                $iface.deltaOutErrors = $err.dOutErr
+                                                $iface.deltaInDiscards = $err.dInDisc
+                                                $iface.deltaOutDiscards = $err.dOutDisc
+                                            } else {
+                                                $iface.inErrors  = 0; $iface.outErrors = 0
+                                                $iface.inDiscards = 0; $iface.outDiscards = 0
+                                                $iface.deltaInErrors  = 0; $iface.deltaOutErrors = 0
+                                                $iface.deltaInDiscards = 0; $iface.deltaOutDiscards = 0
+                                            }
+                                            $iface
+                                        }
+
+                                        $snmpData = @{
+                                            sysName    = $sysName
+                                            sysDescr   = $sysDescr
+                                            sysUpTime  = $uptimeStr
+                                            interfaces = $enhancedInterfaces
+                                            routes     = $routingTable
+                                            arp        = $arpTable
+                                            tcp        = $tcpConnections
+                                            cpu        = $cpuLoad
+                                            ramUsed    = $ramUsed
+                                            ramTotal   = $ramTotal
+                                            diskUsed   = $diskUsed
+                                            diskTotal  = $diskTotal
+                                            vendor     = $vendor
+                                        }
+                                    }
+                                } catch {
+                                    $success = $false
+                                }
+                            }
+                            
+                            if (-not $success) {
+                                # SNMP failed or timed out: Return minimal info (no mock data)
+                                $snmpData = @{
+                                    sysName    = $devRef.name
+                                    sysDescr   = "N/A (SNMP Response Timeout)"
+                                    sysUpTime  = "N/A"
+                                    interfaces = @()
+                                    routes     = @()
+                                    arp        = @()
+                                    tcp        = @()
+                                    cpu        = $null
+                                    ramUsed    = $null
+                                    ramTotal   = $null
+                                    diskUsed   = $null
+                                    diskTotal  = $null
+                                    vendor     = @{}
+                                }
+                            }
+                            
+                            Write-JsonResponse $respRef $snmpData
+                        } catch {
+                            Write-JsonResponse $respRef @{ error = "SNMP details error: $($_.Exception.Message)" } 500
                         }
-                    }
-                    
-                    if (-not $success) {
-                        # SNMP failed or timed out: Return minimal info (no mock data)
-                        $snmpData = @{
-                            sysName = $device.name
-                            sysDescr = "N/A (SNMP Response Timeout)"
-                            sysUpTime = "N/A"
-                            interfaces = @()
-                            routes = @()
-                            arp = @()
-                            tcp = @()
-                            cpu = $null
-                            ramUsed = $null
-                            ramTotal = $null
-                            diskUsed = $null
-                            diskTotal = $null
-                            vendor = @{}
-                        }
-                    }
-                    
-                    Write-JsonResponse $response $snmpData
+                    }.GetNewClosure()) | Out-Null
+                    continue
                 }
                 elseif ($urlPath -eq "/api/test-results" -and $method -eq "POST") {
                     $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
@@ -3545,121 +3604,124 @@ try {
                         $snmpPrivProto = if ($payload.snmpPrivProto) { $payload.snmpPrivProto.Trim() } else { "none" }
                         $snmpPrivPass = if ($payload.snmpPrivPass) { $payload.snmpPrivPass } else { "" }
 
-                        $oldGroup = if ($syncHash.Group.ContainsKey($oldIp)) { $syncHash.Group[$oldIp] } else { "" }
+                        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
+                        try {
+                            $oldGroup = if ($syncHash.Group.ContainsKey($oldIp)) { $syncHash.Group[$oldIp] } else { "" }
 
-                        if ($oldIp -ne $newIp) {
-                            if (-not ($syncHash.Devices -contains $newIp)) {
-                                $newArr = [System.Collections.Generic.List[string]]::new()
-                                foreach ($d in $syncHash.Devices) {
-                                    if ($d -eq $oldIp) { $newArr.Add($newIp) }
-                                    else { $newArr.Add($d) }
-                                }
-                                $syncHash.Devices = $newArr.ToArray()
-                                
-                                # Rename CSV file and rotated files if they exist
-                                $oldSafeIp = $oldIp -replace '[\\/:*?"<>|]', '_'
-                                $newSafeIp = $newIp -replace '[\\/:*?"<>|]', '_'
-                                $oldCsvPath = Join-Path $syncHash.SessionDir "${oldSafeIp}.csv"
-                                $newCsvPath = Join-Path $syncHash.SessionDir "${newSafeIp}.csv"
-                                if (Test-Path $oldCsvPath) {
-                                    Rename-Item -Path $oldCsvPath -NewName "${newSafeIp}.csv" -Force
-                                }
-                                # Also rename any rotated files
-                                Get-ChildItem -Path $syncHash.SessionDir -Filter "${oldSafeIp}_*.csv" -ErrorAction SilentlyContinue | ForEach-Object {
-                                    $renamed = $_.Name -replace "^$([regex]::Escape($oldSafeIp))_", "${newSafeIp}_"
-                                    Rename-Item -Path $_.FullName -NewName $renamed -Force
-                                }
-                                
-                                if ($syncHash.History.ContainsKey($oldIp)) {
-                                    $syncHash.History[$newIp] = $syncHash.History[$oldIp]
-                                    $syncHash.History.Remove($oldIp)
-                                } else {
-                                    $syncHash.History[$newIp] = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
-                                }
+                            if ($oldIp -ne $newIp) {
+                                if (-not ($syncHash.Devices -contains $newIp)) {
+                                    $newArr = [System.Collections.Generic.List[string]]::new()
+                                    foreach ($d in $syncHash.Devices) {
+                                        if ($d -eq $oldIp) { $newArr.Add($newIp) }
+                                        else { $newArr.Add($d) }
+                                    }
+                                    $syncHash.Devices = $newArr.ToArray()
+                                    
+                                    # Rename CSV file and rotated files if they exist
+                                    $oldSafeIp = $oldIp -replace '[\\/:*?"<>|]', '_'
+                                    $newSafeIp = $newIp -replace '[\\/:*?"<>|]', '_'
+                                    $oldCsvPath = Join-Path $syncHash.SessionDir "${oldSafeIp}.csv"
+                                    $newCsvPath = Join-Path $syncHash.SessionDir "${newSafeIp}.csv"
+                                    if (Test-Path $oldCsvPath) {
+                                        Rename-Item -Path $oldCsvPath -NewName "${newSafeIp}.csv" -Force
+                                    }
+                                    # Also rename any rotated files
+                                    Get-ChildItem -Path $syncHash.SessionDir -Filter "${oldSafeIp}_*.csv" -ErrorAction SilentlyContinue | ForEach-Object {
+                                        $renamed = $_.Name -replace "^$([regex]::Escape($oldSafeIp))_", "${newSafeIp}_"
+                                        Rename-Item -Path $_.FullName -NewName $renamed -Force
+                                    }
+                                    
+                                    if ($syncHash.History.ContainsKey($oldIp)) {
+                                        $syncHash.History[$newIp] = $syncHash.History[$oldIp]
+                                        $syncHash.History.Remove($oldIp)
+                                    } else {
+                                        $syncHash.History[$newIp] = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
+                                    }
 
-                                if ($syncHash.Stats.ContainsKey($oldIp)) {
-                                    $syncHash.Stats[$newIp] = $syncHash.Stats[$oldIp]
-                                    $syncHash.Stats.Remove($oldIp)
-                                } else {
-                                    $syncHash.Stats[$newIp] = [hashtable]::Synchronized(@{
-                                        Total = 0
-                                        Success = 0
-                                        MinLat = [double]::MaxValue
-                                        MaxLat = 0.0
-                                        SumLat = 0.0
-                                        LatCount = 0
-                                    })
-                                }
+                                    if ($syncHash.Stats.ContainsKey($oldIp)) {
+                                        $syncHash.Stats[$newIp] = $syncHash.Stats[$oldIp]
+                                        $syncHash.Stats.Remove($oldIp)
+                                    } else {
+                                        $syncHash.Stats[$newIp] = [hashtable]::Synchronized(@{
+                                            Total = 0
+                                            Success = 0
+                                            MinLat = [double]::MaxValue
+                                            MaxLat = 0.0
+                                            SumLat = 0.0
+                                            LatCount = 0
+                                        })
+                                    }
 
-                                if ($syncHash.Status.ContainsKey($oldIp)) { $syncHash.Status.Remove($oldIp) }
-                                if ($syncHash.Bandwidth.ContainsKey($oldIp)) { $syncHash.Bandwidth.Remove($oldIp) }
-                                if ($syncHash.Traffic.ContainsKey($oldIp)) { $syncHash.Traffic.Remove($oldIp) }
-                                
-                                if ($syncHash.Community.ContainsKey($oldIp)) { $syncHash.Community.Remove($oldIp) }
-                                if ($syncHash.DeviceName.ContainsKey($oldIp)) { $syncHash.DeviceName.Remove($oldIp) }
-                                if ($syncHash.Group.ContainsKey($oldIp)) { $syncHash.Group.Remove($oldIp) }
-                                if ($syncHash.IsMonitored.ContainsKey($oldIp)) { $syncHash.IsMonitored.Remove($oldIp) }
-                                if ($syncHash.Image.ContainsKey($oldIp)) { $syncHash.Image.Remove($oldIp) }
-                                if ($syncHash.ConnectedTo.ContainsKey($oldIp)) { $syncHash.ConnectedTo.Remove($oldIp) }
-                                
-                                if ($syncHash.SnmpVersion.ContainsKey($oldIp)) { $syncHash.SnmpVersion.Remove($oldIp) }
-                                if ($syncHash.SnmpUser.ContainsKey($oldIp)) { $syncHash.SnmpUser.Remove($oldIp) }
-                                if ($syncHash.SnmpAuthProto.ContainsKey($oldIp)) { $syncHash.SnmpAuthProto.Remove($oldIp) }
-                                if ($syncHash.SnmpAuthPass.ContainsKey($oldIp)) { $syncHash.SnmpAuthPass.Remove($oldIp) }
-                                if ($syncHash.SnmpPrivProto.ContainsKey($oldIp)) { $syncHash.SnmpPrivProto.Remove($oldIp) }
-                                if ($syncHash.SnmpPrivPass.ContainsKey($oldIp)) { $syncHash.SnmpPrivPass.Remove($oldIp) }
+                                    if ($syncHash.Status.ContainsKey($oldIp)) { $syncHash.Status.Remove($oldIp) }
+                                    if ($syncHash.Bandwidth.ContainsKey($oldIp)) { $syncHash.Bandwidth.Remove($oldIp) }
+                                    if ($syncHash.Traffic.ContainsKey($oldIp)) { $syncHash.Traffic.Remove($oldIp) }
+                                    
+                                    if ($syncHash.Community.ContainsKey($oldIp)) { $syncHash.Community.Remove($oldIp) }
+                                    if ($syncHash.DeviceName.ContainsKey($oldIp)) { $syncHash.DeviceName.Remove($oldIp) }
+                                    if ($syncHash.Group.ContainsKey($oldIp)) { $syncHash.Group.Remove($oldIp) }
+                                    if ($syncHash.IsMonitored.ContainsKey($oldIp)) { $syncHash.IsMonitored.Remove($oldIp) }
+                                    if ($syncHash.Image.ContainsKey($oldIp)) { $syncHash.Image.Remove($oldIp) }
+                                    if ($syncHash.ConnectedTo.ContainsKey($oldIp)) { $syncHash.ConnectedTo.Remove($oldIp) }
+                                    
+                                    if ($syncHash.SnmpVersion.ContainsKey($oldIp)) { $syncHash.SnmpVersion.Remove($oldIp) }
+                                    if ($syncHash.SnmpUser.ContainsKey($oldIp)) { $syncHash.SnmpUser.Remove($oldIp) }
+                                    if ($syncHash.SnmpAuthProto.ContainsKey($oldIp)) { $syncHash.SnmpAuthProto.Remove($oldIp) }
+                                    if ($syncHash.SnmpAuthPass.ContainsKey($oldIp)) { $syncHash.SnmpAuthPass.Remove($oldIp) }
+                                    if ($syncHash.SnmpPrivProto.ContainsKey($oldIp)) { $syncHash.SnmpPrivProto.Remove($oldIp) }
+                                    if ($syncHash.SnmpPrivPass.ContainsKey($oldIp)) { $syncHash.SnmpPrivPass.Remove($oldIp) }
 
-                                if ($syncHash.X.ContainsKey($oldIp)) {
-                                    $syncHash.X[$newIp] = $syncHash.X[$oldIp]
-                                    $syncHash.X.Remove($oldIp)
+                                    if ($syncHash.X.ContainsKey($oldIp)) {
+                                        $syncHash.X[$newIp] = $syncHash.X[$oldIp]
+                                        $syncHash.X.Remove($oldIp)
+                                    }
+                                    if ($syncHash.Y.ContainsKey($oldIp)) {
+                                        $syncHash.Y[$newIp] = $syncHash.Y[$oldIp]
+                                        $syncHash.Y.Remove($oldIp)
+                                    }
                                 }
-                                if ($syncHash.Y.ContainsKey($oldIp)) {
-                                    $syncHash.Y[$newIp] = $syncHash.Y[$oldIp]
-                                    $syncHash.Y.Remove($oldIp)
-                                }
-
-                                
                             }
+
+                            if ($oldGroup -ne $group) {
+                                $syncHash.X[$newIp] = $null
+                                $syncHash.Y[$newIp] = $null
+                            }
+
+                            $syncHash.Community[$newIp] = $comm
+                            $syncHash.DeviceName[$newIp] = $name
+                            $syncHash.Group[$newIp] = $group
+                            $syncHash.IsMonitored[$newIp] = $enabled
+                            $syncHash.Image[$newIp] = $image
+                            $syncHash.ConnectedTo[$newIp] = $connectedTo
+
+                            $syncHash.SnmpVersion[$newIp] = $snmpVersion
+                            $syncHash.SnmpUser[$newIp] = $snmpUser
+                            $syncHash.SnmpAuthProto[$newIp] = $snmpAuthProto
+                            $syncHash.SnmpAuthPass[$newIp] = $snmpAuthPass
+                            $syncHash.SnmpPrivProto[$newIp] = $snmpPrivProto
+                            $syncHash.SnmpPrivPass[$newIp] = $snmpPrivPass
+
+                            $syncHash.Location[$newIp] = if ($null -ne $payload.location) { [string]$payload.location } else { "" }
+                            $syncHash.VendorContact[$newIp] = if ($null -ne $payload.vendorContact) { [string]$payload.vendorContact } else { "" }
+                            $syncHash.TroubleMemo[$newIp] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
+                            $syncHash.DeviceType[$newIp] = if ($null -ne $payload.deviceType) { [string]$payload.deviceType } else { "network" }
+                            $syncHash.WebUrl[$newIp] = if ($null -ne $payload.webUrl) { [string]$payload.webUrl } else { "" }
+
+                            if ($oldIp -ne $newIp) {
+                                if ($syncHash.Location.ContainsKey($oldIp)) { $syncHash.Location.Remove($oldIp) }
+                                if ($syncHash.VendorContact.ContainsKey($oldIp)) { $syncHash.VendorContact.Remove($oldIp) }
+                                if ($syncHash.TroubleMemo.ContainsKey($oldIp)) { $syncHash.TroubleMemo.Remove($oldIp) }
+                                if ($syncHash.DeviceType.ContainsKey($oldIp)) { $syncHash.DeviceType.Remove($oldIp) }
+                                if ($syncHash.WebUrl.ContainsKey($oldIp)) { $syncHash.WebUrl.Remove($oldIp) }
+                            }
+
+                            if ($enabled) {
+                                Initialize-DeviceLog -ip $newIp
+                            }
+
+                            Save-DevicesJson
+                        } finally {
+                            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
                         }
-
-                        if ($oldGroup -ne $group) {
-                            $syncHash.X[$newIp] = $null
-                            $syncHash.Y[$newIp] = $null
-                        }
-
-                        $syncHash.Community[$newIp] = $comm
-                        $syncHash.DeviceName[$newIp] = $name
-                        $syncHash.Group[$newIp] = $group
-                        $syncHash.IsMonitored[$newIp] = $enabled
-                        $syncHash.Image[$newIp] = $image
-                        $syncHash.ConnectedTo[$newIp] = $connectedTo
-
-                        $syncHash.SnmpVersion[$newIp] = $snmpVersion
-                        $syncHash.SnmpUser[$newIp] = $snmpUser
-                        $syncHash.SnmpAuthProto[$newIp] = $snmpAuthProto
-                        $syncHash.SnmpAuthPass[$newIp] = $snmpAuthPass
-                        $syncHash.SnmpPrivProto[$newIp] = $snmpPrivProto
-                        $syncHash.SnmpPrivPass[$newIp] = $snmpPrivPass
-
-                        $syncHash.Location[$newIp] = if ($null -ne $payload.location) { [string]$payload.location } else { "" }
-                        $syncHash.VendorContact[$newIp] = if ($null -ne $payload.vendorContact) { [string]$payload.vendorContact } else { "" }
-                        $syncHash.TroubleMemo[$newIp] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
-                        $syncHash.DeviceType[$newIp] = if ($null -ne $payload.deviceType) { [string]$payload.deviceType } else { "network" }
-                        $syncHash.WebUrl[$newIp] = if ($null -ne $payload.webUrl) { [string]$payload.webUrl } else { "" }
-
-                        if ($oldIp -ne $newIp) {
-                            if ($syncHash.Location.ContainsKey($oldIp)) { $syncHash.Location.Remove($oldIp) }
-                            if ($syncHash.VendorContact.ContainsKey($oldIp)) { $syncHash.VendorContact.Remove($oldIp) }
-                            if ($syncHash.TroubleMemo.ContainsKey($oldIp)) { $syncHash.TroubleMemo.Remove($oldIp) }
-                            if ($syncHash.DeviceType.ContainsKey($oldIp)) { $syncHash.DeviceType.Remove($oldIp) }
-                            if ($syncHash.WebUrl.ContainsKey($oldIp)) { $syncHash.WebUrl.Remove($oldIp) }
-                        }
-
-                        if ($enabled) {
-                            Initialize-DeviceLog -ip $newIp
-                        }
-
-                        Save-DevicesJson
                         Log-Audit -action "DEVICE_EDIT" -target $newIp -details "Device $name ($newIp) updated (was $oldIp)" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                         Write-JsonResponse $response @{ status = "success" }
                     } else {
@@ -3672,33 +3734,38 @@ try {
                     $payload = $jsonBody | ConvertFrom-Json
 
                     if ($null -ne $payload) {
-                        $newArr = [System.Collections.Generic.List[string]]::new()
-                        foreach ($item in $payload) {
-                            if ($item.ip) {
-                                $ipStr = [string]$item.ip
-                                $newArr.Add($ipStr)
-                                if ($syncHash.Devices -contains $ipStr) {
-                                    $grpVal = if ($null -ne $item.group) { $item.group.Trim() } else { "" }
-                                    if ($syncHash.Group.ContainsKey($ipStr) -and $syncHash.Group[$ipStr] -ne $grpVal) {
-                                        $syncHash.X[$ipStr] = $null
-                                        $syncHash.Y[$ipStr] = $null
+                        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
+                        try {
+                            $newArr = [System.Collections.Generic.List[string]]::new()
+                            foreach ($item in $payload) {
+                                if ($item.ip) {
+                                    $ipStr = [string]$item.ip
+                                    $newArr.Add($ipStr)
+                                    if ($syncHash.Devices -contains $ipStr) {
+                                        $grpVal = if ($null -ne $item.group) { $item.group.Trim() } else { "" }
+                                        if ($syncHash.Group.ContainsKey($ipStr) -and $syncHash.Group[$ipStr] -ne $grpVal) {
+                                            $syncHash.X[$ipStr] = $null
+                                            $syncHash.Y[$ipStr] = $null
+                                        }
+                                        $syncHash.Group[$ipStr] = $grpVal
                                     }
-                                    $syncHash.Group[$ipStr] = $grpVal
                                 }
                             }
-                        }
-                        
-                        $validArr = [System.Collections.Generic.List[string]]::new()
-                        foreach ($ip in $newArr) {
-                            if ($syncHash.Devices -contains $ip) { $validArr.Add($ip) }
-                        }
-                        
-                        foreach ($ip in $syncHash.Devices) {
-                            if (-not $validArr.Contains($ip)) { $validArr.Add($ip) }
-                        }
+                            
+                            $validArr = [System.Collections.Generic.List[string]]::new()
+                            foreach ($ip in $newArr) {
+                                if ($syncHash.Devices -contains $ip) { $validArr.Add($ip) }
+                            }
+                            
+                            foreach ($ip in $syncHash.Devices) {
+                                if (-not $validArr.Contains($ip)) { $validArr.Add($ip) }
+                            }
 
-                        $syncHash.Devices = $validArr.ToArray()
-                        Save-DevicesJson
+                            $syncHash.Devices = $validArr.ToArray()
+                            Save-DevicesJson
+                        } finally {
+                            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
+                        }
                         Write-JsonResponse $response @{ status = "success" }
                     } else {
                         Write-JsonResponse $response @{ error = "Invalid payload" } 400
@@ -3710,14 +3777,19 @@ try {
                     $payload = $jsonBody | ConvertFrom-Json
 
                     if ($null -ne $payload) {
-                        foreach ($item in $payload) {
-                            $ip = $item.ip
-                            if ($ip) {
-                                $syncHash.X[$ip] = $item.x
-                                $syncHash.Y[$ip] = $item.y
+                        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
+                        try {
+                            foreach ($item in $payload) {
+                                $ip = $item.ip
+                                if ($ip) {
+                                    $syncHash.X[$ip] = $item.x
+                                    $syncHash.Y[$ip] = $item.y
+                                }
                             }
+                            Save-DevicesJson
+                        } finally {
+                            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
                         }
-                        Save-DevicesJson
                         Write-JsonResponse $response @{ status = "success" }
                     } else {
                         Write-JsonResponse $response @{ error = "Invalid payload" } 400
@@ -3766,7 +3838,7 @@ try {
                         }
 
                         if ($validPayload.Count -gt 0) {
-                            [System.Threading.Monitor]::Enter($syncHash)
+                            [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
                             try {
                                 $syncHash.Devices = @()
                                 $syncHash.Community.Clear()
@@ -3832,7 +3904,7 @@ try {
                                 }
                                 $syncHash.Devices = $newArr.ToArray()
                             } finally {
-                                [System.Threading.Monitor]::Exit($syncHash)
+                                [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
                             }
                             
                             Save-DevicesJson
@@ -3853,7 +3925,7 @@ try {
                         $action = $payload.action.Trim().ToLower()
                         $ips = @($payload.ips)
                         
-                        [System.Threading.Monitor]::Enter($syncHash)
+                        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
                         try {
                             if ($action -eq "pause" -or $action -eq "disable") {
                                 foreach ($ip in $ips) {
@@ -3909,7 +3981,7 @@ try {
                                 }
                             }
                         } finally {
-                            [System.Threading.Monitor]::Exit($syncHash)
+                            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
                         }
                         
                         Save-DevicesJson
@@ -4150,7 +4222,7 @@ try {
                             }
                             
                             if ($validPayload.Count -gt 0) {
-                                [System.Threading.Monitor]::Enter($syncHash)
+                                [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
                                 try {
                                     $syncHash.Devices = @()
                                     $syncHash.DeviceName.Clear(); $syncHash.Community.Clear(); $syncHash.Group.Clear()
@@ -4194,7 +4266,7 @@ try {
                     }
                 }
                 elseif ($urlPath -eq "/api/webhook/test" -and $method -eq "POST") {
-                    # Test Webhook endpoint
+                    # Test Webhook endpoint (Async ThreadPool execution)
                     $reader  = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
                     $jsonBody = $reader.ReadToEnd()
                     $payload = $jsonBody | ConvertFrom-Json
@@ -4203,12 +4275,17 @@ try {
                     if ([string]::IsNullOrWhiteSpace($targetUrl)) {
                         Write-JsonResponse $response @{ error = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("V2ViaG9vayBVUkwg44GM6Kit5a6a44GV44KM44Gm44GE44G+44Gb44KT44CC")) } 400
                     } else {
-                        try {
-                            Send-WebhookNotification -url $targetUrl -deviceName [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44K344K544OG44Og55uj6KaW44Oe44ON44O844K444O8")) -ip "127.0.0.1" -eventType "test" -details [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44OG44K544OI6YCa55+l44GM5q2j5bi444Gr5Y+X5L+h44GV44KM44G+44GX44Gf44CC"))
-                            Write-JsonResponse $response @{ status = "success"; message = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("V2ViaG9vayDjg4bjgrnjg4jpgJrnsp7jgpLpgIHkv6HjgZfjgb7jgZfjgZ/jgII=")) }
-                        } catch {
-                            Write-JsonResponse $response @{ error = "送信失敗: $($_.Exception.Message)" } 500
-                        }
+                        $respRef = $response
+                        $urlRef  = $targetUrl
+                        [System.Threading.ThreadPool]::QueueUserWorkItem({
+                            try {
+                                Send-WebhookNotification -url $urlRef -deviceName [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44K344K544OG44Og55uj6KaW44Oe44ON44O844K444O8")) -ip "127.0.0.1" -eventType "test" -details [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44OG44K544OI6YCa55+l44GM5q2j5bi444Gr5Y+X5L+h44GV44KM44G+44GX44Gf44CC"))
+                                Write-JsonResponse $respRef @{ status = "success"; message = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("V2ViaG9vayDjg4bjgrnjg4jpgJrnsp7jgpLpgIHkv6HjgZfjgb7jgZfjgZ/jgII=")) }
+                            } catch {
+                                Write-JsonResponse $respRef @{ error = "送信失敗: $($_.Exception.Message)" } 500
+                            }
+                        }.GetNewClosure()) | Out-Null
+                        continue
                     }
                 }
                 elseif ($urlPath -eq "/api/mtr" -and $method -eq "GET") {
@@ -4939,33 +5016,41 @@ try {
                             $base = "$($startParts[0]).$($startParts[1]).$($startParts[2])"
                             $startNum = [int]$startParts[3]
                             $endNum = [int]$endParts[3]
-                            
-                            $activeIps = [System.Collections.Generic.List[string]]::new()
-                            $runspacePool = [runspacefactory]::CreateRunspacePool(1, 20) # Up to 20 parallel pings
-                            $runspacePool.Open()
-                            $psInstances = @()
+                            $respRef = $response
 
-                            for ($i = $startNum; $i -le $endNum; $i++) {
-                                $target = "$base.$i"
-                                $ps = [powershell]::Create().AddScript({
-                                    param($ip)
-                                    if (Test-Connection -ComputerName $ip -Count 1 -Quiet -Timeout 400) {
-                                        return $ip
+                            [System.Threading.ThreadPool]::QueueUserWorkItem({
+                                try {
+                                    $activeIps = [System.Collections.Generic.List[string]]::new()
+                                    $runspacePool = [runspacefactory]::CreateRunspacePool(1, 20) # Up to 20 parallel pings
+                                    $runspacePool.Open()
+                                    $psInstances = @()
+
+                                    for ($i = $startNum; $i -le $endNum; $i++) {
+                                        $target = "$base.$i"
+                                        $ps = [powershell]::Create().AddScript({
+                                            param($ip)
+                                            if (Test-Connection -ComputerName $ip -Count 1 -Quiet -Timeout 400) {
+                                                return $ip
+                                            }
+                                            return $null
+                                        }).AddArgument($target)
+                                        $ps.RunspacePool = $runspacePool
+                                        $psInstances += @{ ps = $ps; handle = $ps.BeginInvoke() }
                                     }
-                                    return $null
-                                }).AddArgument($target)
-                                $ps.RunspacePool = $runspacePool
-                                $psInstances += @{ ps = $ps; handle = $ps.BeginInvoke() }
-                            }
-                            
-                            foreach ($item in $psInstances) {
-                                $ip = $item.ps.EndInvoke($item.handle)
-                                if ($ip) { $activeIps.Add($ip) }
-                                $item.ps.Dispose()
-                            }
-                            $runspacePool.Close()
+                                    
+                                    foreach ($item in $psInstances) {
+                                        $ip = $item.ps.EndInvoke($item.handle)
+                                        if ($ip) { $activeIps.Add($ip) }
+                                        $item.ps.Dispose()
+                                    }
+                                    $runspacePool.Close()
 
-                            Write-JsonResponse $response @{ activeIps = $activeIps.ToArray() }
+                                    Write-JsonResponse $respRef @{ activeIps = $activeIps.ToArray() }
+                                } catch {
+                                    Write-JsonResponse $respRef @{ error = "Scan failed: $($_.Exception.Message)" } 500
+                                }
+                            }.GetNewClosure()) | Out-Null
+                            continue
                         } else {
                             Write-JsonResponse $response @{ error = "Invalid IP range format" } 400
                         }
@@ -4983,25 +5068,34 @@ try {
                             continue
                         }
 
-                        # Run tracert. limit hops to 10 and timeout to 300ms to avoid long delays
-                        $traceOutput = tracert -d -h 10 -w 300 $target
-                        $hops = @()
-                        foreach ($line in $traceOutput) {
-                            if ($line -match '(?:\s+)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})') {
-                                $hopIp = $matches[1]
-                                $hops += $hopIp
-                            }
-                        }
-                        
-                        # Ensure target is appended if trace did not reach but target is valid
-                        if ($hops.Count -gt 0 -and $hops[-1] -ne $target) {
-                            $pingRes = Test-Connection -ComputerName $target -Count 1 -Quiet -ErrorAction SilentlyContinue
-                            if ($pingRes) {
-                                $hops += $target
-                            }
-                        }
+                        $respRef = $response
+                        $targetRef = $target
+                        [System.Threading.ThreadPool]::QueueUserWorkItem({
+                            try {
+                                # Run tracert. limit hops to 10 and timeout to 300ms to avoid long delays
+                                $traceOutput = tracert -d -h 10 -w 300 $targetRef
+                                $hops = @()
+                                foreach ($line in $traceOutput) {
+                                    if ($line -match '(?:\s+)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})') {
+                                        $hopIp = $matches[1]
+                                        $hops += $hopIp
+                                    }
+                                }
+                                
+                                # Ensure target is appended if trace did not reach but target is valid
+                                if ($hops.Count -gt 0 -and $hops[-1] -ne $targetRef) {
+                                    $pingRes = Test-Connection -ComputerName $targetRef -Count 1 -Quiet -ErrorAction SilentlyContinue
+                                    if ($pingRes) {
+                                        $hops += $targetRef
+                                    }
+                                }
 
-                        Write-JsonResponse $response @{ hops = $hops }
+                                Write-JsonResponse $respRef @{ hops = $hops }
+                            } catch {
+                                Write-JsonResponse $respRef @{ error = "Traceroute failed: $($_.Exception.Message)" } 500
+                            }
+                        }.GetNewClosure()) | Out-Null
+                        continue
                     } else {
                         Write-JsonResponse $response @{ error = "Missing target parameter" } 400
                     }
@@ -5018,18 +5112,28 @@ try {
                     $sPass = if ($payload.smtpPass -and [string]$payload.smtpPass -ne "********") { [string]$payload.smtpPass } else { $syncHash.SmtpPass }
                     $sFrom = if ($payload.smtpFrom) { [string]$payload.smtpFrom } else { $syncHash.SmtpFrom }
                     $sTo   = if ($payload.smtpTo) { [string]$payload.smtpTo } else { $syncHash.SmtpTo }
-                    
-                    $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-                    $subj = "【テスト通知】ネットワーク機器監視システム (SMTPテスト)"
-                    $body = "これはネットワーク機器監視システムからのテスト通知メールです。`n送信日時: $ts`n正常にSMTPメールサーバーと通信できています。"
-                    
-                    $sent = Send-EmailNotification -smtpHost $sHost -smtpPort $sPort -useSsl $sSsl -smtpUser $sUser -smtpPass $sPass -from $sFrom -to $sTo -subject $subj -body $body
-                    if ($sent) {
-                        Log-Audit -action "EMAIL_TEST" -target $sTo -details "Test email sent successfully via $sHost" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
-                        Write-JsonResponse $response @{ status = "success"; message = "Test email sent successfully" }
-                    } else {
-                        Write-JsonResponse $response @{ error = "Failed to send email. Check SMTP settings and firewall." } 500
-                    }
+                    $clientIp = $request.RemoteEndPoint.Address.ToString()
+                    $repDir = $ReportsDir
+                    $respRef = $response
+
+                    [System.Threading.ThreadPool]::QueueUserWorkItem({
+                        try {
+                            $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                            $subj = "【テスト通知】ネットワーク機器監視システム (SMTPテスト)"
+                            $body = "これはネットワーク機器監視システムからのテスト通知メールです。`n送信日時: $ts`n正常にSMTPメールサーバーと通信できています。"
+                            
+                            $sent = Send-EmailNotification -smtpHost $sHost -smtpPort $sPort -useSsl $sSsl -smtpUser $sUser -smtpPass $sPass -from $sFrom -to $sTo -subject $subj -body $body
+                            if ($sent) {
+                                Log-Audit -action "EMAIL_TEST" -target $sTo -details "Test email sent successfully via $sHost" -clientIp $clientIp -reportsDirectory $repDir
+                                Write-JsonResponse $respRef @{ status = "success"; message = "Test email sent successfully" }
+                            } else {
+                                Write-JsonResponse $respRef @{ error = "Failed to send email. Check SMTP settings and firewall." } 500
+                            }
+                        } catch {
+                            Write-JsonResponse $respRef @{ error = "Email test error: $($_.Exception.Message)" } 500
+                        }
+                    }.GetNewClosure()) | Out-Null
+                    continue
                 }
                 elseif ($urlPath -eq "/api/syslog" -and $method -eq "GET") {
                     $logs = @()
@@ -5318,7 +5422,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 
                 $Tstr = $syncHash.SessionTimestamp
 
-                $maxOutageSec = if ($stats.MaxOutageSec -gt 0) { [math]::Round($stats.MaxOutageSec, 1) } else { 'N/A' }
+                $maxOutageMs  = if ($stats.MaxOutageSec -gt 0) { [math]::Round($stats.MaxOutageSec * 1000, 0) } else { 'N/A' }
                 $out600ms     = $stats.Outage600msCount
                 $out5s        = $stats.Outage5sCount
                 $thresh1Label = "$($syncHash.OutageThresh1Ms)ms"
@@ -5330,7 +5434,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 } else { 'N/A' }
 
                 # Japanese labels via Base64 (avoids PS5 source-encoding issues)
-                $pingB64 = "eyJyZWFjaCI6IuWIsOmBlOeOhyAvIOaOpee2muaApyAoJSkiLCJtYXhPdXRhZ2UiOiLmnIDlpKfnnqzmlq3mmYLplpPvvIjmnIDlpKfpgJrkv6HlgZzmraLmmYLplpPvvInvvIjnp5LvvIkiLCJzZXNzaW9uIjoi44K744OD44K344On44Oz77yI6KiI5ris5Zue77yJIiwiaXAiOiJJUOOCouODieODrOOCuSIsImxhdE1heCI6IuacgOWkp+mBheW7tiAobXMpIiwib3V0YWdlQWJvdmUiOiLku6XkuIrjga7nnqzmlq3lm57mlbDvvIjmlq3jgYznmbrnlJ/jgZfjgZ/lm57mlbDvvIkiLCJmYWlsZWQiOiLlpLHmlZfmlbDvvIjlv5znrZTjgarjgZfjg7vjgr/jgqTjg6DjgqLjgqbjg4jvvIkiLCJoZWFkZXIiOiItLS0g6KiI5ris44K144Oe44Oq44O8IC0tLSIsImxhdE91dGFnZSI6IuacgOWkp+eerOaWreaZgumWk++8iOacgOWkp+mAmuS/oeWBnOatouaZgumWk++8ie+8iOenku+8iSIsImppdHRlciI6IuW5s+Wdh+OCuOODg+OCv+ODvCAobXMpIiwibm90ZSI6IuWCmeiAg++8iOeerOaWreWbnuaVsOOBrumbhuioiOOBq+OBpOOBhOOBpu+8iSIsImxhdE1pbiI6IuacgOWwj+mBheW7tiAobXMpIiwibGF0QXZnIjoi5bmz5Z2H6YGF5bu2IChtcykiLCJ0b3RhbFBpbmdzIjoi57ePUGluZ+mAgeS/oeaVsO+8iOippuihjOWbnuaVsO+8iSIsInBhY2tldExvc3MiOiLjg5HjgrHjg4Pjg4jmkI3lpLHnjocgKCUpIiwibm90ZVZhbCI6IuOCquODleODqeOCpOODs+OBi+OCieOCquODs+ODqeOCpOODs+OBuOW+qeW4sOOBl+OBn+aZgueCueOBp+OCq+OCpuODs+ODiOOAguOCu+ODg+OCt+ODp+ODs+e1guS6huaZgueCueOBp+e2mee2muS4reOBrueerOaWreOBr+WQq+OBv+OBvuOBm+OCkyIsInN1Y2Nlc3MiOiLmiJDlip/mlbDvvIjlv5znrZTjgYLjgorvvIkifQ=="
+                $pingB64 = "eyJub3RlIjoi5YKZ6ICD77yI556s5pat5Zue5pWw44Gu6ZuG6KiI44Gr44Gk44GE44Gm77yJIiwiaGVhZGVyIjoiLS0tIOioiOa4rOOCteODnuODquODvCAtLS0iLCJpcCI6IklQ44Ki44OJ44Os44K5Iiwib3V0YWdlQWJvdmUiOiLku6XkuIrjga7nnqzmlq3lm57mlbDvvIjmlq3jgYznmbrnlJ/jgZfjgZ/lm57mlbDvvIkiLCJ0b3RhbFBpbmdzIjoi57ePUGluZ+mAgeS/oeaVsO+8iOippuihjOWbnuaVsO+8iSIsImxhdE1heCI6IuacgOWkp+mBheW7tiAobXMpIiwibGF0QXZnIjoi5bmz5Z2H6YGF5bu2IChtcykiLCJzZXNzaW9uIjoi44K744OD44K344On44Oz77yI6KiI5ris5Zue77yJIiwic3VjY2VzcyI6IuaIkOWKn+aVsO+8iOW/nOetlOOBguOCiu+8iSIsImxhdE91dGFnZSI6IuacgOWkp+eerOaWreaZgumWk++8iOacgOWkp+mAmuS/oeWBnOatouaZgumWk++8iSAobXMpIiwibWF4T3V0YWdlIjoi5pyA5aSn556s5pat5pmC6ZaT77yI5pyA5aSn6YCa5L+h5YGc5q2i5pmC6ZaT77yJIChtcykiLCJwYWNrZXRMb3NzIjoi44OR44Kx44OD44OI5pCN5aSx546HICglKSIsInJlYWNoIjoi5Yiw6YGU546HIC8g5o6l57aa5oCnICglKSIsImppdHRlciI6IuW5s+Wdh+OCuOODg+OCv+ODvCAobXMpIiwibGF0TWluIjoi5pyA5bCP6YGF5bu2IChtcykiLCJmYWlsZWQiOiLlpLHmlZfmlbDvvIjlv5znrZTjgarjgZfjg7vjgr/jgqTjg6DjgqLjgqbjg4jvvIkiLCJub3RlVmFsIjoi44Kq44OV44Op44Kk44Oz44GL44KJ44Kq44Oz44Op44Kk44Oz44Gr5b6p5biw44GX44Gf5pmC54K544Gn44Kr44Km44Oz44OI44CC44K744OD44K344On44Oz57WC5LqG5pmC54K544Gn57aZ57aa5Lit44Gu556s5pat44Gv5ZCr44G/44G+44Gb44KTIn0="
                 $pL = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($pingB64)) | ConvertFrom-Json
 
                 $lines = [System.Collections.Generic.List[string]]::new()
@@ -5347,7 +5451,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                 $lines.Add($pL.latMin + "," + $minLat)
                 $lines.Add($pL.latMax + "," + $maxLat)
                 $lines.Add($pL.latAvg + "," + $avgLat)
-                $lines.Add($pL.maxOutage + "," + $maxOutageSec)
+                $lines.Add($pL.maxOutage + "," + $maxOutageMs)
                 $lines.Add($thresh1Label + $pL.outageAbove + "," + $out600ms)
                 $lines.Add($thresh2Label + $pL.outageAbove + "," + $out5s)
                 $lines.Add($pL.note + "," + $pL.noteVal)
