@@ -1068,29 +1068,44 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
 $chartDataJson
     </script>
     <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    function initReportCharts() {
         var rawEl = document.getElementById('report-data');
         if (!rawEl) return;
-        var reportData = JSON.parse(rawEl.textContent || '{}');
+        var reportData = {};
+        try {
+            reportData = JSON.parse(rawEl.textContent || '{}');
+        } catch(e) {
+            console.error('Failed to parse report-data JSON:', e);
+            return;
+        }
         var devices = reportData.devices || [];
         if (typeof Chart === 'undefined') {
             console.error('Chart.js is not loaded.');
             return;
         }
 
-        var allTimestamps = [];
+        // 1. 全機器のタイムスタンプを重複排除・昇順ソートして統一X軸を生成
+        var timeSet = {};
+        var hasAnyPoints = false;
         devices.forEach(function(d) {
-            if (d.timeSeries && d.timeSeries.length > allTimestamps.length) {
-                allTimestamps = d.timeSeries.map(function(p) { return p.t; });
+            if (d.timeSeries && d.timeSeries.length > 0) {
+                hasAnyPoints = true;
+                d.timeSeries.forEach(function(p) {
+                    if (p.t) { timeSet[p.t] = true; }
+                });
             }
         });
+        var allTimestamps = Object.keys(timeSet).sort();
 
-        // 1. Unified Latency Chart
+        // 2. 全機器 応答遅延 (Latency) 統合グラフ
         var latencyDatasets = devices.map(function(d) {
             var devLabel = (d.name || d.ip) + ' (' + d.ip + ')';
+            var pts = (d.timeSeries || []).map(function(p) {
+                return { x: p.t, y: p.lat };
+            });
             return {
                 label: devLabel,
-                data: d.timeSeries ? d.timeSeries.map(function(p) { return p.lat; }) : [],
+                data: pts,
                 borderColor: d.color,
                 backgroundColor: 'transparent',
                 borderWidth: 1.8,
@@ -1122,19 +1137,30 @@ $chartDataJson
                         }
                     },
                     scales: {
-                        x: { grid: { color: '#f1f5f9' }, ticks: { maxTicksLimit: 14, font: { size: 10 } } },
-                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: '遅延 (ms)' } }
+                        x: {
+                            grid: { color: '#f1f5f9' },
+                            ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 10 } },
+                            title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: 10 } }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#f1f5f9' },
+                            title: { display: true, text: '遅延 (ms)', font: { size: 10 } }
+                        }
                     }
                 }
             });
         }
 
-        // 2. Unified Jitter Chart
+        // 3. 全機器 ジッター (Jitter) 統合グラフ
         var jitterDatasets = devices.map(function(d) {
             var devLabel = (d.name || d.ip) + ' (' + d.ip + ')';
+            var pts = (d.timeSeries || []).map(function(p) {
+                return { x: p.t, y: p.jit };
+            });
             return {
                 label: devLabel,
-                data: d.timeSeries ? d.timeSeries.map(function(p) { return p.jit; }) : [],
+                data: pts,
                 borderColor: d.color,
                 borderWidth: 1.5,
                 pointRadius: 0,
@@ -1165,23 +1191,31 @@ $chartDataJson
                         }
                     },
                     scales: {
-                        x: { grid: { color: '#f1f5f9' }, ticks: { maxTicksLimit: 14, font: { size: 10 } } },
-                        y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: 'ジッター (ms)' } }
+                        x: {
+                            grid: { color: '#f1f5f9' },
+                            ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 10 } },
+                            title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: 10 } }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#f1f5f9' },
+                            title: { display: true, text: 'ジッター (ms)', font: { size: 10 } }
+                        }
                     }
                 }
             });
         }
 
-        // 3. Device detail charts
+        // 4. 機器別 詳細推移グラフ
         devices.forEach(function(d, idx) {
             var canvasEl = document.getElementById('device-chart-' + idx);
             if (!canvasEl || !d.timeSeries || d.timeSeries.length === 0) return;
 
             var labels = d.timeSeries.map(function(p) { return p.t; });
-            var latData = d.timeSeries.map(function(p) { return p.lat; });
-            var txData = d.timeSeries.map(function(p) { return p.tx; });
-            var rxData = d.timeSeries.map(function(p) { return p.rx; });
-            var hasTraffic = txData.some(function(v) { return v != null && v > 0; }) || rxData.some(function(v) { return v != null && v > 0; });
+            var latData = d.timeSeries.map(function(p) { return { x: p.t, y: p.lat }; });
+            var txData = d.timeSeries.map(function(p) { return { x: p.t, y: p.tx }; });
+            var rxData = d.timeSeries.map(function(p) { return { x: p.t, y: p.rx }; });
+            var hasTraffic = (d.timeSeries || []).some(function(p) { return (p.tx != null && p.tx > 0) || (p.rx != null && p.rx > 0); });
 
             var datasets = [
                 {
@@ -1192,6 +1226,7 @@ $chartDataJson
                     borderWidth: 1.5,
                     pointRadius: 0,
                     tension: 0.2,
+                    spanGaps: true,
                     yAxisID: 'y'
                 }
             ];
@@ -1205,6 +1240,7 @@ $chartDataJson
                     pointRadius: 0,
                     tension: 0.2,
                     borderDash: [3, 3],
+                    spanGaps: true,
                     yAxisID: 'yTraffic'
                 });
                 datasets.push({
@@ -1215,13 +1251,21 @@ $chartDataJson
                     pointRadius: 0,
                     tension: 0.2,
                     borderDash: [3, 3],
+                    spanGaps: true,
                     yAxisID: 'yTraffic'
                 });
             }
 
             var scales = {
-                x: { grid: { color: '#f8fafc' }, ticks: { maxTicksLimit: 8, font: { size: 9 } } },
-                y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: '遅延 (ms)', font: { size: 10 } } }
+                x: {
+                    grid: { color: '#f8fafc' },
+                    ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 9 } }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#f1f5f9' },
+                    title: { display: true, text: '遅延 (ms)', font: { size: 10 } }
+                }
             };
             if (hasTraffic) {
                 scales.yTraffic = {
@@ -1247,14 +1291,14 @@ $chartDataJson
             });
         });
 
-        // 4. Iperf3 Result Charts
+        // 5. Iperf3 Result Charts
         var iperfResults = reportData.iperfResults || [];
         iperfResults.forEach(function(ipf, idx) {
             var canvasEl = document.getElementById('iperf-report-chart-' + idx);
             if (!canvasEl || !ipf.bwPoints || ipf.bwPoints.length === 0) return;
 
             var labels = ipf.bwPoints.map(function(p) { return p.label; });
-            var bwData = ipf.bwPoints.map(function(p) { return p.val; });
+            var bwData = ipf.bwPoints.map(function(p) { return { x: p.label, y: p.val }; });
 
             var datasets = [
                 {
@@ -1272,7 +1316,7 @@ $chartDataJson
             ];
 
             if (ipf.isUdp && ipf.jitPoints && ipf.jitPoints.length > 0) {
-                var jitData = ipf.jitPoints.map(function(p) { return p.val; });
+                var jitData = ipf.jitPoints.map(function(p) { return { x: p.label, y: p.val }; });
                 datasets.push({
                     label: 'ジッター (ms)',
                     data: jitData,
@@ -1287,8 +1331,16 @@ $chartDataJson
             }
 
             var scales = {
-                x: { grid: { color: '#f8fafc' }, ticks: { maxTicksLimit: 12, font: { size: 9 } } },
-                y: { beginAtZero: true, grid: { color: '#f1f5f9' }, title: { display: true, text: '帯域 (Mbps)', font: { size: 10 } } }
+                x: {
+                    grid: { color: '#f8fafc' },
+                    ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 9 } },
+                    title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: 9 } }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#f1f5f9' },
+                    title: { display: true, text: '帯域 (Mbps)', font: { size: 10 } }
+                }
             };
 
             if (ipf.isUdp && ipf.jitPoints && ipf.jitPoints.length > 0) {
@@ -1314,7 +1366,13 @@ $chartDataJson
                 }
             });
         });
-    });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initReportCharts);
+    } else {
+        initReportCharts();
+    }
     </script>
 </body>
 </html>
