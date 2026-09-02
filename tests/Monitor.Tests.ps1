@@ -246,3 +246,25 @@ Describe "8. 設定・機器定義の自動スナップショット＆ロール�
         }
     }
 }
+
+Describe "9. システム前提環境・モジュール診断 (Common.psm1 / Test-SystemPrerequisites)" {
+    It "Test-SystemPrerequisites が正常に診断結果ハッシュテーブルを返し、PowerShell互換性を検出すること" {
+        $diag = Test-SystemPrerequisites
+        $diag | Should Not BeNullOrEmpty
+        $diag.isPsCompatible | Should Be $true
+        $diag.psVersion | Should Not BeNullOrEmpty
+        $diag.executionPolicy | Should Not BeNullOrEmpty
+        ($diag.ContainsKey("snmpModule")) | Should Be $true
+        ($diag.ContainsKey("iperf3")) | Should Be $true
+        ($diag.ContainsKey("pesterModule")) | Should Be $true
+    }
+
+    It "SNMP モジュール診断プロパティが正しく構造化されていること" {
+        $diag = Test-SystemPrerequisites
+        $snmpInfo = $diag.snmpModule
+        $snmpInfo | Should Not BeNullOrEmpty
+        ($snmpInfo.ContainsKey("installed")) | Should Be $true
+        ($snmpInfo.ContainsKey("requiredFor")) | Should Be $true
+        $snmpInfo.requiredFor | Should Not BeNullOrEmpty
+    }
+}

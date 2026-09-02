@@ -5177,6 +5177,37 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                         }
                     }
                 }
+                elseif ($urlPath -eq "/api/system/prerequisites" -and $method -eq "GET") {
+                    $projRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+                    $diag = Test-SystemPrerequisites -projectRoot $projRoot
+                    Write-JsonResponse $response $diag
+                }
+                elseif ($urlPath -eq "/api/system/install-module" -and $method -eq "POST") {
+                    $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                    $payload = $reader.ReadToEnd() | ConvertFrom-Json
+                    $modName = if ($payload.module) { [string]$payload.module } else { "SNMP" }
+                    
+                    Write-Host "Installing PowerShell module '$modName' via API request..." -ForegroundColor Yellow
+                    $installRes = Install-PrerequisiteModule -moduleName $modName
+                    
+                    if ($installRes.success) {
+                        if ($modName -eq "SNMP") {
+                            try {
+                                $snmpModule = Get-Module -ListAvailable SNMP | Select-Object -First 1
+                                if ($snmpModule) {
+                                    Import-Module $snmpModule.Path -ErrorAction SilentlyContinue
+                                    $mDir = Split-Path $snmpModule.Path
+                                    $dPath = Join-Path $mDir "SharpSnmpLib.dll"
+                                    if (Test-Path $dPath) { Add-Type -Path $dPath -ErrorAction SilentlyContinue }
+                                }
+                            } catch {}
+                        }
+                        Log-Audit -action "MODULE_INSTALL" -target $modName -details "Installed PowerShell module: $modName" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
+                        Write-JsonResponse $response @{ status = "success"; message = "Module '$modName' successfully installed" }
+                    } else {
+                        Write-JsonResponse $response @{ error = $installRes.error } 500
+                    }
+                }
                 else {
                     Write-JsonResponse $response @{ error = "Not found" } 404
                 }

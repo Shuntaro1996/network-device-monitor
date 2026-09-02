@@ -797,6 +797,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (targetContent) targetContent.classList.add('active');
             if (targetId === 'cfg-tab-backup') {
                 loadSnapshotsList();
+            } else if (targetId === 'cfg-tab-prereq') {
+                fetchPrerequisites();
             }
         });
     });
@@ -882,6 +884,195 @@ document.addEventListener('DOMContentLoaded', () => {
             loadSnapshotsList();
             showToast('info', 'スナップショット更新', '最新のスナップショット履歴を取得しました。', 2000);
         });
+    }
+
+    // ── システム前提環境・モジュール診断 ──
+    async function fetchPrerequisites() {
+        const bannerEl = document.getElementById('prereq-overall-banner');
+        const iconEl = document.getElementById('prereq-overall-icon');
+        const textEl = document.getElementById('prereq-overall-text');
+        
+        if (!bannerEl) return;
+        bannerEl.style.background = 'rgba(255,255,255,0.05)';
+        bannerEl.style.borderColor = 'var(--glass-border)';
+        iconEl.textContent = '⏳';
+        textEl.textContent = '前提環境を診断中...';
+
+        try {
+            const res = await fetch('/api/system/prerequisites');
+            if (!res.ok) throw new Error('診断情報の取得に失敗しました');
+            const data = await res.json();
+
+            // 総合バナー
+            if (data.allReady) {
+                bannerEl.style.background = 'rgba(16,185,129,0.15)';
+                bannerEl.style.borderColor = 'rgba(16,185,129,0.4)';
+                bannerEl.style.color = '#34d399';
+                iconEl.textContent = '✅';
+                textEl.textContent = '必須コンポーネント（SNMP / PowerShell / Iperf3）はすべて正常に認識されています。';
+            } else {
+                bannerEl.style.background = 'rgba(239,68,68,0.15)';
+                bannerEl.style.borderColor = 'rgba(239,68,68,0.4)';
+                bannerEl.style.color = '#f87171';
+                iconEl.textContent = '⚠️';
+                textEl.textContent = '一部の前提モジュールまたはツールが未検出です。下記のボタンからインストールできます。';
+            }
+
+            // SNMP
+            const snmpStatus = document.getElementById('prereq-status-snmp');
+            const snmpBadge = document.getElementById('prereq-badge-snmp');
+            const snmpDetail = document.getElementById('prereq-detail-snmp');
+            const btnInstallSnmp = document.getElementById('btn-install-snmp');
+            if (data.snmpModule && data.snmpModule.installed) {
+                snmpStatus.textContent = '✅';
+                snmpBadge.textContent = `インストール済み (v${data.snmpModule.version})`;
+                snmpBadge.style.background = 'rgba(16,185,129,0.2)';
+                snmpBadge.style.color = '#34d399';
+                snmpBadge.style.border = '1px solid rgba(16,185,129,0.3)';
+                snmpDetail.textContent = `Path: ${data.snmpModule.path}`;
+                if (btnInstallSnmp) btnInstallSnmp.style.display = 'none';
+            } else {
+                snmpStatus.textContent = '❌';
+                snmpBadge.textContent = '未インストール';
+                snmpBadge.style.background = 'rgba(239,68,68,0.2)';
+                snmpBadge.style.color = '#f87171';
+                snmpBadge.style.border = '1px solid rgba(239,68,68,0.3)';
+                snmpDetail.textContent = 'PowerShell Gallery からの導入が必要です。';
+                if (btnInstallSnmp) {
+                    btnInstallSnmp.style.display = 'inline-block';
+                    btnInstallSnmp.disabled = false;
+                    btnInstallSnmp.textContent = '⚡ 今すぐインストール';
+                }
+            }
+
+            // Iperf3
+            const iperfStatus = document.getElementById('prereq-status-iperf');
+            const iperfBadge = document.getElementById('prereq-badge-iperf');
+            const iperfDetail = document.getElementById('prereq-detail-iperf');
+            if (data.iperf3 && data.iperf3.available) {
+                iperfStatus.textContent = '✅';
+                iperfBadge.textContent = '利用可能';
+                iperfBadge.style.background = 'rgba(16,185,129,0.2)';
+                iperfBadge.style.color = '#34d399';
+                iperfBadge.style.border = '1px solid rgba(16,185,129,0.3)';
+                iperfDetail.textContent = `Path: ${data.iperf3.path}`;
+            } else {
+                iperfStatus.textContent = '⚠️';
+                iperfBadge.textContent = '未配置';
+                iperfBadge.style.background = 'rgba(245,158,11,0.2)';
+                iperfBadge.style.color = '#fbbf24';
+                iperfBadge.style.border = '1px solid rgba(245,158,11,0.3)';
+                iperfDetail.textContent = 'tools\\iperf3.exe を配置すると帯域計測が有効化されます。';
+            }
+
+            // Pester
+            const pesterStatus = document.getElementById('prereq-status-pester');
+            const pesterBadge = document.getElementById('prereq-badge-pester');
+            const pesterDetail = document.getElementById('prereq-detail-pester');
+            const btnInstallPester = document.getElementById('btn-install-pester');
+            if (data.pesterModule && data.pesterModule.installed) {
+                pesterStatus.textContent = '✅';
+                pesterBadge.textContent = `インストール済み (v${data.pesterModule.version})`;
+                pesterBadge.style.background = 'rgba(16,185,129,0.2)';
+                pesterBadge.style.color = '#34d399';
+                pesterBadge.style.border = '1px solid rgba(16,185,129,0.3)';
+                pesterDetail.textContent = '自動テストフレームワークが利用可能です。';
+                if (btnInstallPester) btnInstallPester.style.display = 'none';
+            } else {
+                pesterStatus.textContent = '➖';
+                pesterBadge.textContent = '未インストール (任意)';
+                pesterBadge.style.background = 'rgba(255,255,255,0.1)';
+                pesterBadge.style.color = 'var(--text-muted)';
+                pesterBadge.style.border = '1px solid var(--glass-border)';
+                pesterDetail.textContent = 'テスト実行時のみ必要（通常監視では不要）';
+                if (btnInstallPester) {
+                    btnInstallPester.style.display = 'inline-block';
+                    btnInstallPester.disabled = false;
+                    btnInstallPester.textContent = '⚡ インストール';
+                }
+            }
+
+            // PowerShell Runtime
+            const psStatus = document.getElementById('prereq-status-ps');
+            const psBadge = document.getElementById('prereq-badge-ps');
+            const psDetail = document.getElementById('prereq-detail-ps');
+            if (data.isPsCompatible) {
+                psStatus.textContent = '✅';
+                psBadge.textContent = `適合 (PS v${data.psVersion})`;
+                psBadge.style.background = 'rgba(16,185,129,0.2)';
+                psBadge.style.color = '#34d399';
+                psBadge.style.border = '1px solid rgba(16,185,129,0.3)';
+                psDetail.textContent = `ExecutionPolicy: ${data.executionPolicy} | NuGet: ${data.hasNuGet ? '利用可能' : '未検出'}`;
+            } else {
+                psStatus.textContent = '❌';
+                psBadge.textContent = `不適合 (PS v${data.psVersion})`;
+                psBadge.style.background = 'rgba(239,68,68,0.2)';
+                psBadge.style.color = '#f87171';
+                psBadge.style.border = '1px solid rgba(239,68,68,0.3)';
+                psDetail.textContent = 'PowerShell 5.1 以上が必要です。';
+            }
+
+        } catch (err) {
+            bannerEl.style.background = 'rgba(239,68,68,0.15)';
+            bannerEl.style.color = '#f87171';
+            iconEl.textContent = '❌';
+            textEl.textContent = `診断エラー: ${err.message}`;
+        }
+    }
+
+    // インストール処理
+    async function installModuleFromWeb(modName, btnEl) {
+        if (!confirm(`PowerShell Gallery から「${modName}」モジュールをインストールしますか？\n（インターネット接続が必要です）`)) {
+            return;
+        }
+        try {
+            if (btnEl) {
+                btnEl.disabled = true;
+                btnEl.textContent = '⏳ インストール中...';
+            }
+            showToast('info', 'モジュール導入開始', `${modName} モジュールをダウンロード＆インストールしています...`, 4000);
+            
+            const res = await fetch('/api/system/install-module', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: modName })
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                showToast('success', 'インストール完了', `${modName} モジュールが正常に導入されました！`, 4000);
+                await fetchPrerequisites();
+            } else {
+                showToast('error', 'インストール失敗', data.error || 'モジュールのインストールに失敗しました。');
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.textContent = '⚡ 再試行';
+                }
+            }
+        } catch (err) {
+            showToast('error', 'エラー', err.message);
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.textContent = '⚡ 再試行';
+            }
+        }
+    }
+
+    const btnRefreshPrereq = document.getElementById('btn-refresh-prereq');
+    if (btnRefreshPrereq) {
+        btnRefreshPrereq.addEventListener('click', () => {
+            fetchPrerequisites();
+            showToast('info', '再診断実行', '最新のモジュール・前提環境状態を取得しました。', 2000);
+        });
+    }
+
+    const btnInstallSnmp = document.getElementById('btn-install-snmp');
+    if (btnInstallSnmp) {
+        btnInstallSnmp.addEventListener('click', () => installModuleFromWeb('SNMP', btnInstallSnmp));
+    }
+
+    const btnInstallPester = document.getElementById('btn-install-pester');
+    if (btnInstallPester) {
+        btnInstallPester.addEventListener('click', () => installModuleFromWeb('Pester', btnInstallPester));
     }
 
     // Save System Config

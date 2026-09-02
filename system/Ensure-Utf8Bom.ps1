@@ -4,6 +4,7 @@
 $files = @(
     "system\Server.ps1",
     "system\Watchdog.ps1",
+    "system\Check-Prerequisites.ps1",
     "tests\Monitor.Tests.ps1",
     "tests\Run-Tests.ps1"
 ) + (Get-ChildItem -Path "system\modules\*.psm1" | ForEach-Object { $_.FullName })

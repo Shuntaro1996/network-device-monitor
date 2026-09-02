@@ -36,7 +36,10 @@ echo   and save logs to the Reports folder.
 echo ==============================================
 
 :: Automatic UTF-8 BOM check for PowerShell 5.1 compatibility
-powershell -NoProfile -Command "$files = @('system\Server.ps1','system\Watchdog.ps1') + (Get-ChildItem -Path 'system\modules\*.psm1' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); foreach($f in $files){ if(Test-Path $f){ $b=[System.IO.File]::ReadAllBytes((Resolve-Path $f)); if($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF){ $t=[System.IO.File]::ReadAllText((Resolve-Path $f),[System.Text.Encoding]::UTF8); [System.IO.File]::WriteAllText((Resolve-Path $f),$t,[System.Text.Encoding]::UTF8) } } }"
+powershell -NoProfile -ExecutionPolicy Bypass -File "system\Ensure-Utf8Bom.ps1"
+
+:: System Prerequisites & PowerShell Module Check (with auto-setup option)
+powershell -NoProfile -ExecutionPolicy Bypass -File "system\Check-Prerequisites.ps1"
 
 :: Launch server via Watchdog (monitors process survival and HTTP /api/health responsiveness)
 powershell -NoProfile -ExecutionPolicy Bypass -File "system\Watchdog.ps1"

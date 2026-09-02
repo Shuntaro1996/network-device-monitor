@@ -286,4 +286,115 @@ function Restore-ConfigSnapshot {
     }
 }
 
-Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot
+# ── 6. 前提環境・モジュール診断 & 自動インストール ─────────────────────────────
+
+function Test-SystemPrerequisites {
+    <#
+    .SYNOPSIS
+        Network Device Monitor の実行に必要なモジュール・ツール・実行環境を検査します。
+    #>
+    param([string]$projectRoot = $null)
+    if (-not $projectRoot) {
+        $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+    }
+
+    # 1. PowerShell バージョン
+    $psVer = $PSVersionTable.PSVersion.ToString()
+    $isPsCompatible = ($PSVersionTable.PSVersion.Major -ge 5)
+
+    # 2. 実行ポリシー
+    $execPolicy = try { (Get-ExecutionPolicy).ToString() } catch { "Unknown" }
+    $isPolicyOk = ($execPolicy -in @("Bypass", "Unrestricted", "RemoteSigned"))
+
+    # 3. NuGet パッケージプロバイダー
+    $nuGetProvider = try { Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { $null }
+    $hasNuGet = ($null -ne $nuGetProvider)
+
+    # 4. SNMP モジュール (トラフィック監視・機器詳細・トポロジー探索に必須)
+    $snmpMod = try { Get-Module -ListAvailable -Name SNMP -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { $null }
+    $hasSnmp = ($null -ne $snmpMod)
+    $snmpVersion = if ($hasSnmp) { $snmpMod.Version.ToString() } else { "" }
+    $snmpPath = if ($hasSnmp) { $snmpMod.Path } else { "" }
+
+    # 5. Pester モジュール (自動テストフレームワーク)
+    $pesterMod = try { Get-Module -ListAvailable -Name Pester -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { $null }
+    $hasPester = ($null -ne $pesterMod)
+    $pesterVersion = if ($hasPester) { $pesterMod.Version.ToString() } else { "" }
+
+    # 6. Iperf3 実行バイナリ (帯域計測ツール)
+    $iperfPath = Join-Path $projectRoot "tools\iperf3.exe"
+    $hasIperf = (Test-Path $iperfPath)
+    if (-not $hasIperf) {
+        $cmdIperf = Get-Command "iperf3.exe" -ErrorAction SilentlyContinue
+        if ($cmdIperf) {
+            $hasIperf = $true
+            $iperfPath = $cmdIperf.Source
+        }
+    }
+
+    # 7. ポート 8081 の競合状態
+    $port = 8081
+    $isPortAvailable = $true
+    try {
+        $listenerTest = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Loopback, $port)
+        $listenerTest.Start()
+        $listenerTest.Stop()
+    } catch {
+        $isPortAvailable = $false
+    }
+
+    # 総合判定 (SNMP と PowerShell 互換性、Iperf3 が整っていれば OK)
+    $allReady = ($isPsCompatible -and $hasSnmp -and $hasIperf)
+
+    return @{
+        allReady         = $allReady
+        psVersion        = $psVer
+        isPsCompatible   = $isPsCompatible
+        executionPolicy  = $execPolicy
+        isPolicyOk       = $isPolicyOk
+        hasNuGet         = $hasNuGet
+        snmpModule       = @{
+            installed   = $hasSnmp
+            version     = $snmpVersion
+            path        = $snmpPath
+            requiredFor = "SNMPインターフェース帯域監視、機器詳細情報、隣接トポロジー探索"
+            critical    = $true
+        }
+        pesterModule     = @{
+            installed   = $hasPester
+            version     = $pesterVersion
+            requiredFor = "Pester による品質保証・単体/結合自動テスト"
+            critical    = $false
+        }
+        iperf3           = @{
+            available   = $hasIperf
+            path        = $iperfPath
+            requiredFor = "Iperf3 帯域・スループット・ジッター計測"
+            critical    = $false
+        }
+        portAvailable    = $isPortAvailable
+    }
+}
+
+function Install-PrerequisiteModule {
+    <#
+    .SYNOPSIS
+        指定された PowerShell モジュールをインストールします。
+    #>
+    param([string]$moduleName = "SNMP")
+    try {
+        # NuGet パッケージプロバイダーの確認・導入
+        $nuGet = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
+        if (-not $nuGet) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null
+        }
+
+        # モジュールインストール
+        Install-Module -Name $moduleName -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop | Out-Null
+        return @{ success = $true; message = "Module $moduleName successfully installed." }
+    } catch {
+        return @{ success = $false; error = $_.Exception.Message }
+    }
+}
+
+Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule

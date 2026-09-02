@@ -1002,6 +1002,7 @@
                 <button class="config-tab-btn" data-cfg-tab="cfg-tab-notifications">🔔 通知・音声</button>
                 <button class="config-tab-btn" data-cfg-tab="cfg-tab-backup">💾 バックアップ・復元</button>
                 <button class="config-tab-btn" data-cfg-tab="cfg-tab-maintenance">🧹 ログ保守</button>
+                <button class="config-tab-btn" data-cfg-tab="cfg-tab-prereq">📋 前提モジュール診断</button>
             </div>
 
             <div class="modal-body-scroll config-modal-body">
@@ -1288,6 +1289,108 @@
                                 <span>🧹</span> 今すぐ古いレポートをクリーンアップ
                             </button>
                             <span id="manual-cleanup-status" style="font-size:0.8rem; color:var(--text-muted);"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 5: Prerequisites & Module Diagnostics -->
+                <div id="cfg-tab-prereq" class="config-tab-content">
+                    <div class="config-section">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <h4 class="config-section-title" style="margin:0;">📋 システム前提環境・モジュール診断</h4>
+                            <button type="button" id="btn-refresh-prereq" class="btn secondary-btn" style="padding:3px 10px; font-size:0.75rem;">
+                                <span>🔃 最新状態を再診断</span>
+                            </button>
+                        </div>
+                        <p class="config-desc" style="margin-top:6px;">
+                            別端末や新規PCへフォルダをコピーして稼働させる際、必要なPowerShellモジュールや計測ツールが正常に認識されているかチェックボックス形式で確認・診断できます。
+                        </p>
+
+                        <!-- Overall status banner -->
+                        <div id="prereq-overall-banner" style="margin-top:12px; padding:10px 14px; border-radius:8px; display:flex; align-items:center; gap:10px; font-size:0.85rem; font-weight:600; background:rgba(255,255,255,0.05); border:1px solid var(--glass-border);">
+                            <span id="prereq-overall-icon" style="font-size:1.2rem;">⏳</span>
+                            <span id="prereq-overall-text">前提環境を診断中...</span>
+                        </div>
+
+                        <!-- Check item list -->
+                        <div id="prereq-items-container" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">
+                            <!-- SNMP Module Card -->
+                            <div class="prereq-card" style="background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                                <div style="display:flex; align-items:flex-start; gap:10px;">
+                                    <span id="prereq-status-snmp" style="font-size:1.3rem;">⏳</span>
+                                    <div>
+                                        <div style="font-size:0.88rem; font-weight:700; color:var(--text-light); display:flex; align-items:center; gap:8px;">
+                                            <span>SNMP 通信モジュール (PowerShell)</span>
+                                            <span id="prereq-badge-snmp" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
+                                        </div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                                            SNMPトラフィック帯域監視、機器詳細情報、隣接トポロジー探索に必要です。
+                                        </div>
+                                        <div id="prereq-detail-snmp" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <button type="button" id="btn-install-snmp" class="btn primary-btn" style="padding:4px 12px; font-size:0.75rem; display:none;">
+                                        ⚡ 今すぐインストール
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Iperf3 Tool Card -->
+                            <div class="prereq-card" style="background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                                <div style="display:flex; align-items:flex-start; gap:10px;">
+                                    <span id="prereq-status-iperf" style="font-size:1.3rem;">⏳</span>
+                                    <div>
+                                        <div style="font-size:0.88rem; font-weight:700; color:var(--text-light); display:flex; align-items:center; gap:8px;">
+                                            <span>Iperf3 帯域計測ツール (iperf3.exe)</span>
+                                            <span id="prereq-badge-iperf" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
+                                        </div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                                            回線の実効通信速度（スループット）およびジッター計測に必要です。
+                                        </div>
+                                        <div id="prereq-detail-iperf" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Pester Module Card -->
+                            <div class="prereq-card" style="background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                                <div style="display:flex; align-items:flex-start; gap:10px;">
+                                    <span id="prereq-status-pester" style="font-size:1.3rem;">⏳</span>
+                                    <div>
+                                        <div style="font-size:0.88rem; font-weight:700; color:var(--text-light); display:flex; align-items:center; gap:8px;">
+                                            <span>Pester 自動テストフレームワーク</span>
+                                            <span id="prereq-badge-pester" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
+                                        </div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                                            単体テスト・機能結合テスト（tests/Run-Tests.ps1）の実行に必要です。
+                                        </div>
+                                        <div id="prereq-detail-pester" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <button type="button" id="btn-install-pester" class="btn secondary-btn" style="padding:4px 12px; font-size:0.75rem; display:none;">
+                                        ⚡ インストール
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- PowerShell & Runtime Card -->
+                            <div class="prereq-card" style="background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                                <div style="display:flex; align-items:flex-start; gap:10px;">
+                                    <span id="prereq-status-ps" style="font-size:1.3rem;">⏳</span>
+                                    <div>
+                                        <div style="font-size:0.88rem; font-weight:700; color:var(--text-light); display:flex; align-items:center; gap:8px;">
+                                            <span>PowerShell 実行環境 & ポリシー</span>
+                                            <span id="prereq-badge-ps" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
+                                        </div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                                            Windows PowerShell 5.1 以上およびスクリプト実行権限。
+                                        </div>
+                                        <div id="prereq-detail-ps" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
