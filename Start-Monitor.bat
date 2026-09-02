@@ -36,14 +36,37 @@ echo   and save logs to the Reports folder.
 echo ==============================================
 
 :: Automatic UTF-8 BOM check for PowerShell 5.1 compatibility
-powershell -NoProfile -Command "$f='system\Server.ps1'; if(Test-Path $f){$b=[System.IO.File]::ReadAllBytes((Resolve-Path $f)); if($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF){$t=[System.IO.File]::ReadAllText((Resolve-Path $f),[System.Text.Encoding]::UTF8); [System.IO.File]::WriteAllText((Resolve-Path $f),$t,[System.Text.Encoding]::UTF8)}}"
+powershell -NoProfile -Command "$files = @('system\Server.ps1') + (Get-ChildItem -Path 'system\modules\*.psm1' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }); foreach($f in $files){ if(Test-Path $f){ $b=[System.IO.File]::ReadAllBytes((Resolve-Path $f)); if($b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF){ $t=[System.IO.File]::ReadAllText((Resolve-Path $f),[System.Text.Encoding]::UTF8); [System.IO.File]::WriteAllText((Resolve-Path $f),$t,[System.Text.Encoding]::UTF8) } } }"
 
+set CRASH_COUNT=0
+:RUN_SERVER
 powershell -NoProfile -ExecutionPolicy Bypass -File "system\Server.ps1"
-if %errorlevel% neq 0 (
+set EXIT_CODE=%errorlevel%
+
+if %EXIT_CODE% equ 0 (
     echo.
     echo ==============================================
-    echo   [ERROR] サーバーの実行が停止しました。
-    echo   エラー内容を確認の上、キーを押して閉じてください。
+    echo   [INFO] 監視サーバーは正常に終了しました。
     echo ==============================================
-    pause
+    goto :EOF
 )
+
+:: 異常終了（ExitCode != 0）時の自動復旧（Watchdog）
+set /a CRASH_COUNT+=1
+echo.
+echo ==============================================
+echo   [WARNING] サーバーが異常終了しました (終了コード: %EXIT_CODE%)
+echo   クラッシュ回数: %CRASH_COUNT% 回
+echo ==============================================
+
+if %CRASH_COUNT% geq 5 (
+    echo.
+    echo [CRITICAL ERROR] 短時間に連続5回クラッシュしたため、自動再起動を停止しました。
+    echo エラー内容または system\debug.log を確認してください。
+    pause
+    goto :EOF
+)
+
+echo 3秒後に監視サーバーを自動再起動（復旧）します...
+timeout /t 3 /nobreak >nul
+goto :RUN_SERVER

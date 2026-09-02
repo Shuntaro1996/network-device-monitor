@@ -1,0 +1,189 @@
+﻿# ==============================================================================
+# Common.psm1 - 共通ユーティリティ・セキュリティ・ログモジュール
+# ==============================================================================
+
+Add-Type -AssemblyName System.Security
+
+# ── 1. 秘密情報暗号化・復号 (Windows DPAPI) ───────────────────────────────────
+
+function Protect-SecretString {
+    <#
+    .SYNOPSIS
+        平文文字列を現在のWindowsユーザーの資格情報を用いてDPAPIで暗号化します。
+    #>
+    param([string]$plainText)
+    if ([string]::IsNullOrEmpty($plainText)) { return "" }
+    if ($plainText.StartsWith("enc:")) { return $plainText } # 既に暗号化済み
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($plainText)
+        $encBytes = [System.Security.Cryptography.ProtectedData]::Protect(
+            $bytes,
+            $null,
+            [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+        )
+        return "enc:" + [System.Convert]::ToBase64String($encBytes)
+    } catch {
+        Write-Warning "DPAPI encryption failed: $($_.Exception.Message)"
+        return $plainText
+    }
+}
+
+function Unprotect-SecretString {
+    <#
+    .SYNOPSIS
+        DPAPIで暗号化された文字列（enc:...）を復号します。平文の場合はそのまま返します。
+    #>
+    param([string]$cipherText)
+    if ([string]::IsNullOrEmpty($cipherText)) { return "" }
+    if (-not $cipherText.StartsWith("enc:")) { return $cipherText } # 平文互換
+    try {
+        $b64 = $cipherText.Substring(4)
+        $encBytes = [System.Convert]::FromBase64String($b64)
+        $decBytes = [System.Security.Cryptography.ProtectedData]::Unprotect(
+            $encBytes,
+            $null,
+            [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+        )
+        return [System.Text.Encoding]::UTF8.GetString($decBytes)
+    } catch {
+        Write-Warning "DPAPI decryption failed: $($_.Exception.Message)"
+        return ""
+    }
+}
+
+# ── 2. ログ記録 ─────────────────────────────────────────────────────────────
+
+function Log-Audit {
+    param(
+        [string]$action,
+        [string]$target,
+        [string]$details,
+        [string]$clientIp = "127.0.0.1",
+        [string]$reportsDirectory
+    )
+    try {
+        if (-not $reportsDirectory) { return }
+        $auditFile = Join-Path $reportsDirectory "audit.log"
+        $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        $logLine = "[$ts] ACTION: $action | TARGET: $target | DETAILS: $details | CLIENT: $clientIp`r`n"
+        [System.IO.File]::AppendAllText($auditFile, $logLine, [System.Text.Encoding]::UTF8)
+    } catch {}
+}
+
+function Write-ServerLog {
+    param(
+        [string]$message,
+        [string]$level = "INFO",
+        [string]$baseDir = $null
+    )
+    $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $line = "[$ts] [$level] $message"
+    switch ($level) {
+        "ERROR"   { Write-Host $line -ForegroundColor Red }
+        "WARN"    { Write-Host $line -ForegroundColor Yellow }
+        "SUCCESS" { Write-Host $line -ForegroundColor Green }
+        default   { Write-Host $line -ForegroundColor Gray }
+    }
+    if ($baseDir) {
+        try {
+            $logPath = Join-Path $baseDir "debug.log"
+            [System.IO.File]::AppendAllText($logPath, "$line`r`n", [System.Text.Encoding]::UTF8)
+        } catch {}
+    }
+}
+
+# ── 3. HTTP / JSON レスポンス ───────────────────────────────────────────────
+
+function Write-JsonResponse {
+    param(
+        $response,
+        $data,
+        [int]$statusCode = 200
+    )
+    try {
+        $json = $data | ConvertTo-Json -Depth 10 -Compress
+        $buffer = [System.Text.Encoding]::UTF8.GetBytes($json)
+        $response.ContentType = "application/json; charset=utf-8"
+        $response.StatusCode = $statusCode
+        $response.ContentLength64 = $buffer.Length
+        $response.OutputStream.Write($buffer, 0, $buffer.Length)
+        $response.Close()
+    } catch {
+        try { $response.Close() } catch {}
+    }
+}
+
+function Get-MimeType {
+    param([string]$ext)
+    switch ($ext.ToLower()) {
+        ".html" { "text/html; charset=utf-8" }
+        ".css"  { "text/css; charset=utf-8" }
+        ".js"   { "application/javascript; charset=utf-8" }
+        ".json" { "application/json; charset=utf-8" }
+        ".png"  { "image/png" }
+        ".jpg"  { "image/jpeg" }
+        ".jpeg" { "image/jpeg" }
+        ".ico"  { "image/x-icon" }
+        ".svg"  { "image/svg+xml" }
+        ".txt"  { "text/plain; charset=utf-8" }
+        ".csv"  { "text/csv; charset=shift_jis" }
+        default { "application/octet-stream" }
+    }
+}
+
+# ── 4. デバイス一覧保存 (暗号化対応) ───────────────────────────────────────
+
+function Save-DevicesJson {
+    param(
+        [hashtable]$syncHash,
+        [string]$filePath
+    )
+    try {
+        $devArray = @()
+        $devList = $syncHash.Devices
+        if ($null -ne $devList) {
+            foreach ($ip in $devList) {
+                # SNMPパスワードは保存時に自動暗号化
+                $rawAuthPass = if ($syncHash.SnmpAuthPass.ContainsKey($ip)) { $syncHash.SnmpAuthPass[$ip] } else { "" }
+                $rawPrivPass = if ($syncHash.SnmpPrivPass.ContainsKey($ip)) { $syncHash.SnmpPrivPass[$ip] } else { "" }
+                $encAuthPass = if ($rawAuthPass) { Protect-SecretString $rawAuthPass } else { "" }
+                $encPrivPass = if ($rawPrivPass) { Protect-SecretString $rawPrivPass } else { "" }
+
+                $d = @{
+                    ip            = $ip
+                    name          = if ($syncHash.DeviceName.ContainsKey($ip))    { $syncHash.DeviceName[$ip] }    else { $ip }
+                    group         = if ($syncHash.Group.ContainsKey($ip))         { $syncHash.Group[$ip] }         else { "" }
+                    location      = if ($syncHash.Location.ContainsKey($ip))      { $syncHash.Location[$ip] }      else { "" }
+                    troubleMemo   = if ($syncHash.TroubleMemo.ContainsKey($ip))   { $syncHash.TroubleMemo[$ip] }   else { "" }
+                    mac           = if ($syncHash.Mac.ContainsKey($ip))           { $syncHash.Mac[$ip] }           else { "" }
+                    deviceType    = if ($syncHash.DeviceType.ContainsKey($ip))    { $syncHash.DeviceType[$ip] }    else { "network" }
+                    image         = if ($syncHash.DeviceImage.ContainsKey($ip))   { $syncHash.DeviceImage[$ip] }   else { "" }
+                    vendorContact = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "" }
+                    webUrl        = if ($syncHash.WebUrl.ContainsKey($ip))        { $syncHash.WebUrl[$ip] }        else { "" }
+                    checkType     = if ($syncHash.CheckType.ContainsKey($ip))     { $syncHash.CheckType[$ip] }     else { "icmp" }
+                    port          = if ($syncHash.Port.ContainsKey($ip))          { $syncHash.Port[$ip] }          else { 0 }
+                    enabled       = if ($syncHash.Enabled.ContainsKey($ip))       { $syncHash.Enabled[$ip] }       else { $true }
+                    community     = if ($syncHash.Community.ContainsKey($ip))     { $syncHash.Community[$ip] }     else { "public" }
+                    snmpVersion   = if ($syncHash.SnmpVersion.ContainsKey($ip))   { $syncHash.SnmpVersion[$ip] }   else { "v2c" }
+                    snmpUser      = if ($syncHash.SnmpUser.ContainsKey($ip))      { $syncHash.SnmpUser[$ip] }      else { "" }
+                    snmpAuthProto = if ($syncHash.SnmpAuthProto.ContainsKey($ip)) { $syncHash.SnmpAuthProto[$ip] } else { "none" }
+                    snmpAuthPass  = $encAuthPass
+                    snmpPrivProto = if ($syncHash.SnmpPrivProto.ContainsKey($ip)) { $syncHash.SnmpPrivProto[$ip] } else { "none" }
+                    snmpPrivPass  = $encPrivPass
+                    connectedTo   = if ($syncHash.ConnectedTo.ContainsKey($ip))   { $syncHash.ConnectedTo[$ip] }   else { "" }
+                    x             = if ($syncHash.TopoX.ContainsKey($ip))         { $syncHash.TopoX[$ip] }         else { $null }
+                    y             = if ($syncHash.TopoY.ContainsKey($ip))         { $syncHash.TopoY[$ip] }         else { $null }
+                }
+                $devArray += $d
+            }
+        }
+        $json = $devArray | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText($filePath, $json, [System.Text.Encoding]::UTF8)
+        return $true
+    } catch {
+        Write-Warning "Failed to save devices.json: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Get-MimeType, Save-DevicesJson

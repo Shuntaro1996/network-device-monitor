@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 # =========================================================================
 # 【初心者向けの簡単な解説】
@@ -28,6 +28,17 @@ if (-not (Get-Module -ListAvailable -Name SNMP)) {
     }
 }
 Import-Module SNMP -ErrorAction SilentlyContinue
+
+# ── Import System Modules (Modular Architecture) ──────────────────────────────
+$modulesDir = Join-Path $PSScriptRoot "modules"
+if (Test-Path $modulesDir) {
+    Import-Module (Join-Path $modulesDir "Common.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "AlertManager.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "ReportGenerator.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "SnmpService.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "PingEngine.psm1") -Force -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "IperfRunner.psm1") -Force -ErrorAction SilentlyContinue
+}
 
 # Clean up any leftover iperf3.exe processes from previous unclean exits
 try {
@@ -70,6 +81,8 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.HttpStatus    = [hashtable]::Synchronized(@{})
 
     $syncHash.InterfaceErrors = [hashtable]::Synchronized(@{}) # Stores current error counts and deltas
+    $syncHash.CheckType       = [hashtable]::Synchronized(@{}) # icmp or tcp
+    $syncHash.Port            = [hashtable]::Synchronized(@{}) # TCP port for port monitoring
     
     # SNMPv3 security parameters
     $syncHash.SnmpVersion   = [hashtable]::Synchronized(@{})
@@ -92,6 +105,8 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.OutageThresh1Ms   = 600  # Threshold 1 for outage count (ms)
     $syncHash.OutageThresh2Ms   = 5000 # Threshold 2 for outage count (ms)
     $syncHash.LatencyThreshMs   = 100  # Threshold for latency alert (ms)
+    $syncHash.LatencyWarningMs  = 80   # 2段階アラート用: Warning遅延閾値 (ms)
+    $syncHash.ConsecutiveFailThresh = 2 # 2段階アラート用: 障害判定に必要な連続失敗回数
     $syncHash.LogRetentionDays  = 30   # Auto-purge old reports older than N days (0=disabled)
     $syncHash.WebhookUrl        = ""   # Webhook URL for external notifications (Slack/Teams/Discord)
     $syncHash.WebhookEnabled    = $false
@@ -129,6 +144,8 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             if ($null -ne $savedConfig.outageThresh1Ms)    { $syncHash.OutageThresh1Ms    = [int]$savedConfig.outageThresh1Ms }
             if ($null -ne $savedConfig.outageThresh2Ms)    { $syncHash.OutageThresh2Ms    = [int]$savedConfig.outageThresh2Ms }
             if ($null -ne $savedConfig.latencyThreshMs)    { $syncHash.LatencyThreshMs    = [int]$savedConfig.latencyThreshMs }
+            if ($null -ne $savedConfig.latencyWarningMs)   { $syncHash.LatencyWarningMs   = [int]$savedConfig.latencyWarningMs }
+            if ($null -ne $savedConfig.consecutiveFailThresh) { $syncHash.ConsecutiveFailThresh = [int]$savedConfig.consecutiveFailThresh }
             if ($null -ne $savedConfig.logRetentionDays)   { $syncHash.LogRetentionDays   = [int]$savedConfig.logRetentionDays }
             if ($null -ne $savedConfig.webhookUrl)         { $syncHash.WebhookUrl         = [string]$savedConfig.webhookUrl }
             if ($null -ne $savedConfig.webhookEnabled)     { $syncHash.WebhookEnabled     = [bool]$savedConfig.webhookEnabled }
@@ -141,7 +158,10 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             if ($null -ne $savedConfig.smtpPort)           { $syncHash.SmtpPort           = [int]$savedConfig.smtpPort }
             if ($null -ne $savedConfig.smtpSsl)            { $syncHash.SmtpSsl            = [bool]$savedConfig.smtpSsl }
             if ($null -ne $savedConfig.smtpUser)           { $syncHash.SmtpUser           = [string]$savedConfig.smtpUser }
-            if ($null -ne $savedConfig.smtpPass)           { $syncHash.SmtpPass           = [string]$savedConfig.smtpPass }
+            if ($null -ne $savedConfig.smtpPass)           {
+                # DPAPI復号（平文であればそのまま読み込まれ、保存時に暗号化）
+                $syncHash.SmtpPass = Unprotect-SecretString ([string]$savedConfig.smtpPass)
+            }
             if ($null -ne $savedConfig.smtpFrom)           { $syncHash.SmtpFrom           = [string]$savedConfig.smtpFrom }
             if ($null -ne $savedConfig.smtpTo)             { $syncHash.SmtpTo             = [string]$savedConfig.smtpTo }
 
@@ -407,989 +427,7 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
         }
         return $cleanBlocks
     }
-
-    # Helper: Generate graphical inspection report (HTML with Chart.js line charts)
-    function Generate-SessionReportHtml {
-        param(
-            [hashtable]$sync,
-            [string]$period = "today",
-            [string]$savePath = $null
-        )
-        $tsNow = (Get-Date).ToString("yyyy年MM月dd日 HH:mm:ss")
-        $sessionDir = $sync.SessionDir
-        $devices = $sync.Devices
-        if ($null -eq $devices) { $devices = @() }
-
-        # フラッシュ前のメモリキューがあれば CSV に書き込み
-        if ($sync.History) {
-            foreach ($ip in $devices) {
-                $hList = $sync.History[$ip]
-                if ($null -ne $hList) {
-                    $lines = @()
-                    [System.Threading.Monitor]::Enter($hList.SyncRoot)
-                    try {
-                        if ($hList.Count -gt 0) {
-                            $lines = $hList.ToArray()
-                            $hList.Clear()
-                        }
-                    } finally {
-                        [System.Threading.Monitor]::Exit($hList.SyncRoot)
-                    }
-                    if ($lines.Count -gt 0 -and $sessionDir) {
-                        $sIp = $ip -replace '[\\/:*?"<>|]', '_'
-                        $cP = Join-Path $sessionDir "${sIp}.csv"
-                        try { [System.IO.File]::AppendAllText($cP, ($lines -join "`r`n") + "`r`n", [System.Text.Encoding]::GetEncoding(932)) } catch {}
-                    }
-                }
-            }
-        }
-
-        # Chart.js のインラインコード取得 (完全オフライン・どのURL階層からでも確実に動作)
-        $chartJsInline = ""
-        $baseDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-        $candidatePaths = @(
-            (Join-Path $baseDir "public\chart.js"),
-            (Join-Path $baseDir "system\public\chart.js")
-        )
-        foreach ($cp in $candidatePaths) {
-            if (Test-Path $cp) {
-                try {
-                    $chartJsInline = [System.IO.File]::ReadAllText($cp, [System.Text.Encoding]::UTF8)
-                    if ($chartJsInline) { break }
-                } catch {}
-            }
-        }
-
-        $palette = @(
-            '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6',
-            '#06b6d4', '#f43f5e', '#14b8a6', '#6366f1', '#84cc16',
-            '#d946ef', '#0ea5e9', '#eab308', '#a855f7', '#22c55e'
-        )
-
-        $reportRows = @()
-        $allTotalSuccess = 0
-        $allTotalPings = 0
-        $totalLatSum = 0.0
-        $totalLatCount = 0
-        $maxOverallOutage = 0.0
-
-        $chartDataObj = @{
-            devices = @()
-        }
-
-        $devCardsHtml = @()
-        $devIdx = 0
-
-        foreach ($ip in $devices) {
-            $st = if ($sync.Status.ContainsKey($ip) -and $sync.Status[$ip].status) { $sync.Status[$ip].status } else { "Unknown" }
-            $stats = $sync.Stats[$ip]
-
-            # ── PAUSED（一時停止中）または一度も計測されていない機器はレポートから除外 ──
-            $isPaused = ($st -eq "PAUSED")
-            $hasMeasured = ($null -ne $stats -and $stats.Total -gt 0)
-            if ($isPaused -or -not $hasMeasured) {
-                continue
-            }
-
-            $dName   = if ($sync.DeviceName.ContainsKey($ip) -and $sync.DeviceName[$ip]) { $sync.DeviceName[$ip] } else { $ip }
-            $dGroup  = if ($sync.Group.ContainsKey($ip) -and $sync.Group[$ip]) { $sync.Group[$ip] } else { "未分類" }
-            $dLoc    = if ($sync.Location.ContainsKey($ip) -and $sync.Location[$ip]) { $sync.Location[$ip] } else { "—" }
-            $dManual = if ($sync.TroubleMemo.ContainsKey($ip) -and $sync.TroubleMemo[$ip]) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($sync.TroubleMemo[$ip]))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
-            $color   = $palette[$devIdx % $palette.Count]
-
-            $totalPings = 0
-            $success = 0
-            $failed = 0
-            $reachRate = "100.0%"
-            $lossRate = "0.0%"
-            $avgJit = "—"
-            $minLat = "—"
-            $maxLat = "—"
-            $avgLat = "—"
-            $maxOutage = "—"
-            $out600ms = "0 回"
-            $out5s = "0 回"
-
-            if ($null -ne $stats) {
-                $totalPings = $stats.Total
-                $success = $stats.Success
-                $failed = $stats.Failed
-                if ($totalPings -gt 0) {
-                    $reachVal = [math]::Round(($success / $totalPings) * 100, 2)
-                    $reachRate = "${reachVal}%"
-                    $lossVal = [math]::Round(($failed / $totalPings) * 100, 2)
-                    $lossRate = "${lossVal}%"
-                    $allTotalSuccess += $success
-                    $allTotalPings += $totalPings
-                }
-                if ($stats.JitterCount -gt 0) {
-                    $avgJit = "$([math]::Round($stats.JitterSum / $stats.JitterCount, 2)) ms"
-                }
-                if ($stats.LatCount -gt 0) {
-                    if ($stats.MinLat -ne [double]::MaxValue -and $stats.MinLat -gt 0) { $minLat = "$($stats.MinLat) ms" }
-                    if ($stats.MaxLat -gt 0) { $maxLat = "$($stats.MaxLat) ms" }
-                    $avgLatVal = [math]::Round($stats.SumLat / $stats.LatCount, 1)
-                    $avgLat = "$avgLatVal ms"
-                    $totalLatSum += $stats.SumLat
-                    $totalLatCount += $stats.LatCount
-                }
-                if ($stats.MaxOutageSec -gt 0) {
-                    $maxOutage = "$([math]::Round($stats.MaxOutageSec * 1000, 0)) ms"
-                    if ($stats.MaxOutageSec -gt $maxOverallOutage) { $maxOverallOutage = $stats.MaxOutageSec }
-                }
-                $out600ms = "$($stats.Outage600msCount) 回"
-                $out5s = "$($stats.Outage5sCount) 回"
-            }
-
-            # 監視頻度 (Ping間隔) の算出
-            $baseIntervalMs = if ($sync.PollInterval -gt 0) { [int]$sync.PollInterval } else { 1000 }
-            $highFreqIps = if ($sync.HighFreqTargetIps) { ($sync.HighFreqTargetIps -split ',') | ForEach-Object { $_.Trim() } } else { @() }
-            $isUltraHighFreq = ($baseIntervalMs -le 100)
-
-            $freqDisplay = if ($isUltraHighFreq) {
-                if ($highFreqIps -contains $ip) {
-                    "0.1s (100ms)"
-                } else {
-                    "5.0s (5秒)"
-                }
-            } else {
-                if ($baseIntervalMs -ge 1000) {
-                    if ($baseIntervalMs % 1000 -eq 0) {
-                        "$([int]($baseIntervalMs / 1000))s ($([int]($baseIntervalMs / 1000))秒)"
-                    } else {
-                        "$([math]::Round($baseIntervalMs / 1000, 1))s"
-                    }
-                } else {
-                    "$([math]::Round($baseIntervalMs / 1000, 2))s (${baseIntervalMs}ms)"
-                }
-            }
-
-            $reportRows += @"
-<tr>
-    <td><span class="color-dot" style="background-color:$color;"></span><strong>$([System.Web.HttpUtility]::HtmlEncode($dName))</strong><br><small style="color:#64748b;">$ip</small></td>
-    <td>$dGroup<br><small style="color:#64748b;">$dLoc</small></td>
-    <td><span class="status-tag $($st.ToLower())">$st</span></td>
-    <td style="text-align:center; font-weight:600; color:#475569; white-space:nowrap;">$freqDisplay</td>
-    <td style="text-align:right;">$totalPings</td>
-    <td style="text-align:right; color:#16a34a; font-weight:600;">$success</td>
-    <td style="text-align:right; color:#dc2626; font-weight:600;">$failed</td>
-    <td style="text-align:right; font-weight:700;">$reachRate</td>
-    <td style="text-align:right;">$lossRate</td>
-    <td style="text-align:right;">$avgJit</td>
-    <td style="text-align:right;">$minLat</td>
-    <td style="text-align:right;">$maxLat</td>
-    <td style="text-align:right; font-weight:600; color:#2563eb;">$avgLat</td>
-    <td style="text-align:right; color:#f59e0b; font-weight:600;">$maxOutage</td>
-    <td style="text-align:right;">$out600ms</td>
-    <td style="text-align:right;">$out5s</td>
-    <td style="text-align:center;"><small>$dManual</small></td>
-</tr>
-"@
-
-            # CSVログからの時系列データ抽出
-            $safeIp = $ip -replace '[\\/:*?"<>|]', '_'
-            $csvPath = if ($sessionDir) { Join-Path $sessionDir "${safeIp}.csv" } else { "" }
-            if ($csvPath -and -not (Test-Path $csvPath)) {
-                $altSafeIp = $ip -replace '[\.:_]', '_'
-                $altCsvPath = Join-Path $sessionDir "${altSafeIp}.csv"
-                if (Test-Path $altCsvPath) { $csvPath = $altCsvPath }
-            }
-
-            $timeSeries = @()
-            if ($csvPath -and (Test-Path $csvPath)) {
-                try {
-                    $rawLines = [System.IO.File]::ReadAllLines($csvPath, [System.Text.Encoding]::GetEncoding(932))
-                    $validLines = @()
-                    foreach ($line in $rawLines) {
-                        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("---")) {
-                            if ($validLines.Count -gt 0) { break }
-                            continue
-                        }
-                        $validLines += $line
-                    }
-                    if ($validLines.Count -gt 1) {
-                        $parsedCsv = $validLines | ConvertFrom-Csv
-                        $totalRecords = $parsedCsv.Count
-                        $step = if ($totalRecords -gt 1200) { [math]::Ceiling($totalRecords / 1200) } else { 1 }
-                        
-                        for ($i = 0; $i -lt $totalRecords; $i += $step) {
-                            $row = $parsedCsv[$i]
-                            $tStr = if ($row.タイムスタンプ) { $row.タイムスタンプ } elseif ($row.Timestamp) { $row.Timestamp } else { "" }
-                            $tShort = if ($tStr.Length -ge 19) { $tStr.Substring(11, 8) } else { $tStr }
-                            
-                            $latR = if ($row.遅延_ms) { $row.遅延_ms } elseif ($row.Latency_ms) { $row.Latency_ms } else { "" }
-                            $latV = if ($latR -match '^\d+(\.\d+)?$') { [double]$latR } else { $null }
-                            
-                            $jitR = if ($row.ジッター_ms) { $row.ジッター_ms } elseif ($row.Jitter_ms) { $row.Jitter_ms } else { "" }
-                            $jitV = if ($jitR -match '^\d+(\.\d+)?$') { [double]$jitR } else { $null }
-                            
-                            $txR = if ($row.送信_Mbps) { $row.送信_Mbps } elseif ($row.Tx_Mbps) { $row.Tx_Mbps } else { "" }
-                            $txV = if ($txR -match '^\d+(\.\d+)?$') { [double]$txR } else { $null }
-                            
-                            $rxR = if ($row.受信_Mbps) { $row.受信_Mbps } elseif ($row.Rx_Mbps) { $row.Rx_Mbps } else { "" }
-                            $rxV = if ($rxR -match '^\d+(\.\d+)?$') { [double]$rxR } else { $null }
-                            
-                            $outR = if ($row.瞬断継続_sec) { $row.瞬断継続_sec } else { "" }
-                            $outV = if ($outR -match '^\d+(\.\d+)?$') { [double]$outR } else { 0 }
-                            
-                            $stR = if ($row.ステータス) { $row.ステータス } elseif ($row.Status) { $row.Status } else { "" }
-
-                            $timeSeries += @{
-                                t   = $tShort
-                                lat = $latV
-                                jit = $jitV
-                                tx  = $txV
-                                rx  = $rxV
-                                out = $outV
-                                st  = $stR
-                            }
-                        }
-                    }
-                } catch { }
-            }
-
-            $chartDataObj.devices += @{
-                ip         = $ip
-                name       = $dName
-                group      = $dGroup
-                color      = $color
-                timeSeries = $timeSeries
-            }
-
-            $devCardsHtml += @"
-<div class="device-card">
-    <div class="device-card-header">
-        <div>
-            <span class="color-dot" style="background-color:$color;"></span>
-            <strong>$dName</strong> <span style="font-size:12px; color:#64748b;">($ip)</span>
-        </div>
-        <span class="status-tag $($st.ToLower())">$st</span>
-    </div>
-    <div class="device-chart-box">
-        <canvas id="device-chart-$devIdx"></canvas>
-    </div>
-</div>
-"@
-            $devIdx++
-        }
-
-        $overallSla = if ($allTotalPings -gt 0) { "$([math]::Round(($allTotalSuccess / $allTotalPings) * 100, 2))%" } else { "100.0%" }
-        $overallAvgLat = if ($totalLatCount -gt 0) { "$([math]::Round($totalLatSum / $totalLatCount, 1)) ms" } else { "—" }
-        $overallMaxOutageStr = if ($maxOverallOutage -gt 0) { "$([math]::Round($maxOverallOutage * 1000, 0)) ms" } else { "0 ms" }
-        $rowsHtml = $reportRows -join "`n"
-        $devCardsHtmlStr = $devCardsHtml -join "`n"
-
-        # ── 瞬断・通信切断 発生履歴明細テーブルの構築（どこからどこまでの期間瞬断したか） ──
-        $allOutageEvents = @()
-        foreach ($ip in $devices) {
-            $stats = $sync.Stats[$ip]
-            $dName = if ($sync.DeviceName.ContainsKey($ip) -and $sync.DeviceName[$ip]) { $sync.DeviceName[$ip] } else { $ip }
-            if ($stats -and $stats.OutageEvents -and $stats.OutageEvents.Count -gt 0) {
-                foreach ($ev in $stats.OutageEvents) {
-                    $allOutageEvents += @{
-                        Ip         = $ip
-                        Name       = $dName
-                        StartTime  = $ev.StartTime
-                        EndTime    = $ev.EndTime
-                        DurationMs = $ev.DurationMs
-                        Category   = $ev.Category
-                    }
-                }
-            }
-        }
-
-        $outageDetailsHtml = ""
-        $thresh1Ms = if ($sync.OutageThresh1Ms) { $sync.OutageThresh1Ms } else { 600 }
-        if ($allOutageEvents.Count -gt 0) {
-            $evRows = @()
-            $evIdx = 1
-            foreach ($ev in ($allOutageEvents | Sort-Object { $_.StartTime })) {
-                $badgeStyle = if ($ev.Category -match "重大|5s") { "background:#fef2f2; color:#dc2626; border:1px solid #fecaca;" } else { "background:#fffbeb; color:#d97706; border:1px solid #fde68a;" }
-                $evRows += @"
-<tr>
-    <td style="text-align:center; font-weight:600; color:#64748b;">$evIdx</td>
-    <td><strong>$([System.Web.HttpUtility]::HtmlEncode($ev.Name))</strong><br><small style="color:#64748b;">$($ev.Ip)</small></td>
-    <td style="font-family:monospace; font-weight:600; color:#dc2626;">$($ev.StartTime)</td>
-    <td style="font-family:monospace; font-weight:600; color:#16a34a;">$($ev.EndTime)</td>
-    <td style="text-align:right; font-weight:700; color:#f59e0b;">$($ev.DurationMs) ms</td>
-    <td style="text-align:center;"><span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; $badgeStyle">$($ev.Category)</span></td>
-</tr>
-"@
-                $evIdx++
-            }
-            $evRowsHtml = $evRows -join "`n"
-            $outageDetailsHtml = @"
-<div style="overflow-x:auto;">
-    <table>
-        <thead>
-            <tr>
-                <th style="width:40px; text-align:center;">No</th>
-                <th>機器名 / IPアドレス</th>
-                <th>瞬断開始日時</th>
-                <th>復旧完了日時</th>
-                <th>継続時間 (ms)</th>
-                <th style="text-align:center;">判定区分</th>
-            </tr>
-        </thead>
-        <tbody>
-            $evRowsHtml
-        </tbody>
-    </table>
-</div>
-"@
-        } else {
-            $outageDetailsHtml = @"
-<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px 16px; color:#166534; font-size:13px; display:flex; align-items:center; gap:8px;">
-    <span style="font-size:16px;">✔</span>
-    <span>本計測期間中に規定閾値（${thresh1Ms}ms以上）を超える瞬断・通信途絶は検知されませんでした（完全安定稼働）。</span>
-</div>
-"@
-        }
-
-        # ── Iperf3 計測結果ログ（iperf_*.log）の収集・グラフデータ構築 ──
-        $iperfResults = @()
-        $iperfCardsHtml = @()
-        $iperfCardIdx = 0
-        
-        $sessDir = if ($sync.SessionDir -and (Test-Path $sync.SessionDir)) { $sync.SessionDir } else { $null }
-        if ($sessDir) {
-            $iperfLogFiles = Get-ChildItem -Path $sessDir -Filter "iperf_*.log" -ErrorAction SilentlyContinue
-            foreach ($logFile in $iperfLogFiles) {
-                try {
-                    $rawLines = [System.IO.File]::ReadAllLines($logFile.FullName, [System.Text.Encoding]::UTF8)
-                    $logContent = Clean-IperfLogLines $rawLines
-                    
-                    if (-not $logContent -or $logContent.Count -eq 0) {
-                        # 全てのブロックがコネクションエラー等で有効データがない場合はファイルを削除してスキップ
-                        try { Remove-Item $logFile.FullName -Force -ErrorAction SilentlyContinue } catch {}
-                        continue
-                    }
-                    if ($logContent.Count -lt $rawLines.Count) {
-                        # エラーブロックが除去された場合はクリーンなログで上書き再保存
-                        try { [System.IO.File]::WriteAllLines($logFile.FullName, $logContent, [System.Text.Encoding]::UTF8) } catch {}
-                    }
-                    
-                    $logSafeIp = $logFile.BaseName -replace '^iperf_', ''
-                    $targetIp  = $logSafeIp -replace '_', '.'
-                    $dName = if ($sync.DeviceName.ContainsKey($targetIp) -and $sync.DeviceName[$targetIp]) { $sync.DeviceName[$targetIp] } else { $targetIp }
-
-                    $isUdp = $false
-                    $bwPoints = @()
-                    $jitPoints = @()
-                    $protoStr = "TCP"
-                    $summaryObj = @{
-                        Target = "$dName ($targetIp)"
-                        Protocol = "TCP"
-                        Duration = "—"
-                        Transfer = "—"
-                        AvgBw = "—"
-                        MaxBw = "—"
-                        MinBw = "—"
-                        Jitter = "—"
-                        Loss = "—"
-                        Retr = "—"
-                        Evaluation = "—"
-                    }
-
-                    $execStartTime = $null
-                    foreach ($l in $logContent) {
-                        if ($l -match 'Execution at\s+([0-9\-:\s]+)') {
-                            try { $execStartTime = [datetime]::ParseExact($Matches[1].Trim(), "yyyy-MM-dd HH:mm:ss", $null) } catch {}
-                        }
-                        if ($l -match 'Command:\s*iperf3\s+.*?-u' -or $l -match '通信プロトコル\s*:\s*UDP') { $isUdp = $true; $protoStr = "UDP" }
-
-                        $lineTs = ""
-                        if ($l -match '^\[([0-9]{2}:[0-9]{2}:[0-9]{2})\]') {
-                            $lineTs = $Matches[1]
-                        }
-                        
-                        # UDP line
-                        if ($l -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+([0-9.]+)\s+([KMG]?)Bytes\s+([0-9.]+)\s+([KMG]?)bits/sec\s+([0-9.]+)\s+ms\s+(\d+)/(\d+)\s+\(([0-9.]+)%\)') {
-                            $isUdp = $true; $protoStr = "UDP"
-                            $sT = [double]$Matches[1]; $eT = [double]$Matches[2]
-                            $bwR = [double]$Matches[5]; $bwU = $Matches[6]
-                            $jM = [double]$Matches[7]
-                            $bwM = switch ($bwU) { 'K' { $bwR / 1000.0 } 'G' { $bwR * 1000.0 } default { $bwR } }
-                            $lbl = if ($lineTs) { $lineTs } elseif ($execStartTime) { $execStartTime.AddSeconds($eT).ToString("HH:mm:ss") } else { "${sT}-${eT}s" }
-                            if ($l -notmatch 'sender|receiver|SUM' -and ($eT - $sT) -le 1.5) {
-                                $bwPoints += @{ sec = $eT; val = [math]::Round($bwM, 2); label = $lbl }
-                                $jitPoints += @{ sec = $eT; val = [math]::Round($jM, 3); label = $lbl }
-                            }
-                        }
-                        # TCP line
-                        elseif ($l -match '\[\s*\d+\]\s+([0-9.]+)-([0-9.]+)\s+sec\s+([0-9.]+)\s+([KMG]?)Bytes\s+([0-9.]+)\s+([KMG]?)bits/sec' -and $l -notmatch 'sender|receiver|SUM') {
-                            $sT = [double]$Matches[1]; $eT = [double]$Matches[2]
-                            $bwR = [double]$Matches[5]; $bwU = $Matches[6]
-                            $bwM = switch ($bwU) { 'K' { $bwR / 1000.0 } 'G' { $bwR * 1000.0 } default { $bwR } }
-                            $lbl = if ($lineTs) { $lineTs } elseif ($execStartTime) { $execStartTime.AddSeconds($eT).ToString("HH:mm:ss") } else { "${sT}-${eT}s" }
-                            if (($eT - $sT) -le 1.5) {
-                                $bwPoints += @{ sec = $eT; val = [math]::Round($bwM, 2); label = $lbl }
-                            }
-                        }
-
-                        # Summary lines parser
-                        if ($l -match '通信プロトコル\s*:\s*(.+)') { $summaryObj.Protocol = $Matches[1].Trim() }
-                        if ($l -match '合計計測時間\s*:\s*(.+)') { $summaryObj.Duration = $Matches[1].Trim() }
-                        if ($l -match '合計データ転送量\s*:\s*(.+)') { $summaryObj.Transfer = $Matches[1].Trim() }
-                        if ($l -match '平均帯域.*:\s*(.+)') { $summaryObj.AvgBw = $Matches[1].Trim() }
-                        if ($l -match '最大帯域\s*:\s*(.+)') { $summaryObj.MaxBw = $Matches[1].Trim() }
-                        if ($l -match '最小帯域\s*:\s*(.+)') { $summaryObj.MinBw = $Matches[1].Trim() }
-                        if ($l -match '平均ジッター.*:\s*(.+)') { $summaryObj.Jitter = $Matches[1].Trim() }
-                        if ($l -match 'パケット損失率.*:\s*(.+)') { $summaryObj.Loss = $Matches[1].Trim() }
-                        if ($l -match 'TCP再送パケット数\s*:\s*(.+)') { $summaryObj.Retr = $Matches[1].Trim() }
-                        if ($l -match '品質評価.*:\s*(.+)') { $summaryObj.Evaluation = $Matches[1].Trim() }
-                    }
-
-                    if ($bwPoints.Count -gt 0) {
-                        $iperfResults += @{
-                            target     = $targetIp
-                            name       = $dName
-                            protocol   = $protoStr
-                            isUdp      = $isUdp
-                            bwPoints   = $bwPoints
-                            jitPoints  = $jitPoints
-                            summary    = $summaryObj
-                        }
-
-                        $protoBadge = if ($isUdp) { "background:#0284c7; color:#fff;" } else { "background:#3b82f6; color:#fff;" }
-                        $cardHtml = @"
-<div class="device-card" style="margin-bottom:16px;">
-    <div class="device-card-header">
-        <div>
-            <span style="display:inline-block; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700; $protoBadge">$protoStr</span>
-            <strong style="margin-left:6px;">$([System.Web.HttpUtility]::HtmlEncode($dName))</strong> <span style="font-size:12px; color:#64748b;">($targetIp)</span>
-        </div>
-        <span style="font-size:12px; font-weight:600; color:#16a34a;">$([System.Web.HttpUtility]::HtmlEncode($summaryObj.Evaluation))</span>
-    </div>
-    <div style="padding:8px 12px; background:#f8fafc; border-bottom:1px solid #e2e8f0; font-size:12px; display:flex; flex-wrap:wrap; gap:16px;">
-        <div>平均スループット: <strong>$($summaryObj.AvgBw)</strong></div>
-        <div>計測時間: <strong>$($summaryObj.Duration)</strong></div>
-        <div>転送量: <strong>$($summaryObj.Transfer)</strong></div>
-        $(if ($isUdp) { "<div>ジッター: <strong>$($summaryObj.Jitter)</strong></div><div>損失率: <strong>$($summaryObj.Loss)</strong></div>" } else { "<div>再送: <strong>$($summaryObj.Retr)</strong></div>" })
-    </div>
-    <div class="device-chart-box" style="height:180px;">
-        <canvas id="iperf-report-chart-$iperfCardIdx"></canvas>
-    </div>
-</div>
-"@
-                        $iperfCardsHtml += $cardHtml
-                        $iperfCardIdx++
-                    }
-                } catch { }
-            }
-        }
-        $chartDataObj.iperfResults = $iperfResults
-        $iperfSectionHtml = if ($iperfCardsHtml.Count -gt 0) {
-            $iperfCardsHtml -join "`n"
-        } else {
-            @"
-<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px 16px; color:#64748b; font-size:12px;">
-    ※ 本セッション中に Iperf3 帯域計測は実行されませんでした（またはログがありません）。
-</div>
-"@
-        }
-
-        # Issue 9: 長時間セッションでのメモリ消費を抑えるため、各機器のtimeSeries上限を2000点にクランプ
-        foreach ($devObj in $chartDataObj.devices) {
-            if ($devObj.timeSeries -and $devObj.timeSeries.Count -gt 2000) {
-                $step = [math]::Ceiling($devObj.timeSeries.Count / 2000)
-                $thinned = @()
-                for ($ti = 0; $ti -lt $devObj.timeSeries.Count; $ti += $step) { $thinned += $devObj.timeSeries[$ti] }
-                $devObj.timeSeries = $thinned
-            }
-        }
-        $chartDataJson = $chartDataObj | ConvertTo-Json -Depth 6 -Compress
-
-        # Chart.js を安全に注入するため scriptBlock を別途構築（ヒアドキュメント内の $ 誤解釈を防ぐ）
-        if ($chartJsInline) {
-            $chartScriptTag = "<script>" + "`n" + $chartJsInline + "`n" + "</script>"
-        } else {
-            $chartScriptTag = "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js'></script>"
-        }
-
-        $reportHtmlPart1 = @"
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ネットワーク機器 定期点検・折れ線グラフ報告書 ($tsNow)</title>
-"@
-        # Chart.js スクリプトタグを文字列連結で安全に注入（$ 記号の誤解釈を防ぐ）
-        $reportHtmlPart1 += $chartScriptTag
-        $reportHtmlPart2 = @"
-    <style>
-        @page { size: A4 landscape; margin: 10mm; }
-        * { box-sizing: border-box; }
-        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Yu Gothic UI', Meiryo, sans-serif; color: #1e293b; background: #f8fafc; margin: 0; padding: 20px; line-height: 1.5; font-size: 12px; }
-        .container { max-width: 1280px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
-        .report-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #3b82f6; padding-bottom: 12px; margin-bottom: 20px; }
-        .report-title { font-size: 20px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px; }
-        .report-meta { text-align: right; font-size: 11px; color: #64748b; }
-        .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
-        .summary-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center; }
-        .summary-box .val { font-size: 22px; font-weight: 800; color: #2563eb; }
-        .summary-box .label { font-size: 11px; color: #64748b; margin-top: 2px; font-weight: 600; }
-        .section-title { font-size: 14px; font-weight: 700; margin: 24px 0 10px 0; border-left: 4px solid #3b82f6; padding-left: 8px; color: #0f172a; display: flex; align-items: center; gap: 6px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11px; }
-        th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }
-        th { background: #f1f5f9; color: #334155; font-weight: 700; font-size: 10.5px; white-space: nowrap; }
-        tr:nth-child(even) { background: #f8fafc; }
-        .color-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-        .status-tag { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
-        .status-tag.success { background: #dcfce7; color: #15803d; }
-        .status-tag.failed { background: #fee2e2; color: #b91c1c; }
-        .status-tag.unknown { background: #f1f5f9; color: #64748b; }
-        .chart-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-        .chart-card-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 10px; }
-        .chart-box { position: relative; height: 260px; width: 100%; }
-        .device-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 10px; }
-        .device-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
-        .device-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-        .device-chart-box { position: relative; height: 160px; width: 100%; }
-        .print-bar { position: fixed; top: 15px; right: 15px; background: #0f172a; color: #fff; padding: 8px 16px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; gap: 10px; align-items: center; z-index: 999; }
-        .print-btn { background: #2563eb; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 11px; }
-        .print-btn:hover { background: #1d4ed8; }
-        @media print {
-            .print-bar { display: none; }
-            body { background: #fff; padding: 0; font-size: 10.5px; }
-            .container { border: none; box-shadow: none; padding: 0; max-width: 100%; }
-            .chart-card, .device-card { break-inside: avoid; }
-            table { break-inside: auto; }
-            tr { break-inside: avoid; }
-        }
-    </style>
-</head>
-<body>
-    <div class="print-bar">
-        <span>📄 グラフ付き点検報告書</span>
-        <button class="print-btn" onclick="window.print()">🖨️ 印刷 / PDF保存</button>
-    </div>
-
-    <div class="container">
-        <div class="report-header">
-            <div>
-                <h1 class="report-title">📊 ネットワーク機器 稼働状況・定期点検報告書</h1>
-                <div style="font-size:11px; color:#64748b; margin-top:4px;">対象期間: $period | 作成日時: $tsNow</div>
-            </div>
-            <div class="report-meta">
-                <div><strong>システム名:</strong> Network Device Monitor</div>
-                <div><strong>総合可用性 (到達率):</strong> <span style="color:#16a34a; font-weight:800; font-size:13px;">$overallSla</span></div>
-            </div>
-        </div>
-
-        <div class="summary-grid">
-            <div class="summary-box">
-                <div class="val">$($chartDataObj.devices.Count)</div>
-                <div class="label">計測対象機器数</div>
-            </div>
-            <div class="summary-box">
-                <div class="val" style="color:#16a34a;">$overallSla</div>
-                <div class="label">全体到達率 (稼働率)</div>
-            </div>
-            <div class="summary-box">
-                <div class="val" style="color:#0284c7;">$overallAvgLat</div>
-                <div class="label">全体平均遅延</div>
-            </div>
-            <div class="summary-box">
-                <div class="val" style="color:#f59e0b;">$overallMaxOutageStr</div>
-                <div class="label">最大瞬断時間</div>
-            </div>
-        </div>
-
-        <div class="section-title">1. 機器別 稼働・遅延・統計サマリー一覧</div>
-        <div style="overflow-x:auto;">
-            <table>
-                <thead>
-                    <tr>
-                        <th>機器名 / IPアドレス</th>
-                        <th>グループ / 設置場所</th>
-                        <th>状態</th>
-                        <th>監視頻度</th>
-                        <th>総Ping数</th>
-                        <th>成功数</th>
-                        <th>失敗数</th>
-                        <th>到達率 (%)</th>
-                        <th>パケット損失率 (%)</th>
-                        <th>平均ジッター</th>
-                        <th>最小遅延</th>
-                        <th>最大遅延</th>
-                        <th>平均遅延</th>
-                        <th>最大瞬断時間</th>
-                        <th>600ms以上瞬断</th>
-                        <th>5s以上瞬断</th>
-                        <th>マニュアル</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    $rowsHtml
-                </tbody>
-            </table>
-        </div>
-        <div style="font-size:10.5px; color:#64748b; margin-top:6px;">
-            ※ 瞬断回数は、通信断から復帰した時点でカウントされます（計測終了時点で継続中の瞬断は含みません）。
-        </div>
-
-        <div class="section-title">2. 瞬断・通信切断 発生履歴明細（発生日時・復旧完了日時・継続時間一覧）</div>
-        $outageDetailsHtml
-
-        <div class="section-title" style="margin-top:24px;">3. 全機器 応答遅延（Latency）推移グラフ (ms)</div>
-        <div class="chart-card">
-            <div class="chart-card-title">📈 時系列 応答遅延推移 (凡例クリックで各機器の表示/非表示を切り替え可能)</div>
-            <div class="chart-box">
-                <canvas id="unified-latency-chart"></canvas>
-            </div>
-        </div>
-
-        <div class="section-title">4. 全機器 ジッター（揺らぎ）推移グラフ (ms)</div>
-        <div class="chart-card">
-            <div class="chart-card-title">〰️ 時系列 ジッター推移 (通信のブレ・安定度)</div>
-            <div class="chart-box">
-                <canvas id="unified-jitter-chart"></canvas>
-            </div>
-        </div>
-
-        <div class="section-title">5. 機器別 詳細推移グラフ (遅延 & 送受信帯域)</div>
-        <div class="device-grid">
-            $devCardsHtmlStr
-        </div>
-
-        <div class="section-title" style="margin-top:24px;">6. Iperf3 帯域計測・スループット診断結果 (グラフ & サマリー一覧)</div>
-        <div class="device-grid" style="grid-template-columns: 1fr;">
-            $iperfSectionHtml
-        </div>
-
-        <div style="margin-top:30px; border-top:1px solid #e2e8f0; padding-top:12px; font-size:10.5px; color:#94a3b8; text-align:center;">
-            Generated by Network Device Monitor — $tsNow
-        </div>
-    </div>
-
-    <script id="report-data" type="application/json">
-$chartDataJson
-    </script>
-    <script>
-    function initReportCharts() {
-        var rawEl = document.getElementById('report-data');
-        if (!rawEl) return;
-        var reportData = {};
-        try {
-            reportData = JSON.parse(rawEl.textContent || '{}');
-        } catch(e) {
-            console.error('Failed to parse report-data JSON:', e);
-            return;
-        }
-        var devices = reportData.devices || [];
-        if (typeof Chart === 'undefined') {
-            console.error('Chart.js is not loaded.');
-            return;
-        }
-
-        // 1. 全機器のタイムスタンプを重複排除・昇順ソートして統一X軸を生成
-        var timeSet = {};
-        var hasAnyPoints = false;
-        devices.forEach(function(d) {
-            if (d.timeSeries && d.timeSeries.length > 0) {
-                hasAnyPoints = true;
-                d.timeSeries.forEach(function(p) {
-                    if (p.t) { timeSet[p.t] = true; }
-                });
-            }
-        });
-        var allTimestamps = Object.keys(timeSet).sort();
-
-        // 2. 全機器 応答遅延 (Latency) 統合グラフ
-        var latencyDatasets = devices.map(function(d) {
-            var devLabel = (d.name || d.ip) + ' (' + d.ip + ')';
-            var pts = (d.timeSeries || []).map(function(p) {
-                return { x: p.t, y: p.lat };
-            });
-            return {
-                label: devLabel,
-                data: pts,
-                borderColor: d.color,
-                backgroundColor: 'transparent',
-                borderWidth: 1.8,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                tension: 0.2,
-                fill: false,
-                spanGaps: true
-            };
-        });
-
-        var latCtx = document.getElementById('unified-latency-chart');
-        if (latCtx) {
-            new Chart(latCtx, {
-                type: 'line',
-                data: { labels: allTimestamps, datasets: latencyDatasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
-                        tooltip: {
-                            callbacks: {
-                                label: function(ctx) {
-                                    return ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '応答なし');
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: '#f1f5f9' },
-                            ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 10 } },
-                            title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: 10 } }
-                        },
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: '#f1f5f9' },
-                            title: { display: true, text: '遅延 (ms)', font: { size: 10 } }
-                        }
-                    }
-                }
-            });
-        }
-
-        // 3. 全機器 ジッター (Jitter) 統合グラフ
-        var jitterDatasets = devices.map(function(d) {
-            var devLabel = (d.name || d.ip) + ' (' + d.ip + ')';
-            var pts = (d.timeSeries || []).map(function(p) {
-                return { x: p.t, y: p.jit };
-            });
-            return {
-                label: devLabel,
-                data: pts,
-                borderColor: d.color,
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                tension: 0.2,
-                fill: false,
-                spanGaps: true
-            };
-        });
-
-        var jitCtx = document.getElementById('unified-jitter-chart');
-        if (jitCtx) {
-            new Chart(jitCtx, {
-                type: 'line',
-                data: { labels: allTimestamps, datasets: jitterDatasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
-                        tooltip: {
-                            callbacks: {
-                                label: function(ctx) {
-                                    return ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '-');
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: '#f1f5f9' },
-                            ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 10 } },
-                            title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: 10 } }
-                        },
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: '#f1f5f9' },
-                            title: { display: true, text: 'ジッター (ms)', font: { size: 10 } }
-                        }
-                    }
-                }
-            });
-        }
-
-        // 4. 機器別 詳細推移グラフ
-        devices.forEach(function(d, idx) {
-            var canvasEl = document.getElementById('device-chart-' + idx);
-            if (!canvasEl || !d.timeSeries || d.timeSeries.length === 0) return;
-
-            var labels = d.timeSeries.map(function(p) { return p.t; });
-            var latData = d.timeSeries.map(function(p) { return { x: p.t, y: p.lat }; });
-            var txData = d.timeSeries.map(function(p) { return { x: p.t, y: p.tx }; });
-            var rxData = d.timeSeries.map(function(p) { return { x: p.t, y: p.rx }; });
-            var hasTraffic = (d.timeSeries || []).some(function(p) { return (p.tx != null && p.tx > 0) || (p.rx != null && p.rx > 0); });
-
-            var datasets = [
-                {
-                    label: '応答遅延 (ms)',
-                    data: latData,
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
-                    borderWidth: 1.5,
-                    pointRadius: 0,
-                    tension: 0.2,
-                    spanGaps: true,
-                    yAxisID: 'y'
-                }
-            ];
-
-            if (hasTraffic) {
-                datasets.push({
-                    label: '送信 Tx (Mbps)',
-                    data: txData,
-                    borderColor: '#10b981',
-                    borderWidth: 1.2,
-                    pointRadius: 0,
-                    tension: 0.2,
-                    borderDash: [3, 3],
-                    spanGaps: true,
-                    yAxisID: 'yTraffic'
-                });
-                datasets.push({
-                    label: '受信 Rx (Mbps)',
-                    data: rxData,
-                    borderColor: '#f59e0b',
-                    borderWidth: 1.2,
-                    pointRadius: 0,
-                    tension: 0.2,
-                    borderDash: [3, 3],
-                    spanGaps: true,
-                    yAxisID: 'yTraffic'
-                });
-            }
-
-            var scales = {
-                x: {
-                    grid: { color: '#f8fafc' },
-                    ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 9 } }
-                },
-                y: {
-                    beginAtZero: true,
-                    grid: { color: '#f1f5f9' },
-                    title: { display: true, text: '遅延 (ms)', font: { size: 10 } }
-                }
-            };
-            if (hasTraffic) {
-                scales.yTraffic = {
-                    position: 'right',
-                    beginAtZero: true,
-                    grid: { drawOnChartArea: false },
-                    title: { display: true, text: '帯域 (Mbps)', font: { size: 10 } }
-                };
-            }
-
-            new Chart(canvasEl, {
-                type: 'line',
-                data: { labels: labels, datasets: datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } }
-                    },
-                    scales: scales
-                }
-            });
-        });
-
-        // 5. Iperf3 Result Charts
-        var iperfResults = reportData.iperfResults || [];
-        iperfResults.forEach(function(ipf, idx) {
-            var canvasEl = document.getElementById('iperf-report-chart-' + idx);
-            if (!canvasEl || !ipf.bwPoints || ipf.bwPoints.length === 0) return;
-
-            var labels = ipf.bwPoints.map(function(p) { return p.label; });
-            var bwData = ipf.bwPoints.map(function(p) { return { x: p.label, y: p.val }; });
-
-            var datasets = [
-                {
-                    label: 'スループット (Mbps)',
-                    data: bwData,
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    pointBackgroundColor: '#60a5fa',
-                    tension: 0.3,
-                    fill: true,
-                    yAxisID: 'y'
-                }
-            ];
-
-            if (ipf.isUdp && ipf.jitPoints && ipf.jitPoints.length > 0) {
-                var jitData = ipf.jitPoints.map(function(p) { return { x: p.label, y: p.val }; });
-                datasets.push({
-                    label: 'ジッター (ms)',
-                    data: jitData,
-                    borderColor: '#f59e0b',
-                    borderWidth: 1.5,
-                    borderDash: [4, 4],
-                    pointRadius: 2,
-                    tension: 0.2,
-                    fill: false,
-                    yAxisID: 'yJitter'
-                });
-            }
-
-            var scales = {
-                x: {
-                    grid: { color: '#f8fafc' },
-                    ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 9 } },
-                    title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: 9 } }
-                },
-                y: {
-                    beginAtZero: true,
-                    grid: { color: '#f1f5f9' },
-                    title: { display: true, text: '帯域 (Mbps)', font: { size: 10 } }
-                }
-            };
-
-            if (ipf.isUdp && ipf.jitPoints && ipf.jitPoints.length > 0) {
-                scales.yJitter = {
-                    position: 'right',
-                    beginAtZero: true,
-                    grid: { drawOnChartArea: false },
-                    title: { display: true, text: 'ジッター (ms)', font: { size: 10 } }
-                };
-            }
-
-            new Chart(canvasEl, {
-                type: 'line',
-                data: { labels: labels, datasets: datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } }
-                    },
-                    scales: scales
-                }
-            });
-        });
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initReportCharts);
-    } else {
-        initReportCharts();
-    }
-    </script>
-</body>
-</html>
-"@
-        # パート1とパート2を結合して完全なHTMLを組み立てる
-        $reportHtml = $reportHtmlPart1 + $reportHtmlPart2
-
-        if ($savePath) {
-            try {
-                $dir = Split-Path -Parent $savePath
-                if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-                [System.IO.File]::WriteAllText($savePath, $reportHtml, [System.Text.Encoding]::UTF8)
-            } catch { }
-        }
-
-        return $reportHtml
-    }
+    # Generate-SessionReportHtml is imported from ReportGenerator.psm1
 
     # Helper: Check HTTP/HTTPS response & SSL Certificate Expiry
     function Check-WebAndSslEndpoint {
@@ -1516,14 +554,16 @@ $chartDataJson
                         $syncHash.TroubleMemo[$ip]   = if ($null -ne $d.troubleMemo) { [string]$d.troubleMemo } else { "" }
                         $syncHash.DeviceType[$ip]    = if ($null -ne $d.deviceType) { [string]$d.deviceType } else { "network" }
                         $syncHash.WebUrl[$ip]        = if ($null -ne $d.webUrl) { [string]$d.webUrl } else { "" }
+                        $syncHash.CheckType[$ip]     = if ($null -ne $d.checkType) { [string]$d.checkType } else { "icmp" }
+                        $syncHash.Port[$ip]          = if ($null -ne $d.port) { [int]$d.port } else { 0 }
                         
-                        # Load SNMPv3 parameters
+                        # Load SNMPv3 parameters (DPAPI自動復号)
                         $syncHash.SnmpVersion[$ip]   = if ($null -ne $d.snmpVersion) { [string]$d.snmpVersion } else { "v2c" }
                         $syncHash.SnmpUser[$ip]      = if ($null -ne $d.snmpUser) { [string]$d.snmpUser } else { "" }
                         $syncHash.SnmpAuthProto[$ip] = if ($null -ne $d.snmpAuthProto) { [string]$d.snmpAuthProto } else { "none" }
-                        $syncHash.SnmpAuthPass[$ip]  = if ($null -ne $d.snmpAuthPass) { [string]$d.snmpAuthPass } else { "" }
+                        $syncHash.SnmpAuthPass[$ip]  = if ($null -ne $d.snmpAuthPass) { Unprotect-SecretString ([string]$d.snmpAuthPass) } else { "" }
                         $syncHash.SnmpPrivProto[$ip] = if ($null -ne $d.snmpPrivProto) { [string]$d.snmpPrivProto } else { "none" }
-                        $syncHash.SnmpPrivPass[$ip]  = if ($null -ne $d.snmpPrivPass) { [string]$d.snmpPrivPass } else { "" }
+                        $syncHash.SnmpPrivPass[$ip]  = if ($null -ne $d.snmpPrivPass) { Unprotect-SecretString ([string]$d.snmpPrivPass) } else { "" }
                     }
                 }
             }
@@ -1594,14 +634,16 @@ $saveDevicesJsonScript = {
                     troubleMemo = if ($syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" }
                     deviceType = if ($syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" }
                     webUrl = if ($syncHash.WebUrl.ContainsKey($ip)) { $syncHash.WebUrl[$ip] } else { "" }
+                    checkType = if ($syncHash.CheckType.ContainsKey($ip)) { $syncHash.CheckType[$ip] } else { "icmp" }
+                    port = if ($syncHash.Port.ContainsKey($ip)) { $syncHash.Port[$ip] } else { 0 }
                     
-                    # SNMPv3 properties
+                    # SNMPv3 properties (DPAPI暗号化保存)
                     snmpVersion = if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" }
                     snmpUser = if ($syncHash.SnmpUser.ContainsKey($ip)) { $syncHash.SnmpUser[$ip] } else { "" }
                     snmpAuthProto = if ($syncHash.SnmpAuthProto.ContainsKey($ip)) { $syncHash.SnmpAuthProto[$ip] } else { "none" }
-                    snmpAuthPass = if ($syncHash.SnmpAuthPass.ContainsKey($ip)) { $syncHash.SnmpAuthPass[$ip] } else { "" }
+                    snmpAuthPass = if ($syncHash.SnmpAuthPass.ContainsKey($ip) -and $syncHash.SnmpAuthPass[$ip]) { Protect-SecretString $syncHash.SnmpAuthPass[$ip] } else { "" }
                     snmpPrivProto = if ($syncHash.SnmpPrivProto.ContainsKey($ip)) { $syncHash.SnmpPrivProto[$ip] } else { "none" }
-                    snmpPrivPass = if ($syncHash.SnmpPrivPass.ContainsKey($ip)) { $syncHash.SnmpPrivPass[$ip] } else { "" }
+                    snmpPrivPass = if ($syncHash.SnmpPrivPass.ContainsKey($ip) -and $syncHash.SnmpPrivPass[$ip]) { Protect-SecretString $syncHash.SnmpPrivPass[$ip] } else { "" }
                 }
             }
             $jsonStr = ConvertTo-Json -InputObject $outArray -Depth 5
@@ -2035,15 +1077,41 @@ $pingScript = {
                 [math]::Min(1000, [math]::Max(200, $syncHash.PollInterval))
             }
 
+            # ── TCPポート死活監視 または ICMP Ping の切り替え ──
+            $isTcpCheck = ($syncHash.CheckType.ContainsKey($ip) -and $syncHash.CheckType[$ip] -eq "tcp" -and $syncHash.Port.ContainsKey($ip) -and $syncHash.Port[$ip] -gt 0)
+            if ($isTcpCheck) {
+                $targetPort = [int]$syncHash.Port[$ip]
+                $tcpClient = New-Object System.Net.Sockets.TcpClient
+                try {
+                    $swTcp = [System.Diagnostics.Stopwatch]::StartNew()
+                    $task = [System.Threading.Tasks.Task]::Factory.FromAsync(
+                        $tcpClient.BeginConnect,
+                        $tcpClient.EndConnect,
+                        $ip,
+                        $targetPort,
+                        $null
+                    )
+                    [PSCustomObject]@{
+                        IP = $ip; Ping = $null; TcpClient = $tcpClient; Task = $task; Stopwatch = $swTcp; IsTcp = $true; Port = $targetPort; Error = $false; Skipped = $false; KeepExisting = $false
+                    }
+                } catch {
+                    try { $tcpClient.Close(); $tcpClient.Dispose() } catch {}
+                    [PSCustomObject]@{
+                        IP = $ip; Ping = $null; TcpClient = $null; Task = $null; Stopwatch = $null; IsTcp = $true; Port = $targetPort; Error = $true; Skipped = $false; KeepExisting = $false
+                    }
+                }
+                continue
+            }
+
             $ping = New-Object System.Net.NetworkInformation.Ping
             try {
                 $task = $ping.SendPingAsync($ip, $pingTimeoutMs, $pingBuffer)
                 [PSCustomObject]@{
-                    IP = $ip; Ping = $ping; Task = $task; Error = $false; Skipped = $false; KeepExisting = $false
+                    IP = $ip; Ping = $ping; TcpClient = $null; Task = $task; Stopwatch = $null; IsTcp = $false; Port = 0; Error = $false; Skipped = $false; KeepExisting = $false
                 }
             } catch {
                 [PSCustomObject]@{
-                    IP = $ip; Ping = $ping; Task = $null; Error = $true; Skipped = $false; KeepExisting = $false
+                    IP = $ip; Ping = $ping; TcpClient = $null; Task = $null; Stopwatch = $null; IsTcp = $false; Port = 0; Error = $true; Skipped = $false; KeepExisting = $false
                 }
             }
         }
@@ -2076,21 +1144,50 @@ $pingScript = {
 
             $reply = $null
             if ($t.Skipped) {
-                $syncHash.Status[$ip] = @{ status = "Paused"; latency = $null; timestamp = (Get-Date).ToUniversalTime().ToString("o") }
+                $syncHash.Status[$ip] = @{ status = "Paused"; rawStatus = "Paused"; latency = $null; checkType = (if ($t.IsTcp) { "tcp" } else { "icmp" }); port = $t.Port; timestamp = (Get-Date).ToUniversalTime().ToString("o") }
                 continue
             } elseif ($t.Error) {
-                $syncHash.Status[$ip] = @{ status = "Error"; latency = $null; timestamp = (Get-Date).ToUniversalTime().ToString("o") }
+                $syncHash.Status[$ip] = @{ status = "Error"; rawStatus = "Failed"; latency = $null; checkType = (if ($t.IsTcp) { "tcp" } else { "icmp" }); port = $t.Port; timestamp = (Get-Date).ToUniversalTime().ToString("o") }
             } else {
-                if ($t.Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
-                    $reply = $t.Task.Result
+                if ($t.IsTcp) {
+                    if ($t.Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
+                        $status = "Success"
+                        $latency = [math]::Max(1, [int]$t.Stopwatch.ElapsedMilliseconds)
+                    } else {
+                        $status = "Failed"
+                        $latency = $null
+                    }
+                    try { $t.TcpClient.Close(); $t.TcpClient.Dispose() } catch {}
+                } else {
+                    if ($t.Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
+                        $reply = $t.Task.Result
+                    }
+                    $status  = if ($reply -and $reply.Status -eq 'Success') { "Success" } else { "Failed" }
+                    $latency = if ($status -eq "Success") { $reply.RoundtripTime } else { $null }
                 }
-                
-                $status  = if ($reply -and $reply.Status -eq 'Success') { "Success" } else { "Failed" }
-                $latency = if ($status -eq "Success") { $reply.RoundtripTime } else { $null }
+
+                # ── 2段階ステータス判定 (Success / Warning / Failed) ──
+                $stObj = $syncHash.Stats[$ip]
+                $evalStatus = $status
+                if ($null -ne $stObj) {
+                    if ($status -eq "Success") {
+                        $stObj.ConsecutiveFails = 0
+                    } else {
+                        if ($null -eq $stObj.ConsecutiveFails) { $stObj.ConsecutiveFails = 0 }
+                        $stObj.ConsecutiveFails = $stObj.ConsecutiveFails + 1
+                    }
+                    $latVal = if ($latency) { [double]$latency } else { 0.0 }
+                    $warnThresh = if ($syncHash.LatencyWarningMs) { $syncHash.LatencyWarningMs } else { 80 }
+                    $failThresh = if ($syncHash.ConsecutiveFailThresh) { $syncHash.ConsecutiveFailThresh } else { 2 }
+                    $evalStatus = Evaluate-DeviceStatus -isSuccess ($status -eq "Success") -latencyMs $latVal -consecutiveFails $stObj.ConsecutiveFails -latencyWarningMs $warnThresh -consecutiveFailThresh $failThresh
+                }
 
                 $syncHash.Status[$ip] = @{
-                    status    = $status
+                    status    = $evalStatus
+                    rawStatus = $status
                     latency   = $latency
+                    checkType = if ($t.IsTcp) { "tcp" } else { "icmp" }
+                    port      = $t.Port
                     timestamp = (Get-Date).ToUniversalTime().ToString("o")
                 }
             }
@@ -2449,6 +1546,38 @@ $pingScript = {
                 $cpJson = $checkpoint | ConvertTo-Json -Depth 4
                 $cpPath = Join-Path $syncHash.SessionDir "_checkpoint.json"
                 [System.IO.File]::WriteAllText($cpPath, $cpJson, [System.Text.Encoding]::UTF8)
+
+                # ── ロールアップキャッシュ更新 (長期データ・点検報告書の高速化) ──
+                if ($syncHash.SessionDir) {
+                    foreach ($devIp in $syncHash.Devices) {
+                        $sIp = $devIp -replace '[\\/:*?"<>|]', '_'
+                        $devCsv = Join-Path $syncHash.SessionDir "${sIp}.csv"
+                        if (Test-Path $devCsv) {
+                            try {
+                                $csvLines = [System.IO.File]::ReadAllLines($devCsv, [System.Text.Encoding]::GetEncoding(932))
+                                $dataLines = @($csvLines | Where-Object { $_ -and -not $_.StartsWith("---") })
+                                if ($dataLines.Count -gt 1) {
+                                    $parsed = $dataLines | ConvertFrom-Csv
+                                    $pts = @()
+                                    foreach ($r in $parsed) {
+                                        $tStr = if ($r.タイムスタンプ) { $r.タイムスタンプ } elseif ($r.Timestamp) { $r.Timestamp } else { "" }
+                                        $tShort = if ($tStr.Length -ge 19) { $tStr.Substring(11, 8) } else { $tStr }
+                                        $latR = if ($r.遅延_ms) { $r.遅延_ms } elseif ($r.Latency_ms) { $r.Latency_ms } else { "" }
+                                        $pts += @{
+                                            t   = $tShort
+                                            lat = if ($latR -match '^\d+(\.\d+)?$') { [double]$latR } else { $null }
+                                            jit = $null
+                                            tx  = $null
+                                            rx  = $null
+                                            st  = if ($r.ステータス) { $r.ステータス } else { "Success" }
+                                        }
+                                    }
+                                    Update-RollupCache -sessionDir $syncHash.SessionDir -ip $devIp -timeSeries $pts
+                                }
+                            } catch {}
+                        }
+                    }
+                }
             } catch { }
         }
 
@@ -3346,6 +2475,8 @@ try {
                                 troubleMemo = if ($syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" }
                                 deviceType = if ($syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" }
                                 webUrl = if ($syncHash.WebUrl.ContainsKey($ip)) { $syncHash.WebUrl[$ip] } else { "" }
+                                checkType = if ($syncHash.CheckType.ContainsKey($ip)) { $syncHash.CheckType[$ip] } else { "icmp" }
+                                port = if ($syncHash.Port.ContainsKey($ip)) { $syncHash.Port[$ip] } else { 0 }
                                 sslExpiryDays = if ($syncHash.SslExpiryDays.ContainsKey($ip)) { $syncHash.SslExpiryDays[$ip] } else { $null }
                                 httpStatus = if ($syncHash.HttpStatus.ContainsKey($ip)) { $syncHash.HttpStatus[$ip] } else { $null }
                                 snmpVersion = if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" }
@@ -3373,7 +2504,10 @@ try {
                     foreach ($key in $keys) {
                         $st = @{
                             status    = $syncHash.Status[$key].status
+                            rawStatus = if ($syncHash.Status[$key].ContainsKey('rawStatus')) { $syncHash.Status[$key].rawStatus } else { $syncHash.Status[$key].status }
                             latency   = $syncHash.Status[$key].latency
+                            checkType = if ($syncHash.Status[$key].ContainsKey('checkType')) { $syncHash.Status[$key].checkType } else { "icmp" }
+                            port      = if ($syncHash.Status[$key].ContainsKey('port')) { $syncHash.Status[$key].port } else { 0 }
                             timestamp = $syncHash.Status[$key].timestamp
                         }
                         $st.bandwidth = if ($syncHash.Bandwidth.ContainsKey($key)) { $syncHash.Bandwidth[$key] } else { "Waiting..." }
@@ -3538,6 +2672,8 @@ try {
                             $syncHash.TroubleMemo[$ip] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
                             $syncHash.DeviceType[$ip] = if ($null -ne $payload.deviceType) { [string]$payload.deviceType } else { "network" }
                             $syncHash.WebUrl[$ip] = if ($null -ne $payload.webUrl) { [string]$payload.webUrl } else { "" }
+                            $syncHash.CheckType[$ip] = if ($null -ne $payload.checkType) { [string]$payload.checkType } else { "icmp" }
+                            $syncHash.Port[$ip] = if ($null -ne $payload.port) { [int]$payload.port } else { 0 }
 
                             if ($null -ne $payload.x) { $syncHash.X[$ip] = $payload.x }
                             if ($null -ne $payload.y) { $syncHash.Y[$ip] = $payload.y }
@@ -3615,6 +2751,8 @@ try {
                                     $syncHash.SnmpAuthPass[$ip] = $snmpAuthPass
                                     $syncHash.SnmpPrivProto[$ip] = $privProto
                                     $syncHash.SnmpPrivPass[$ip] = $privPass
+                                    if ($null -ne $item.checkType) { $syncHash.CheckType[$ip] = [string]$item.checkType }
+                                    if ($null -ne $item.port) { $syncHash.Port[$ip] = [int]$item.port }
 
                                     if ($null -ne $item.x) { $syncHash.X[$ip] = $item.x }
                                     if ($null -ne $item.y) { $syncHash.Y[$ip] = $item.y }
@@ -4431,6 +3569,8 @@ try {
                         outageThresh1Ms    = $syncHash.OutageThresh1Ms
                         outageThresh2Ms    = $syncHash.OutageThresh2Ms
                         latencyThreshMs    = $syncHash.LatencyThreshMs
+                        latencyWarningMs   = $syncHash.LatencyWarningMs
+                        consecutiveFailThresh = $syncHash.ConsecutiveFailThresh
                         logRetentionDays   = $syncHash.LogRetentionDays
                         webhookUrl         = $syncHash.WebhookUrl
                         webhookEnabled     = $syncHash.WebhookEnabled
@@ -4486,6 +3626,14 @@ try {
                     if ($null -ne $payload.latencyThreshMs) {
                         $v = [int]$payload.latencyThreshMs
                         if ($v -ge 1 -and $v -le 10000) { $syncHash.LatencyThreshMs = $v }
+                    }
+                    if ($null -ne $payload.latencyWarningMs) {
+                        $v = [int]$payload.latencyWarningMs
+                        if ($v -ge 1 -and $v -le 10000) { $syncHash.LatencyWarningMs = $v }
+                    }
+                    if ($null -ne $payload.consecutiveFailThresh) {
+                        $v = [int]$payload.consecutiveFailThresh
+                        if ($v -ge 1 -and $v -le 20) { $syncHash.ConsecutiveFailThresh = $v }
                     }
                     if ($null -ne $payload.logRetentionDays) {
                         $v = [int]$payload.logRetentionDays
@@ -4544,6 +3692,8 @@ try {
                         outageThresh1Ms    = $syncHash.OutageThresh1Ms
                         outageThresh2Ms    = $syncHash.OutageThresh2Ms
                         latencyThreshMs    = $syncHash.LatencyThreshMs
+                        latencyWarningMs   = $syncHash.LatencyWarningMs
+                        consecutiveFailThresh = $syncHash.ConsecutiveFailThresh
                         logRetentionDays   = $syncHash.LogRetentionDays
                         webhookUrl         = $syncHash.WebhookUrl
                         webhookEnabled     = $syncHash.WebhookEnabled
@@ -4557,8 +3707,9 @@ try {
                         enableParentSuppression = $syncHash.EnableParentSuppression
                     }
 
-                    # Save to file for persistence
+                    # Save to file for persistence (DPAPI暗号化適用)
                     try {
+                        $encSmtpPass = if ($syncHash.SmtpPass) { Protect-SecretString $syncHash.SmtpPass } else { "" }
                         $configObj = @{
                             pollInterval       = $syncHash.PollInterval
                             pingDataSize       = $syncHash.PingDataSize
@@ -4567,6 +3718,8 @@ try {
                             outageThresh1Ms    = $syncHash.OutageThresh1Ms
                             outageThresh2Ms    = $syncHash.OutageThresh2Ms
                             latencyThreshMs    = $syncHash.LatencyThreshMs
+                            latencyWarningMs   = $syncHash.LatencyWarningMs
+                            consecutiveFailThresh = $syncHash.ConsecutiveFailThresh
                             logRetentionDays   = $syncHash.LogRetentionDays
                             webhookUrl         = $syncHash.WebhookUrl
                             webhookEnabled     = $syncHash.WebhookEnabled
@@ -4578,7 +3731,7 @@ try {
                             smtpPort           = $syncHash.SmtpPort
                             smtpSsl            = $syncHash.SmtpSsl
                             smtpUser           = $syncHash.SmtpUser
-                            smtpPass           = $syncHash.SmtpPass
+                            smtpPass           = $encSmtpPass
                             smtpFrom           = $syncHash.SmtpFrom
                             smtpTo             = $syncHash.SmtpTo
                             syslogEnabled      = $syncHash.SyslogEnabled

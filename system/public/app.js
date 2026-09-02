@@ -535,6 +535,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const bwThreshInp = document.getElementById('modal-thresh-bandwidth');
         if (bwThreshInp) bwThreshInp.value = systemConfig.bwThreshMbps || 10;
 
+        const warnLatInp = document.getElementById('modal-config-latency-warning');
+        if (warnLatInp) warnLatInp.value = systemConfig.latencyWarningMs || 80;
+
+        const consecFailInp = document.getElementById('modal-config-consecutive-fails');
+        if (consecFailInp) consecFailInp.value = systemConfig.consecutiveFailThresh || 2;
+
         const parentSuppressionInp = document.getElementById('modal-config-enable-parent-suppression');
         if (parentSuppressionInp) parentSuppressionInp.checked = (systemConfig.enableParentSuppression !== false);
 
@@ -657,6 +663,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 soundEnabled:       document.getElementById('modal-sound-enabled').checked,
                 soundVolume:        parseFloat(document.getElementById('modal-sound-volume').value) || 0.5,
                 bwThreshMbps:       parseFloat(document.getElementById('modal-thresh-bandwidth')?.value) || 10,
+                latencyWarningMs:   parseInt(document.getElementById('modal-config-latency-warning')?.value) || 80,
+                consecutiveFailThresh: parseInt(document.getElementById('modal-config-consecutive-fails')?.value) || 2,
                 enableParentSuppression: document.getElementById('modal-config-enable-parent-suppression') ? document.getElementById('modal-config-enable-parent-suppression').checked : true
             };
 
@@ -1662,6 +1670,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const manageModal = document.getElementById('manage-devices-modal');
     // Note: manageModal is now null as it was removed from index.html
     
+    const devCheckTypeGlobal = document.getElementById('dev-check-type');
+    const devPortGroupGlobal = document.getElementById('dev-tcp-port-group');
+    if (devCheckTypeGlobal && devPortGroupGlobal) {
+        devCheckTypeGlobal.addEventListener('change', () => {
+            devPortGroupGlobal.classList.toggle('hidden', devCheckTypeGlobal.value !== 'tcp');
+        });
+    }
+
     deviceForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -1704,6 +1720,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 location: document.getElementById('dev-location') ? document.getElementById('dev-location').value.trim() : "",
                 troubleMemo: document.getElementById('dev-trouble-memo') ? document.getElementById('dev-trouble-memo').value.trim() : "",
                 webUrl: document.getElementById('dev-web-url') ? document.getElementById('dev-web-url').value.trim() : "",
+                checkType: document.getElementById('dev-check-type') ? document.getElementById('dev-check-type').value : "icmp",
+                port: document.getElementById('dev-port') ? parseInt(document.getElementById('dev-port').value, 10) || 0 : 0,
                 community: devCommInput.value.trim(),
                 enabled: devEnabledInput.checked,
                 image: imageVal,
@@ -1745,6 +1763,8 @@ document.addEventListener('DOMContentLoaded', () => {
             location: document.getElementById('dev-location') ? document.getElementById('dev-location').value.trim() : "",
             troubleMemo: document.getElementById('dev-trouble-memo') ? document.getElementById('dev-trouble-memo').value.trim() : "",
             webUrl: document.getElementById('dev-web-url') ? document.getElementById('dev-web-url').value.trim() : "",
+            checkType: document.getElementById('dev-check-type') ? document.getElementById('dev-check-type').value : "icmp",
+            port: document.getElementById('dev-port') ? parseInt(document.getElementById('dev-port').value, 10) || 0 : 0,
             community: devCommInput.value.trim(),
             enabled: devEnabledInput.checked,
             image: imageVal,
@@ -1867,9 +1887,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     const devLocEl = document.getElementById('dev-location');
                     const devMemoEl = document.getElementById('dev-trouble-memo');
                     const devWebEl = document.getElementById('dev-web-url');
+                    const devCheckTypeEl = document.getElementById('dev-check-type');
+                    const devPortEl = document.getElementById('dev-port');
+                    const devPortGroup = document.getElementById('dev-tcp-port-group');
                     if (devLocEl) devLocEl.value = d.location || '';
                     if (devMemoEl) devMemoEl.value = d.troubleMemo || '';
                     if (devWebEl) devWebEl.value = d.webUrl || '';
+                    if (devCheckTypeEl) {
+                        devCheckTypeEl.value = d.checkType || 'icmp';
+                        if (devPortGroup) {
+                            devPortGroup.classList.toggle('hidden', devCheckTypeEl.value !== 'tcp');
+                        }
+                    }
+                    if (devPortEl) devPortEl.value = d.port || 80;
 
                     populateConnectionsDropdown(d.ip);
                     const parents = d.connectedTo ? d.connectedTo.split(',').map(p => p.trim()).filter(p => p) : [];
@@ -2104,6 +2134,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const color = !isPausedState ? CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] : 'transparent';
                 const displayName = escapeHTML(d.name || ip);
                 const rateBadge = ultraHighFreqActive ? (isUltraTarget ? '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(251,191,36,0.2); color:#fbbf24; font-weight:700; margin-left:4px;">0.1s</span>' : '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(148,163,184,0.15); color:#94a3b8; margin-left:4px;">5.0s</span>') : '';
+                const checkBadge = (d.checkType === 'tcp' && d.port > 0) ? `<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(99,102,241,0.2); color:#818cf8; font-weight:700; margin-left:4px;" title="TCPポート ${d.port} 死活監視">TCP:${d.port}</span>` : '';
                 
                 row.innerHTML = `
                     ${!isPausedState ? `<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:${color};border-radius:8px 0 0 8px;"></div>` : ''}
@@ -2113,6 +2144,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div style="display:flex;align-items:center;">
                                 <span style="font-weight:600; font-size:0.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${displayName}">${displayName}</span>
                                 ${rateBadge}
+                                ${checkBadge}
                             </div>
                             <span style="font-size:0.72rem;color:var(--text-muted);">${escapeHTML(ip)}<span id="mac-${safeIpId}" style="font-family:monospace;">${d.mac ? ` / MAC: ${escapeHTML(d.mac)}` : ''}</span></span>
                         </div>
@@ -2366,21 +2398,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (data) {
                 const isSuppressed = isAlertSuppressed(ip) || data.isSuppressed;
-                const statusClass = (data.status === "Success") 
+                const statusClass = (data.status === "Success" || data.status === "Online") 
                     ? 'success' 
-                    : (data.status === "Failed" || data.status === "Offline") 
-                        ? (isSuppressed ? 'unreachable' : 'error') 
-                        : 'paused';
+                    : (data.status === "Warning")
+                        ? 'warning'
+                        : (data.status === "Failed" || data.status === "Offline") 
+                            ? (isSuppressed ? 'unreachable' : 'error') 
+                            : 'paused';
                 dotEl.className = 'status-dot ' + statusClass;
 
                 if (data.status === "Failed" && canAlert(ip, 'offline') && !isSuppressed) {
                     showToast('error', `🔴 ${data.name || ip} オフライン`, `IP: ${ip} 応答なし`, 5000);
                     playAlertSound('error');
+                } else if (data.status === "Warning" && canAlert(ip, 'warning') && !isSuppressed) {
+                    showToast('warning', `⚠️ ${data.name || ip} 警告状態 (遅延/瞬断)`, `IP: ${ip} 遅延: ${data.latency != null ? data.latency + 'ms' : '単発断'}`, 4000);
+                    playAlertSound('warning');
                 }
+
                 const warnLat = parseFloat(threshLatencyEl.value) || 100;
-                if (data.status === "Success" && data.latency !== null) {
+                if ((data.status === "Success" || data.status === "Warning") && data.latency !== null) {
                     latencyEl.textContent = `${data.latency} ms`;
-                    latencyEl.className = 'header-latency' + (data.latency >= warnLat ? ' bad' : '');
+                    latencyEl.className = 'header-latency' + (data.status === "Warning" || data.latency >= warnLat ? ' bad' : '');
                     if (data.latency >= warnLat && canAlert(ip, 'latency') && !isSuppressed) {
                         showToast('warning', `⚠️ ${data.name || ip} 高遅延検知`, `IP: ${ip} 遅延: ${data.latency}ms (閾値: ${warnLat}ms)`, 5000);
                         playAlertSound('warning');

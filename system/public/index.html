@@ -701,6 +701,17 @@
                                     <input type="text" id="dev-web-url" class="form-input" placeholder="例: https://portal.example.com">
                                 </div>
                                 <div class="form-group">
+                                    <label for="dev-check-type">⚡ 死活監視方式</label>
+                                    <select id="dev-check-type" class="form-select-lg">
+                                        <option value="icmp">ICMP Ping (通常監視)</option>
+                                        <option value="tcp">TCP ポート死活監視 (Web/SSH/DNS等)</option>
+                                    </select>
+                                </div>
+                                <div id="dev-tcp-port-group" class="form-group hidden">
+                                    <label for="dev-port">🔌 監視対象 TCP ポート番号</label>
+                                    <input type="number" id="dev-port" class="form-input" placeholder="例: 80 (HTTP), 443 (HTTPS), 22 (SSH)" min="1" max="65535" value="80">
+                                </div>
+                                <div class="form-group">
                                     <label for="dev-comm">SNMP コミュニティ名 (v1/v2c)</label>
                                     <input type="text" id="dev-comm" class="form-input" placeholder="public" value="public">
                                 </div>
@@ -1050,6 +1061,22 @@
                         <div class="form-group inline-group">
                             <input type="number" id="modal-thresh-bandwidth" class="form-input" value="10" min="0.1" step="0.5" style="max-width:140px;">
                             <span class="unit-label">Mbps 以上 / 未満の割合を集計</span>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h4 class="config-section-title">⚠️ 2段階アラートしきい値設定 (Warning / Critical)</h4>
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div class="form-group inline-group">
+                                <span style="font-size:0.8rem; color:var(--text-muted); min-width:80px; font-weight:600;">注意 (Warning)</span>
+                                <input type="number" id="modal-config-latency-warning" class="form-input" value="80" min="1" max="10000" style="max-width:120px;">
+                                <span class="unit-label">ms 超過で注意ステータス（黄色）</span>
+                            </div>
+                            <div class="form-group inline-group">
+                                <span style="font-size:0.8rem; color:var(--text-muted); min-width:80px; font-weight:600;">障害 (Critical)</span>
+                                <input type="number" id="modal-config-consecutive-fails" class="form-input" value="2" min="1" max="20" style="max-width:120px;">
+                                <span class="unit-label">回 連続失敗で障害ステータス（赤色/通知）</span>
+                            </div>
                         </div>
                     </div>
 
