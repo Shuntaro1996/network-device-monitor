@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Common.psm1 - 共通ユーティリティ・セキュリティ・ログモジュール
 # ==============================================================================
 
@@ -186,4 +186,104 @@ function Save-DevicesJson {
     }
 }
 
-Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Get-MimeType, Save-DevicesJson
+# ── 5. 自動スナップショット & ロールバック ───────────────────────────────────
+
+function Backup-ConfigSnapshot {
+    <#
+    .SYNOPSIS
+        devices.json または config.json を変更前に system/backups/ 配下へ自動スナップショット退避します。
+        最新 N世代（デフォルト20世代）を保持し、古いファイルは自動ローテーション削除します。
+    #>
+    param(
+        [string]$targetFilePath,
+        [string]$backupDir,
+        [int]$maxGenerations = 20
+    )
+    if (-not (Test-Path $targetFilePath)) { return $null }
+    try {
+        if (-not (Test-Path $backupDir)) {
+            New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+        }
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension($targetFilePath) # "devices" or "config"
+        $ts = (Get-Date).ToString("yyyyMMdd_HHmmss_fff")
+        $snapshotName = "${baseName}_${ts}.json"
+        $snapshotPath = Join-Path $backupDir $snapshotName
+
+        Copy-Item -Path $targetFilePath -Destination $snapshotPath -Force
+
+        # 古いスナップショットのローテーション削除 (ファイル名が yyyyMMdd_HHmmss_fff なので Name 降順が最も堅牢)
+        $existing = Get-ChildItem -Path $backupDir -Filter "${baseName}_*.json" | Sort-Object Name -Descending
+        if ($existing.Count -gt $maxGenerations) {
+            $toDelete = $existing | Select-Object -Skip $maxGenerations
+            foreach ($f in $toDelete) {
+                try { Remove-Item -Path $f.FullName -Force } catch {}
+            }
+        }
+        return $snapshotPath
+    } catch {
+        Write-Warning "Backup-ConfigSnapshot failed: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Get-ConfigSnapshots {
+    <#
+    .SYNOPSIS
+        system/backups/ 配下に保存されているスナップショット一覧を取得します。
+    #>
+    param([string]$backupDir)
+    if (-not (Test-Path $backupDir)) { return @() }
+    try {
+        $files = Get-ChildItem -Path $backupDir -Filter "*.json" | Sort-Object Name -Descending
+        $arr = @(
+            foreach ($f in $files) {
+                $type = if ($f.Name.StartsWith("devices_")) { "devices" } elseif ($f.Name.StartsWith("config_")) { "config" } else { "other" }
+                [PSCustomObject]@{
+                    fileName  = $f.Name
+                    type      = $type
+                    createdAt = $f.CreationTime.ToString("yyyy-MM-dd HH:mm:ss")
+                    sizeBytes = $f.Length
+                }
+            }
+        )
+        return $arr
+    } catch {
+        return @()
+    }
+}
+
+function Restore-ConfigSnapshot {
+    <#
+    .SYNOPSIS
+        指定されたスナップショットから設定ファイルを復元します。
+        安全のため、復元直前の現行ファイルも直前スナップショットとして自動退避します。
+    #>
+    param(
+        [string]$snapshotFileName,
+        [string]$backupDir,
+        [string]$targetDir
+    )
+    $sourcePath = Join-Path $backupDir $snapshotFileName
+    if (-not (Test-Path $sourcePath)) {
+        return @{ success = $false; error = "Snapshot file not found: $snapshotFileName" }
+    }
+
+    $targetFileName = if ($snapshotFileName.StartsWith("devices_")) { "devices.json" } elseif ($snapshotFileName.StartsWith("config_")) { "config.json" } else { $null }
+    if (-not $targetFileName) {
+        return @{ success = $false; error = "Unknown snapshot type" }
+    }
+
+    $destPath = Join-Path $targetDir $targetFileName
+    try {
+        # 復元前に現行ファイルを安全スナップショット退避
+        if (Test-Path $destPath) {
+            $null = Backup-ConfigSnapshot -targetFilePath $destPath -backupDir $backupDir
+        }
+        Copy-Item -Path $sourcePath -Destination $destPath -Force
+        return @{ success = $true; restoredFile = $targetFileName; fromSnapshot = $snapshotFileName }
+    } catch {
+        return @{ success = $false; error = $_.Exception.Message }
+    }
+}
+
+Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot

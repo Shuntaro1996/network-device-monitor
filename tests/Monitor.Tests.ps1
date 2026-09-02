@@ -156,3 +156,93 @@ Describe "6. レポート自動削除機能 (ReportGenerator.psm1 / Purge-OldRep
         }
     }
 }
+
+Describe "7. 回線品質劣化アラート判定 (PingEngine.psm1 / Evaluate-DeviceStatus)" {
+    It "パケット損失率が閾値(5.0%)を超えた場合は 'Warning' を返すこと" {
+        $status = Evaluate-DeviceStatus -isSuccess $true -latencyMs 20.0 -consecutiveFails 0 -packetLossRate 6.5 -lossWarningThreshPercent 5.0 -jitterMs 5.0 -jitterWarningThreshMs 20.0
+        $status | Should Be "Warning"
+    }
+
+    It "ジッターが閾値(20.0ms)を超えた場合は 'Warning' を返すこと" {
+        $status = Evaluate-DeviceStatus -isSuccess $true -latencyMs 20.0 -consecutiveFails 0 -packetLossRate 0.0 -lossWarningThreshPercent 5.0 -jitterMs 25.4 -jitterWarningThreshMs 20.0
+        $status | Should Be "Warning"
+    }
+
+    It "損失率・ジッターともに閾値未満で遅延も正常な場合は 'Success' を返すこと" {
+        $status = Evaluate-DeviceStatus -isSuccess $true -latencyMs 20.0 -consecutiveFails 0 -packetLossRate 2.0 -lossWarningThreshPercent 5.0 -jitterMs 10.0 -jitterWarningThreshMs 20.0
+        $status | Should Be "Success"
+    }
+}
+
+Describe "8. 設定・機器定義の自動スナップショット＆ロールバック (Common.psm1)" {
+    It "Backup-ConfigSnapshot でスナップショットが保存され、Get-ConfigSnapshots で一覧取得できること" {
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_SnapshotTest_$(Get-Random)"
+        $backupDir = Join-Path $tempDir "backups"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        try {
+            $sampleConfigFile = Join-Path $tempDir "devices.json"
+            $sampleJson = '[{"ip":"192.168.1.1","name":"Router"}]'
+            [System.IO.File]::WriteAllText($sampleConfigFile, $sampleJson, [System.Text.Encoding]::UTF8)
+
+            $snapPath = Backup-ConfigSnapshot -targetFilePath $sampleConfigFile -backupDir $backupDir -maxGenerations 5
+            $snapPath | Should Not BeNullOrEmpty
+            (Test-Path $snapPath) | Should Be $true
+
+            $list = @(Get-ConfigSnapshots -backupDir $backupDir)
+            $list.Count | Should Be 1
+            $list[0].type | Should Be "devices"
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "スナップショット世代数が maxGenerations を超えた場合に古いファイルが自動ローテーション削除されること" {
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_RotateTest_$(Get-Random)"
+        $backupDir = Join-Path $tempDir "backups"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        try {
+            $sampleConfigFile = Join-Path $tempDir "config.json"
+            [System.IO.File]::WriteAllText($sampleConfigFile, '{"v":1}', [System.Text.Encoding]::UTF8)
+
+            # 3世代制限で4回スナップショットを作成
+            for ($i = 1; $i -le 4; $i++) {
+                [System.IO.File]::WriteAllText($sampleConfigFile, "{`"v`":$i}", [System.Text.Encoding]::UTF8)
+                $null = Backup-ConfigSnapshot -targetFilePath $sampleConfigFile -backupDir $backupDir -maxGenerations 3
+                Start-Sleep -Milliseconds 100 # ミリ秒単位ファイル名の一意性を確保
+            }
+
+            $list = @(Get-ConfigSnapshots -backupDir $backupDir)
+            $list.Count | Should Be 3 # 最大3世代のみ保持されていること
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "Restore-ConfigSnapshot で以前のスナップショットから安全に復元できること" {
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_RestoreTest_$(Get-Random)"
+        $backupDir = Join-Path $tempDir "backups"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        try {
+            $targetFile = Join-Path $tempDir "devices.json"
+            $origContent = '[{"ip":"10.0.0.1","name":"CoreSwitch"}]'
+            [System.IO.File]::WriteAllText($targetFile, $origContent, [System.Text.Encoding]::UTF8)
+
+            $snapPath = Backup-ConfigSnapshot -targetFilePath $targetFile -backupDir $backupDir -maxGenerations 5
+            $snapFileName = [System.IO.Path]::GetFileName($snapPath)
+
+            # ファイル内容を変更（誤操作をシミュレート）
+            [System.IO.File]::WriteAllText($targetFile, '[{"ip":"10.0.0.1","name":"AccidentallyDeleted"}]', [System.Text.Encoding]::UTF8)
+
+            # ロールバック実行
+            $res = Restore-ConfigSnapshot -snapshotFileName $snapFileName -backupDir $backupDir -targetDir $tempDir
+            $res.success | Should Be $true
+            $res.restoredFile | Should Be "devices.json"
+
+            # 復元されたファイルの内容が元通りか確認
+            $restored = [System.IO.File]::ReadAllText($targetFile, [System.Text.Encoding]::UTF8)
+            $restored | Should Be $origContent
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}

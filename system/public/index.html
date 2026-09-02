@@ -1092,6 +1092,23 @@
                     </div>
 
                     <div class="config-section">
+                        <h4 class="config-section-title">📶 回線品質劣化アラート (パケットロス率・ジッター異常)</h4>
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div class="form-group inline-group">
+                                <span style="font-size:0.8rem; color:var(--text-muted); min-width:130px; font-weight:600;">パケット損失率</span>
+                                <input type="number" id="modal-config-loss-warning" class="form-input" value="5.0" min="0.1" max="100" step="0.5" style="max-width:100px;">
+                                <span class="unit-label">% 超過で注意警告（黄色）</span>
+                            </div>
+                            <div class="form-group inline-group">
+                                <span style="font-size:0.8rem; color:var(--text-muted); min-width:130px; font-weight:600;">揺らぎ (ジッター)</span>
+                                <input type="number" id="modal-config-jitter-warning" class="form-input" value="20.0" min="0.1" max="1000" step="1" style="max-width:100px;">
+                                <span class="unit-label">ms 超過で注意警告（黄色）</span>
+                            </div>
+                        </div>
+                        <p style="font-size:0.75rem; color:var(--text-muted); margin:4px 0 0 0;">完全停止に至らないWeb会議・VoIP品質悪化や回線輻輳の前兆を早期検知します。</p>
+                    </div>
+
+                    <div class="config-section">
                         <h4 class="config-section-title">🔕 親子関係アラート抑制</h4>
                         <div class="form-group checkbox-group" style="display:flex; align-items:center; gap:8px;">
                             <input type="checkbox" id="modal-config-enable-parent-suppression" checked style="width:18px; height:18px; cursor:pointer;">
@@ -1220,6 +1237,21 @@
                             <button type="button" id="btn-import-backup" class="btn secondary-btn" style="white-space:nowrap;">
                                 <span>適用・復元</span>
                             </button>
+                        </div>
+                    </div>
+
+                    <div class="config-section" style="margin-top:16px; border-top:1px solid var(--glass-border); padding-top:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <h4 class="config-section-title" style="margin:0;">🔄 自動スナップショット履歴＆ロールバック</h4>
+                            <button type="button" id="btn-refresh-snapshots" class="btn secondary-btn" style="padding:3px 10px; font-size:0.75rem;">
+                                <span>🔃 履歴更新</span>
+                            </button>
+                        </div>
+                        <p class="config-desc" style="margin-top:4px;">機器の追加・削除や設定変更の直前に自動保存されたスナップショット（最新20世代）から、ワンクリックで以前の状態へ安全に戻します。</p>
+                        <div id="snapshot-history-container" style="margin-top:10px; max-height:200px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:8px; background:rgba(0,0,0,0.15);">
+                            <div id="snapshot-history-list" style="display:flex; flex-direction:column; gap:2px; padding:6px;">
+                                <div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:10px;">スナップショットを読み込み中...</div>
+                            </div>
                         </div>
                     </div>
                 </div>

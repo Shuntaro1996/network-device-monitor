@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # PingEngine.psm1 - ICMP Ping & TCPポート死活監視・多段アラート判定モジュール
 # ==============================================================================
 
@@ -53,6 +53,7 @@ function Evaluate-DeviceStatus {
     <#
     .SYNOPSIS
         監視結果から 2段階ステータス（Success / Warning / Failed）を判定します。
+        遅延超過に加え、パケット損失率異常・ジッター急増（品質劣化）も検知します。
     #>
     param(
         [bool]$isSuccess,
@@ -60,7 +61,11 @@ function Evaluate-DeviceStatus {
         [int]$consecutiveFails,
         [int]$latencyWarningMs = 80,
         [int]$consecutiveFailThresh = 2,
-        [double]$currentOutageSec = 0
+        [double]$currentOutageSec = 0,
+        [double]$packetLossRate = 0.0,
+        [double]$lossWarningThreshPercent = 5.0,
+        [double]$jitterMs = 0.0,
+        [double]$jitterWarningThreshMs = 20.0
     )
     if (-not $isSuccess) {
         if ($consecutiveFails -ge $consecutiveFailThresh) {
@@ -72,6 +77,16 @@ function Evaluate-DeviceStatus {
 
     # 応答成功時: 遅延が警告閾値を超過していれば Warning
     if ($latencyWarningMs -gt 0 -and $latencyMs -gt $latencyWarningMs) {
+        return "Warning"
+    }
+
+    # パケット損失率が警告閾値を超過していれば Warning（回線品質劣化）
+    if ($lossWarningThreshPercent -gt 0 -and $packetLossRate -ge $lossWarningThreshPercent) {
+        return "Warning"
+    }
+
+    # ジッターが警告閾値を超過していれば Warning（パケット揺らぎ・輻輳検知）
+    if ($jitterWarningThreshMs -gt 0 -and $jitterMs -ge $jitterWarningThreshMs) {
         return "Warning"
     }
 

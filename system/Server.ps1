@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 # =========================================================================
 # 【初心者向けの簡単な解説】
@@ -97,6 +97,8 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
 
     # Config files paths
     $configFileJson  = Join-Path $PSScriptRoot "config.json"
+    $syncHash.StartTime         = [DateTime]::UtcNow # サーバー起動日時 (ヘルスチェック用)
+    $syncHash.LastPingLoopUtc   = [DateTime]::UtcNow # 最終Pingループ時刻 (外形監視用)
 
     $syncHash.PollInterval      = 1000  # Default frontend/backend polling interval (ms)
     $syncHash.PingDataSize      = 1     # Default ping data size (bytes)
@@ -107,7 +109,10 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.LatencyThreshMs   = 100  # Threshold for latency alert (ms)
     $syncHash.LatencyWarningMs  = 80   # 2段階アラート用: Warning遅延閾値 (ms)
     $syncHash.ConsecutiveFailThresh = 2 # 2段階アラート用: 障害判定に必要な連続失敗回数
+    $syncHash.LossWarningThreshPercent = 5.0 # 回線品質劣化アラート: パケット損失率警告閾値 (%)
+    $syncHash.JitterWarningThreshMs = 20.0   # 回線品質劣化アラート: ジッター警告閾値 (ms)
     $syncHash.LogRetentionDays  = 30   # Auto-purge old reports older than N days (0=disabled)
+    $syncHash.BackupDir         = Join-Path $PSScriptRoot "backups" # 設定・機器定義の自動スナップショット退避先
     $syncHash.WebhookUrl        = ""   # Webhook URL for external notifications (Slack/Teams/Discord)
     $syncHash.WebhookEnabled    = $false
     $syncHash.WebhookOfflineOnly= $true
@@ -146,6 +151,8 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
             if ($null -ne $savedConfig.latencyThreshMs)    { $syncHash.LatencyThreshMs    = [int]$savedConfig.latencyThreshMs }
             if ($null -ne $savedConfig.latencyWarningMs)   { $syncHash.LatencyWarningMs   = [int]$savedConfig.latencyWarningMs }
             if ($null -ne $savedConfig.consecutiveFailThresh) { $syncHash.ConsecutiveFailThresh = [int]$savedConfig.consecutiveFailThresh }
+            if ($null -ne $savedConfig.lossWarningThreshPercent) { $syncHash.LossWarningThreshPercent = [double]$savedConfig.lossWarningThreshPercent }
+            if ($null -ne $savedConfig.jitterWarningThreshMs) { $syncHash.JitterWarningThreshMs = [double]$savedConfig.jitterWarningThreshMs }
             if ($null -ne $savedConfig.logRetentionDays)   { $syncHash.LogRetentionDays   = [int]$savedConfig.logRetentionDays }
             if ($null -ne $savedConfig.webhookUrl)         { $syncHash.WebhookUrl         = [string]$savedConfig.webhookUrl }
             if ($null -ne $savedConfig.webhookEnabled)     { $syncHash.WebhookEnabled     = [bool]$savedConfig.webhookEnabled }
@@ -653,6 +660,10 @@ $saveDevicesJsonScript = {
             for ($retry = 0; $retry -lt 5; $retry++) {
                 try {
                     $jsonStr | Out-File -FilePath $tmpFile -Encoding UTF8
+                    # 変更前の devices.json を自動スナップショット退避
+                    if (Test-Path $devicesFileJson) {
+                        $null = Backup-ConfigSnapshot -targetFilePath $devicesFileJson -backupDir $syncHash.BackupDir
+                    }
                     Move-Item -Path $tmpFile -Destination $devicesFileJson -Force
                     break
                 } catch {
@@ -1179,7 +1190,11 @@ $pingScript = {
                     $latVal = if ($latency) { [double]$latency } else { 0.0 }
                     $warnThresh = if ($syncHash.LatencyWarningMs) { $syncHash.LatencyWarningMs } else { 80 }
                     $failThresh = if ($syncHash.ConsecutiveFailThresh) { $syncHash.ConsecutiveFailThresh } else { 2 }
-                    $evalStatus = Evaluate-DeviceStatus -isSuccess ($status -eq "Success") -latencyMs $latVal -consecutiveFails $stObj.ConsecutiveFails -latencyWarningMs $warnThresh -consecutiveFailThresh $failThresh
+                    $lossThresh = if ($syncHash.LossWarningThreshPercent) { [double]$syncHash.LossWarningThreshPercent } else { 5.0 }
+                    $jitThresh  = if ($syncHash.JitterWarningThreshMs) { [double]$syncHash.JitterWarningThreshMs } else { 20.0 }
+                    $curLossRate = if ($null -ne $stObj.PacketLossRate) { [double]$stObj.PacketLossRate } else { 0.0 }
+                    $curJitter   = if ($null -ne $stObj.Jitter) { [double]$stObj.Jitter } else { 0.0 }
+                    $evalStatus = Evaluate-DeviceStatus -isSuccess ($status -eq "Success") -latencyMs $latVal -consecutiveFails $stObj.ConsecutiveFails -latencyWarningMs $warnThresh -consecutiveFailThresh $failThresh -packetLossRate $curLossRate -lossWarningThreshPercent $lossThresh -jitterMs $curJitter -jitterWarningThreshMs $jitThresh
                 }
 
                 $syncHash.Status[$ip] = @{
@@ -1580,6 +1595,9 @@ $pingScript = {
                 }
             } catch { }
         }
+
+        # Record last ping loop timestamp for external watchdog health checking
+        $syncHash.LastPingLoopUtc = [DateTime]::UtcNow
 
         $elapsed = $sw.ElapsedMilliseconds
         $targetInterval = if ($syncHash.PollInterval -gt 0) { $syncHash.PollInterval } else { 1000 }
@@ -3571,6 +3589,8 @@ try {
                         latencyThreshMs    = $syncHash.LatencyThreshMs
                         latencyWarningMs   = $syncHash.LatencyWarningMs
                         consecutiveFailThresh = $syncHash.ConsecutiveFailThresh
+                        lossWarningThreshPercent = $syncHash.LossWarningThreshPercent
+                        jitterWarningThreshMs = $syncHash.JitterWarningThreshMs
                         logRetentionDays   = $syncHash.LogRetentionDays
                         webhookUrl         = $syncHash.WebhookUrl
                         webhookEnabled     = $syncHash.WebhookEnabled
@@ -3634,6 +3654,14 @@ try {
                     if ($null -ne $payload.consecutiveFailThresh) {
                         $v = [int]$payload.consecutiveFailThresh
                         if ($v -ge 1 -and $v -le 20) { $syncHash.ConsecutiveFailThresh = $v }
+                    }
+                    if ($null -ne $payload.lossWarningThreshPercent) {
+                        $v = [double]$payload.lossWarningThreshPercent
+                        if ($v -ge 0.1 -and $v -le 100.0) { $syncHash.LossWarningThreshPercent = $v }
+                    }
+                    if ($null -ne $payload.jitterWarningThreshMs) {
+                        $v = [double]$payload.jitterWarningThreshMs
+                        if ($v -ge 0.1 -and $v -le 1000.0) { $syncHash.JitterWarningThreshMs = $v }
                     }
                     if ($null -ne $payload.logRetentionDays) {
                         $v = [int]$payload.logRetentionDays
@@ -3720,6 +3748,8 @@ try {
                             latencyThreshMs    = $syncHash.LatencyThreshMs
                             latencyWarningMs   = $syncHash.LatencyWarningMs
                             consecutiveFailThresh = $syncHash.ConsecutiveFailThresh
+                            lossWarningThreshPercent = $syncHash.LossWarningThreshPercent
+                            jitterWarningThreshMs = $syncHash.JitterWarningThreshMs
                             logRetentionDays   = $syncHash.LogRetentionDays
                             webhookUrl         = $syncHash.WebhookUrl
                             webhookEnabled     = $syncHash.WebhookEnabled
@@ -3740,6 +3770,10 @@ try {
                             uiMode             = $syncHash.UiMode
                             bwThreshMbps       = $syncHash.BwThreshMbps
                             enableParentSuppression = $syncHash.EnableParentSuppression
+                        }
+                        # 保存前に変更前 config.json を自動スナップショット退避
+                        if (Test-Path $configFileJson) {
+                            $null = Backup-ConfigSnapshot -targetFilePath $configFileJson -backupDir $syncHash.BackupDir
                         }
                         $configObj | ConvertTo-Json | Out-File -FilePath $configFileJson -Encoding UTF8
                     } catch {
@@ -5074,6 +5108,74 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                     $syncHash.PendingShutdownTime = [DateTime]::UtcNow.AddSeconds(2) # wait 2 seconds for clean exit
                     Write-JsonResponse $response @{ status = "success"; message = "Shutdown initiated" }
                     Write-Host "Shutdown signal received from browser." -ForegroundColor Yellow
+                }
+                elseif ($urlPath -eq "/api/health" -and $method -eq "GET") {
+                    $nowUtc = [DateTime]::UtcNow
+                    $lastPing = if ($syncHash.LastPingLoopUtc) { $syncHash.LastPingLoopUtc } else { $nowUtc }
+                    $pingAgeSec = [math]::Round(($nowUtc - $lastPing).TotalSeconds, 1)
+                    
+                    # 起動後60秒以上経過していて、かつPingループが45秒以上止まっていれば異常
+                    $isHealthy = $true
+                    $msg = "OK"
+                    if ($syncHash.StartTime -and ($nowUtc - $syncHash.StartTime).TotalSeconds -ge 60.0) {
+                        if ($pingAgeSec -gt 45.0) {
+                            $isHealthy = $false
+                            $msg = "Ping runspace loop unresponsive (last seen: ${pingAgeSec}s ago)"
+                        }
+                    }
+
+                    $healthData = @{
+                        status           = if ($isHealthy) { "ok" } else { "unhealthy" }
+                        message          = $msg
+                        timestamp        = $nowUtc.ToString("o")
+                        uptimeSec        = if ($syncHash.StartTime) { [int]($nowUtc - $syncHash.StartTime).TotalSeconds } else { 0 }
+                        monitoredDevices = if ($syncHash.Devices) { $syncHash.Devices.Count } else { 0 }
+                        lastPingLoopUtc  = $lastPing.ToString("o")
+                        pingAgeSec       = $pingAgeSec
+                    }
+                    $statusCode = if ($isHealthy) { 200 } else { 503 }
+                    Write-JsonResponse $response $healthData $statusCode
+                }
+                elseif ($urlPath -eq "/api/snapshots/list" -and $method -eq "GET") {
+                    $snapshots = Get-ConfigSnapshots -backupDir $syncHash.BackupDir
+                    Write-JsonResponse $response @{ snapshots = $snapshots }
+                }
+                elseif ($urlPath -eq "/api/snapshots/restore" -and $method -eq "POST") {
+                    $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                    $payload = $reader.ReadToEnd() | ConvertFrom-Json
+                    if ($null -eq $payload.fileName) {
+                        Write-JsonResponse $response @{ error = "fileName is required" } 400
+                    } else {
+                        $res = Restore-ConfigSnapshot -snapshotFileName $payload.fileName -backupDir $syncHash.BackupDir -targetDir $PSScriptRoot
+                        if ($res.success) {
+                            if ($res.restoredFile -eq "devices.json") {
+                                try {
+                                    $devJson = Join-Path $PSScriptRoot "devices.json"
+                                    if (Test-Path $devJson) {
+                                        $loadedDevs = Get-Content $devJson -Raw | ConvertFrom-Json
+                                        [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
+                                        try {
+                                            $syncHash.Devices = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
+                                            foreach ($d in $loadedDevs) {
+                                                if ($d.ip) {
+                                                    $null = $syncHash.Devices.Add($d.ip)
+                                                    if ($d.name) { $syncHash.DeviceName[$d.ip] = $d.name }
+                                                    if ($d.group) { $syncHash.Group[$d.ip] = $d.group }
+                                                    if ($null -ne $d.enabled) { $syncHash.IsMonitored[$d.ip] = [bool]$d.enabled }
+                                                }
+                                            }
+                                        } finally {
+                                            [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
+                                        }
+                                    }
+                                } catch {}
+                            }
+                            Log-Audit -action "CONFIG_ROLLBACK" -target $payload.fileName -details "Restored configuration from snapshot: $($payload.fileName)" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
+                            Write-JsonResponse $response @{ status = "success"; message = "Restored from $($payload.fileName)"; restoredFile = $res.restoredFile }
+                        } else {
+                            Write-JsonResponse $response @{ error = $res.error } 500
+                        }
+                    }
                 }
                 else {
                     Write-JsonResponse $response @{ error = "Not found" } 404

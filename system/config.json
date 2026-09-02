@@ -1,4 +1,4 @@
-﻿{
+{
     "webhookOfflineOnly":  true,
     "pingDataSize":  1,
     "uiMode":  "detail",
@@ -25,5 +25,9 @@
     "pollInterval":  100,
     "webhookUrl":  "",
     "soundVolume":  0.6,
-    "emailEnabled":  false
+    "emailEnabled":  false,
+    "latencyWarningMs": 80,
+    "consecutiveFailThresh": 2,
+    "lossWarningThreshPercent": 5.0,
+    "jitterWarningThreshMs": 20.0
 }

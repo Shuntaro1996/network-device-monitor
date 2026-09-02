@@ -704,6 +704,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const consecFailInp = document.getElementById('modal-config-consecutive-fails');
         if (consecFailInp) consecFailInp.value = systemConfig.consecutiveFailThresh || 2;
 
+        const lossWarnInp = document.getElementById('modal-config-loss-warning');
+        if (lossWarnInp) lossWarnInp.value = (typeof systemConfig.lossWarningThreshPercent === 'number') ? systemConfig.lossWarningThreshPercent : 5.0;
+
+        const jitterWarnInp = document.getElementById('modal-config-jitter-warning');
+        if (jitterWarnInp) jitterWarnInp.value = (typeof systemConfig.jitterWarningThreshMs === 'number') ? systemConfig.jitterWarningThreshMs : 20.0;
+
         const parentSuppressionInp = document.getElementById('modal-config-enable-parent-suppression');
         if (parentSuppressionInp) parentSuppressionInp.checked = (systemConfig.enableParentSuppression !== false);
 
@@ -789,8 +795,94 @@ document.addEventListener('DOMContentLoaded', () => {
             const targetId = btn.dataset.cfgTab;
             const targetContent = document.getElementById(targetId);
             if (targetContent) targetContent.classList.add('active');
+            if (targetId === 'cfg-tab-backup') {
+                loadSnapshotsList();
+            }
         });
     });
+
+    // ── 自動スナップショット履歴＆ロールバック ──
+    async function loadSnapshotsList() {
+        const listEl = document.getElementById('snapshot-history-list');
+        if (!listEl) return;
+        listEl.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:10px;">スナップショットを読み込み中...</div>';
+        try {
+            const res = await fetch('/api/snapshots/list');
+            if (!res.ok) throw new Error('Failed to fetch snapshots');
+            const data = await res.json();
+            const snapshots = data.snapshots || [];
+            if (snapshots.length === 0) {
+                listEl.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:10px;">自動保存されたスナップショットはまだありません。</div>';
+                return;
+            }
+
+            let html = '';
+            snapshots.forEach(s => {
+                const typeBadge = s.type === 'devices' 
+                    ? '<span style="background:rgba(59,130,246,0.2); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:0.7rem; padding:1px 5px; border-radius:4px; font-weight:600;">機器構成</span>'
+                    : '<span style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.3); font-size:0.7rem; padding:1px 5px; border-radius:4px; font-weight:600;">システム設定</span>';
+                const sizeKb = (s.sizeBytes / 1024).toFixed(1);
+                
+                html += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.75rem;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            ${typeBadge}
+                            <span style="font-family:monospace; color:var(--text-light); font-weight:500;">${s.createdAt}</span>
+                            <span style="color:var(--text-muted); font-size:0.7rem;">(${sizeKb} KB)</span>
+                        </div>
+                        <button type="button" class="btn secondary-btn btn-rollback-snapshot" data-file="${s.fileName}" style="padding:2px 8px; font-size:0.7rem; color:#f59e0b; border-color:rgba(245,158,11,0.3);">
+                            ↺ この時点に戻す
+                        </button>
+                    </div>
+                `;
+            });
+            listEl.innerHTML = html;
+
+            listEl.querySelectorAll('.btn-rollback-snapshot').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const fName = e.currentTarget.getAttribute('data-file');
+                    if (!fName) return;
+                    if (!confirm(`【確認】スナップショット「${fName}」の状態にロールバックしますか？\n（安全のため、現在の状態も自動スナップショットとして退避されます）`)) {
+                        return;
+                    }
+                    try {
+                        btn.disabled = true;
+                        btn.textContent = '復元中...';
+                        const restoreRes = await fetch('/api/snapshots/restore', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ fileName: fName })
+                        });
+                        const resData = await restoreRes.json();
+                        if (restoreRes.ok && resData.status === 'success') {
+                            showToast('success', '🔄 ロールバック完了', `スナップショット「${fName}」から正常に復元しました。`, 4000);
+                            await fetchConfig();
+                            await fetchDevices();
+                            await loadSnapshotsList();
+                        } else {
+                            showToast('error', 'ロールバック失敗', resData.error || '復元処理に失敗しました。');
+                            btn.disabled = false;
+                            btn.textContent = '↺ この時点に戻す';
+                        }
+                    } catch (err) {
+                        showToast('error', 'エラー', err.message);
+                        btn.disabled = false;
+                        btn.textContent = '↺ この時点に戻す';
+                    }
+                });
+            });
+        } catch (err) {
+            listEl.innerHTML = `<div style="font-size:0.75rem; color:#ef4444; text-align:center; padding:10px;">スナップショット取得エラー: ${err.message}</div>`;
+        }
+    }
+
+    const btnRefreshSnapshots = document.getElementById('btn-refresh-snapshots');
+    if (btnRefreshSnapshots) {
+        btnRefreshSnapshots.addEventListener('click', () => {
+            loadSnapshotsList();
+            showToast('info', 'スナップショット更新', '最新のスナップショット履歴を取得しました。', 2000);
+        });
+    }
 
     // Save System Config
     if (saveSystemConfigBtn) {
@@ -828,6 +920,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 bwThreshMbps:       parseFloat(document.getElementById('modal-thresh-bandwidth')?.value) || 10,
                 latencyWarningMs:   parseInt(document.getElementById('modal-config-latency-warning')?.value) || 80,
                 consecutiveFailThresh: parseInt(document.getElementById('modal-config-consecutive-fails')?.value) || 2,
+                lossWarningThreshPercent: parseFloat(document.getElementById('modal-config-loss-warning')?.value) || 5.0,
+                jitterWarningThreshMs: parseFloat(document.getElementById('modal-config-jitter-warning')?.value) || 20.0,
                 enableParentSuppression: document.getElementById('modal-config-enable-parent-suppression') ? document.getElementById('modal-config-enable-parent-suppression').checked : true
             };
 
