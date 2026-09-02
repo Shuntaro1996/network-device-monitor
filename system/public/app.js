@@ -348,8 +348,70 @@ document.addEventListener('DOMContentLoaded', () => {
         return audioCtx;
     }
 
+    // ── 10分間アラート一時消音 (Mute) 制御 ──────────────────────────────────────
+    let muteUntilTimestamp = 0;
+    let muteTimerInterval = null;
+
+    function isAlertMuted() {
+        return Date.now() < muteUntilTimestamp;
+    }
+
+    function updateMuteButtonUI() {
+        const btn = document.getElementById('btn-mute-alert');
+        const icon = document.getElementById('mute-icon');
+        const text = document.getElementById('mute-text');
+        if (!btn || !icon || !text) return;
+
+        if (isAlertMuted()) {
+            btn.classList.add('btn-mute-active');
+            const remainingSec = Math.max(0, Math.ceil((muteUntilTimestamp - Date.now()) / 1000));
+            const m = Math.floor(remainingSec / 60);
+            const s = remainingSec % 60;
+            const timeStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            icon.textContent = '🔇';
+            text.textContent = `消音中 (${timeStr})`;
+            btn.title = `現在アラート音を消音しています。クリックで即時解除 (${timeStr})`;
+        } else {
+            btn.classList.remove('btn-mute-active');
+            icon.textContent = '🔊';
+            text.textContent = '消音 (10分)';
+            btn.title = 'クリックすると10分間アラート警告音を一時消音します';
+            if (muteTimerInterval) {
+                clearInterval(muteTimerInterval);
+                muteTimerInterval = null;
+            }
+        }
+    }
+
+    function toggleMuteAlert() {
+        if (isAlertMuted()) {
+            muteUntilTimestamp = 0;
+            if (muteTimerInterval) { clearInterval(muteTimerInterval); muteTimerInterval = null; }
+            updateMuteButtonUI();
+            showToast('info', '🔊 音声通知再開', 'アラート警告音の消音を解除しました。', 3000);
+        } else {
+            muteUntilTimestamp = Date.now() + 10 * 60 * 1000; // 10分
+            updateMuteButtonUI();
+            if (muteTimerInterval) clearInterval(muteTimerInterval);
+            muteTimerInterval = setInterval(() => {
+                if (!isAlertMuted()) {
+                    updateMuteButtonUI();
+                    showToast('info', '🔊 消音時間終了', 'アラート警告音の消音期間が終了しました。通常モードに復帰します。', 3000);
+                } else {
+                    updateMuteButtonUI();
+                }
+            }, 1000);
+            showToast('warning', '🔇 10分間消音', 'アラート警告音を10分間一時消音しました。画面の通知表示は継続します。', 4000);
+        }
+    }
+
+    const btnMuteAlert = document.getElementById('btn-mute-alert');
+    if (btnMuteAlert) {
+        btnMuteAlert.addEventListener('click', toggleMuteAlert);
+    }
+
     function playAlertSound(type = 'error') {
-        if (!systemConfig.soundEnabled) return;
+        if (!systemConfig.soundEnabled || isAlertMuted()) return;
         try {
             const ctx = getAudioContext();
             if (!ctx) return;
@@ -402,6 +464,107 @@ document.addEventListener('DOMContentLoaded', () => {
     if (modalSoundVol && modalSoundVolLabel) {
         modalSoundVol.addEventListener('input', () => {
             modalSoundVolLabel.textContent = `${Math.round(modalSoundVol.value * 100)}%`;
+        });
+    }
+
+    // ── 障害機器の最上部自動ピン留め・ソート制御 ──────────────────────────────
+    let isSortFailuresActive = localStorage.getItem('sortFailuresActive') === 'true';
+
+    function updateSortFailuresButtonUI() {
+        const btn = document.getElementById('btn-toggle-sort-failures');
+        const text = document.getElementById('sort-failures-text');
+        if (!btn || !text) return;
+
+        if (isSortFailuresActive) {
+            btn.classList.add('btn-sort-active');
+            text.textContent = '障害優先表示: ON';
+            btn.title = '障害（赤）や警告（黄）の機器を最上部に固定しています。クリックで通常順に戻します';
+        } else {
+            btn.classList.remove('btn-sort-active');
+            text.textContent = '障害優先表示: OFF';
+            btn.title = 'クリックすると障害（赤）や警告（黄）の機器をリスト最上部に自動固定します';
+        }
+    }
+
+    function applyFailureSort() {
+        if (!devices || devices.length === 0) return;
+        devices.forEach(d => {
+            const safeIpId = d.ip.replace(/\./g, '-');
+            const cardEl = document.getElementById(`card-${safeIpId}`);
+            if (!cardEl) return;
+
+            if (!isSortFailuresActive) {
+                cardEl.style.order = '';
+                return;
+            }
+
+            const data = topologyLastValidStatus[d.ip];
+            const isPausedState = (d.enabled === false);
+
+            if (isPausedState) {
+                cardEl.style.order = '90';
+            } else if (data && (data.status === 'Failed' || data.status === 'Offline')) {
+                cardEl.style.order = '10'; // 最優先（最上部）
+            } else if (data && data.status === 'Warning') {
+                cardEl.style.order = '20'; // 警告（2番目）
+            } else if (data && (data.status === 'Success' || data.status === 'Online')) {
+                cardEl.style.order = '50'; // 正常
+            } else {
+                cardEl.style.order = '60'; // 不明・待機中
+            }
+        });
+    }
+
+    function toggleSortFailures() {
+        isSortFailuresActive = !isSortFailuresActive;
+        localStorage.setItem('sortFailuresActive', isSortFailuresActive ? 'true' : 'false');
+        updateSortFailuresButtonUI();
+        applyFailureSort();
+        showToast('info', isSortFailuresActive ? '📌 障害優先表示: ON' : '📌 障害優先表示: OFF', 
+            isSortFailuresActive ? '障害・警告が発生している機器をリスト最上部に固定表示します。' : '通常のグループ登録順で表示します。', 3000);
+    }
+
+    const btnToggleSortFailures = document.getElementById('btn-toggle-sort-failures');
+    if (btnToggleSortFailures) {
+        btnToggleSortFailures.addEventListener('click', toggleSortFailures);
+    }
+
+    // ── 監視終了＆報告書オープン制御 ──────────────────────────────────────────
+    const btnShutdownSession = document.getElementById('btn-shutdown-session');
+    const shutdownModal = document.getElementById('shutdown-confirm-modal');
+    const closeShutdownBtn = document.getElementById('close-shutdown-modal-btn');
+    const cancelShutdownBtn = document.getElementById('cancel-shutdown-btn');
+    const confirmShutdownBtn = document.getElementById('confirm-shutdown-btn');
+    const shutdownCompleteOverlay = document.getElementById('shutdown-complete-overlay');
+
+    if (btnShutdownSession && shutdownModal) {
+        btnShutdownSession.addEventListener('click', () => {
+            shutdownModal.style.display = 'flex';
+        });
+    }
+
+    function closeShutdownConfirmModal() {
+        if (shutdownModal) shutdownModal.style.display = 'none';
+    }
+
+    if (closeShutdownBtn) closeShutdownBtn.addEventListener('click', closeShutdownConfirmModal);
+    if (cancelShutdownBtn) cancelShutdownBtn.addEventListener('click', closeShutdownConfirmModal);
+
+    if (confirmShutdownBtn) {
+        confirmShutdownBtn.addEventListener('click', async () => {
+            closeShutdownConfirmModal();
+            // 1. 最新の点検報告書を新規タブで開く
+            window.open('/api/reports/export', '_blank');
+            // 2. 終了オーバーレイを表示
+            if (shutdownCompleteOverlay) {
+                shutdownCompleteOverlay.style.display = 'flex';
+            }
+            // 3. サーバーにシャットダウンリクエストを送信
+            try {
+                await fetch('/api/shutdown', { method: 'POST' });
+            } catch (e) {
+                console.log('Shutdown signal dispatched');
+            }
         });
     }
 
@@ -1492,6 +1655,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Initialize
+    updateMuteButtonUI();
+    updateSortFailuresButtonUI();
     fetchDevices();
     fetchConfig().then(() => {
         const currentInterval = configPollIntervalInput ? parseInt(configPollIntervalInput.value) : 1000;
@@ -2162,8 +2327,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span id="minmax-${safeIpId}" style="font-size:0.7rem;white-space:nowrap;" title="セッション中の最大応答遅延 / 最小応答遅延 (ms)"><span style="color:#f97316;">最大-</span> / <span style="color:#06b6d4;">最小-</span></span>
                         <span id="outage-${safeIpId}" style="font-size:0.68rem;white-space:nowrap;color:#94a3b8;" title="最大瞬断時間: 連続してPingが途絶えた最長ミリ秒数 (ms)">瞬断最大: -</span>
                     </div>
-                    <div style="display:flex;align-items:center;flex-shrink:0;">
-                        <button class="toggle-monitor-btn" data-ip="${ip}" style="background:transparent;border:none;color:${!isPausedState ? '#f59e0b' : '#10b981'};cursor:pointer;font-size:1.1rem;">${!isPausedState ? '⏸' : '▶'}</button>
+                    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                        <button class="device-detail-btn" data-ip="${ip}" title="ポート通信量・MTR経路・24h履歴の詳細診断を開きます">🔍 詳細</button>
+                        <button class="toggle-monitor-btn" data-ip="${ip}" style="background:transparent;border:none;color:${!isPausedState ? '#f59e0b' : '#10b981'};cursor:pointer;font-size:1.1rem;" title="${!isPausedState ? '監視を一時停止' : '監視を再開'}">${!isPausedState ? '⏸' : '▶'}</button>
                     </div>`;
                 grid.appendChild(row);
                 if (!latencyHistory[ip]) { latencyHistory[ip] = Array(15).fill(null); timeHistory[ip] = Array(15).fill(''); }
@@ -2172,6 +2338,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Hover focus highlight on unified chart
                 row.addEventListener('mouseenter', () => highlightChartDevice(ip));
                 row.addEventListener('mouseleave', () => resetChartHighlight());
+
+                const detailBtn = row.querySelector('.device-detail-btn');
+                if (detailBtn) {
+                    detailBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openSnmpDetailsModal(d);
+                    });
+                }
 
                 row.querySelector('.toggle-monitor-btn').addEventListener('click', async (e) => {
                     e.stopPropagation();
@@ -2183,6 +2357,8 @@ document.addEventListener('DOMContentLoaded', () => {
             section.appendChild(grid);
             deviceList.appendChild(section);
         }
+
+        applyFailureSort();
 
         // グラフ描画: 'all' なら全監視デバイス、個別グループ選択中ならそのグループのデバイスを表示
         let chartDevices = (activeTab === 'all')
@@ -2547,6 +2723,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+
+        // 障害優先ソートが有効ならリアルタイムに順序更新
+        applyFailureSort();
 
         // Update Sidebar Summary Chips
         updateSidebarSummary(statusData);

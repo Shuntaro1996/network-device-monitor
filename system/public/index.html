@@ -192,8 +192,19 @@
                         <button id="btn-export-report" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="稼働率・遅延・瞬断統計をまとめた点検報告書(PDF/印刷)を出力します">
                             <span>📄</span> 点検報告書 (PDF/印刷)
                         </button>
+                        <button id="btn-mute-alert" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="クリックすると10分間アラート警告音を一時消音します">
+                            <span id="mute-icon">🔊</span>
+                            <span id="mute-text">消音 (10分)</span>
+                        </button>
+                        <button id="btn-shutdown-session" class="btn btn-danger-glow" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:700; background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); cursor:pointer;" title="本日の監視を安全に終了し、点検報告書を保存・表示します">
+                            <span>🛑</span> 監視終了＆報告書
+                        </button>
                     </div>
                     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <button id="btn-toggle-sort-failures" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="障害（赤）や警告（黄）の機器をリスト最上部に自動固定します">
+                            <span id="sort-failures-icon">📌</span>
+                            <span id="sort-failures-text">障害優先表示: OFF</span>
+                        </button>
                         <button id="btn-open-guide-modal" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600; color:#60a5fa; border-color:rgba(59,130,246,0.3);" title="用語解説・操作方法・トラブルシューティングガイドを開きます">
                             <span>❓</span> 操作ガイド・用語集
                         </button>
@@ -1541,7 +1552,60 @@
         </div>
     </div>
 
+    <!-- Shutdown Confirmation Modal (監視終了＆報告書) -->
+    <div id="shutdown-confirm-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-modal config-modal-box" style="max-width:520px; width:90%; border-top:4px solid #ef4444;">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span style="font-size:1.5rem;">🛑</span>
+                    <div>
+                        <h2 class="modal-title" style="margin:0; font-size:1.15rem; color:#f87171;">監視セッションの終了</h2>
+                        <span style="font-size:0.75rem; color:var(--text-muted);">本日の監視データを集計し、安全にサーバーを停止します</span>
+                    </div>
+                </div>
+                <button id="close-shutdown-modal-btn" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body-scroll config-modal-body" style="padding:18px 16px; font-size:0.88rem; line-height:1.6;">
+                <p style="margin-top:0; font-weight:700;">本日の監視セッションを終了しますか？</p>
+                <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:10px; padding:12px 14px; margin-bottom:14px;">
+                    <div style="font-size:0.82rem; color:var(--text-main); display:flex; flex-direction:column; gap:6px;">
+                        <div>✔ 全機器の統計サマリー（稼働率・平均遅延・瞬断回数）をCSVへ自動保存</div>
+                        <div>✔ 最新の <strong>「点検報告書 (HTML/PDF)」</strong> を自動で別タブで開きます</div>
+                        <div>✔ バックグラウンドのPowerShellサーバーを安全に停止します</div>
+                    </div>
+                </div>
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-bottom:0;">※ 終了後も <code>Reports</code> フォルダーにすべてのログと報告書が保存されています。</p>
+            </div>
+            <div class="modal-footer" style="justify-content:flex-end; gap:10px;">
+                <button class="btn secondary-btn" id="cancel-shutdown-btn">キャンセル</button>
+                <button class="btn" id="confirm-shutdown-btn" style="background:#ef4444; color:#fff; font-weight:700; border:none; padding:8px 18px; border-radius:8px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                    <span>🛑</span> 終了して報告書を開く
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shutdown Complete Fullscreen Overlay -->
+    <div id="shutdown-complete-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.95); backdrop-filter:blur(10px); z-index:99999; flex-direction:column; align-items:center; justify-content:center; color:#fff; text-align:center; padding:20px;">
+        <div style="width:72px; height:72px; border-radius:50%; background:rgba(16,185,129,0.15); border:2px solid #10b981; display:flex; align-items:center; justify-content:center; font-size:36px; margin-bottom:20px;">
+            ✔
+        </div>
+        <h2 style="font-size:1.6rem; margin:0 0 10px 0; font-weight:800;">監視セッションを安全に終了しました</h2>
+        <p style="font-size:0.95rem; color:#94a3b8; max-width:480px; line-height:1.6; margin:0 0 24px 0;">
+            本日の計測ログ（CSVサマリー）と点検報告書が <code>Reports</code> フォルダーに正常に保存されました。<br>
+            このブラウザタブは閉じていただいて問題ありません。
+        </p>
+        <div style="display:flex; gap:12px;">
+            <a id="overlay-report-link" href="/api/reports/export" target="_blank" class="btn primary-btn" style="padding:10px 22px; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+                <span>📄</span> 点検報告書を再確認
+            </a>
+            <button onclick="window.close()" class="btn secondary-btn" style="padding:10px 22px; font-weight:700;">
+                タブを閉じる
+            </button>
+        </div>
+    </div>
+
     <div id="toast-container"></div>
-    <script src="app.js?v=68"></script>
+    <script src="app.js?v=69"></script>
 </body>
 </html>

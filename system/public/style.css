@@ -1705,3 +1705,58 @@ body.simple-mode .device-title-area .device-ip {
     border-color: var(--primary) !important;
 }
 
+/* =========================================================
+   UX Improvement Utility Styles
+   ========================================================= */
+.btn-danger-glow {
+    transition: all 0.2s ease;
+}
+.btn-danger-glow:hover {
+    background: rgba(239, 68, 68, 0.28) !important;
+    color: #ef4444 !important;
+    border-color: rgba(239, 68, 68, 0.6) !important;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.35);
+    transform: translateY(-1px);
+}
+
+.btn-mute-active {
+    background: rgba(245, 158, 11, 0.2) !important;
+    color: #fbbf24 !important;
+    border-color: rgba(245, 158, 11, 0.6) !important;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+    animation: pulse-mute 2s infinite ease-in-out;
+}
+@keyframes pulse-mute {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.75; }
+}
+
+.btn-sort-active {
+    background: rgba(16, 185, 129, 0.2) !important;
+    color: #34d399 !important;
+    border-color: rgba(16, 185, 129, 0.6) !important;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+/* Device card action buttons */
+.device-detail-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    transition: all 0.15s ease;
+}
+.device-detail-btn:hover {
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+    border-color: rgba(59, 130, 246, 0.4);
+    transform: translateY(-1px);
+}
+

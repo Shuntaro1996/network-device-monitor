@@ -678,23 +678,33 @@ function Generate-SessionReportHtml {
         .device-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
         .device-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
         .device-chart-box { position: relative; height: 160px; min-height: 160px; width: 100%; }
-        .print-bar { position: fixed; top: 15px; right: 15px; background: #0f172a; color: #fff; padding: 8px 16px; border-radius: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; gap: 10px; align-items: center; z-index: 999; }
-        .print-btn { background: #2563eb; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 11px; }
-        .print-btn:hover { background: #1d4ed8; }
+        .print-bar { position: fixed; top: 15px; right: 15px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); color: #fff; padding: 10px 18px; border-radius: 40px; box-shadow: 0 8px 24px rgba(0,0,0,0.25); display: flex; gap: 14px; align-items: center; z-index: 9999; border: 1px solid rgba(255,255,255,0.1); }
+        .print-btn { background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; border: none; padding: 8px 18px; border-radius: 20px; cursor: pointer; font-weight: 700; font-size: 12px; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(37,99,235,0.4); transition: transform 0.15s, background 0.15s; }
+        .print-btn:hover { transform: translateY(-1px); background: linear-gradient(135deg, #1d4ed8, #1e40af); }
+        .print-btn:active { transform: translateY(1px); }
         @media print {
-            .print-bar { display: none; }
-            body { background: #fff; padding: 0; font-size: 10.5px; }
-            .container { border: none; box-shadow: none; padding: 0; max-width: 100%; }
-            .chart-card, .device-card { break-inside: avoid; }
+            .print-bar { display: none !important; }
+            body { background: #fff; padding: 0; font-size: 10px; }
+            .container { border: none; box-shadow: none; padding: 0; max-width: 100%; margin: 0; }
+            .chart-card, .device-card, .summary-box { break-inside: avoid; page-break-inside: avoid; }
             table { break-inside: auto; }
-            tr { break-inside: avoid; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
+            .section-title { break-after: avoid; page-break-after: avoid; }
         }
     </style>
 </head>
 <body>
     <div class="print-bar">
-        <span>📄 グラフ付き点検報告書</span>
-        <button class="print-btn" onclick="window.print()">🖨️ 印刷 / PDF保存</button>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">📄</span>
+            <div>
+                <strong style="font-size:12px; display:block;">定期点検報告書</strong>
+                <span style="font-size:10px; color:#94a3b8;">A4横向き・カラー印刷</span>
+            </div>
+        </div>
+        <button class="print-btn" onclick="window.print()" title="クリックしてA4横向きPDFに保存、またはプリンターで印刷">
+            🖨️ A4横向きで印刷 / PDF保存
+        </button>
     </div>
 
     <div class="container">
