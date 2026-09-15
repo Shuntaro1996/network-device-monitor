@@ -37,7 +37,7 @@ if ($diag.isPolicyOk) {
 if ($diag.iperf3.available) {
     Write-Host " [✔] Iperf3 帯域計測ツール : 利用可能 ($($diag.iperf3.path))" -ForegroundColor Green
 } else {
-    Write-Host " [!] Iperf3 帯域計測ツール : 未検出 (tools\iperf3.exe を配置すると有効になります)" -ForegroundColor Yellow
+    Write-Host " [!] Iperf3 帯域計測ツール : 未検出 (system\iperf3.18_64\iperf3.exe を配置すると有効になります)" -ForegroundColor Yellow
 }
 
 # 4. Pester 自動テスト

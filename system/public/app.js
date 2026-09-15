@@ -1638,6 +1638,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeTraceHops = [];
     let flowAnimationProgress = 0;
     let flowAnimationId = null;
+    let animationFxEnabled = (localStorage.getItem('ndm_topo_fx') !== 'false');
+    let isTheaterMode = false;
     let traceHighlightedNodes = new Set();
     let traceHighlightedEdges = new Set();
 
@@ -1835,12 +1837,14 @@ document.addEventListener('DOMContentLoaded', () => {
         function animate() {
             const viewTopo = document.getElementById('view-topology');
             if (networkInstance && viewTopo && viewTopo.classList.contains('active')) {
-                flowAnimationProgress = (flowAnimationProgress + 0.008) % 1.0;
-                networkInstance.redraw();
+                if (animationFxEnabled) {
+                    flowAnimationProgress = (flowAnimationProgress + 0.008) % 1.0;
+                    networkInstance.redraw();
+                }
             }
             flowAnimationId = requestAnimationFrame(animate);
         }
-        animate();
+        flowAnimationId = requestAnimationFrame(animate);
     }
 
     function stopFlowAnimation() {
@@ -1849,6 +1853,225 @@ document.addEventListener('DOMContentLoaded', () => {
             flowAnimationId = null;
         }
     }
+
+    function drawCometParticle(ctx, p1, p2, progress, color, isTraced) {
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 12) return;
+
+        const ux = dx / dist;
+        const uy = dy / dist;
+
+        // Head position
+        const hx = p1.x + dx * progress;
+        const hy = p1.y + dy * progress;
+
+        // 4 decaying tail segments
+        const tailSegments = 4;
+        const tailLength = Math.min(26, dist * 0.22);
+        const stepDist = tailLength / tailSegments;
+
+        ctx.save();
+        for (let s = tailSegments; s >= 1; s--) {
+            const segDist = s * stepDist;
+            const sx = hx - ux * segDist;
+            const sy = hy - uy * segDist;
+
+            const dot = (sx - p1.x) * ux + (sy - p1.y) * uy;
+            if (dot < 0 || dot > dist) continue;
+
+            const alpha = (1 - s / (tailSegments + 1)) * 0.45;
+            const r = (isTraced ? 5.5 : 4.0) * (1 - s * 0.16);
+
+            ctx.beginPath();
+            ctx.arc(sx, sy, Math.max(1, r), 0, 2 * Math.PI);
+            ctx.fillStyle = color;
+            ctx.globalAlpha = alpha;
+            ctx.fill();
+        }
+
+        // Glowing head
+        ctx.globalAlpha = 1.0;
+        ctx.beginPath();
+        ctx.arc(hx, hy, isTraced ? 5.5 : 4.2, 0, 2 * Math.PI);
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = color;
+        ctx.shadowBlur = isTraced ? 12 : 9;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(hx, hy, isTraced ? 6.5 : 5.0, 0, 2 * Math.PI);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    function formatMbps(m) {
+        if (!m || isNaN(m) || m <= 0) return '0M';
+        if (m >= 100) return Math.round(m) + 'M';
+        if (m >= 1) return m.toFixed(1) + 'M';
+        if (m >= 0.01) return (m * 1000 >= 100 ? Math.round(m * 1000) + 'K' : (m * 1000).toFixed(0) + 'K');
+        return '0M';
+    }
+
+    async function applyHierarchicalTreeLayout() {
+        const activeDevices = devices.filter(d => d.enabled !== false);
+        if (activeDevices.length === 0 || !networkInstance || !nodesDataSet) return;
+
+        function getBaseTier(d) {
+            const img = (d.image || '').toLowerCase();
+            const name = (d.name || '').toLowerCase();
+            const ip = d.ip || '';
+
+            if (img === 'cloud' || ip === '8.8.8.8') return 0;
+            if (img === 'router' || /router|gateway|ルーター|ゲートウェイ|ルータ|gw/i.test(name) || ip.endsWith('.1')) return 0;
+            if (img === 'bridge' || /core|コア|l3|distrib/i.test(name)) return 1;
+            if (img === 'ap' || img === 'switch' || /ap|switch|sw|hub/i.test(name)) return 2;
+            if (img === 'camera' || img === 'decoder' || img === 'controller' || img === 'server' || img === 'pc') return 3;
+            return 3;
+        }
+
+        const tierMap = {};
+        activeDevices.forEach(d => {
+            tierMap[d.ip] = getBaseTier(d);
+        });
+
+        // Refine tiers using connectedTo (parent -> child)
+        for (let pass = 0; pass < 3; pass++) {
+            activeDevices.forEach(d => {
+                if (d.connectedTo) {
+                    const parents = d.connectedTo.split(',').map(p => p.trim()).filter(p => p);
+                    parents.forEach(parentIp => {
+                        if (tierMap[parentIp] !== undefined) {
+                            const minChildTier = Math.min(4, tierMap[parentIp] + 1);
+                            if (tierMap[d.ip] < minChildTier) {
+                                tierMap[d.ip] = minChildTier;
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        const tiers = { 0: [], 1: [], 2: [], 3: [], 4: [] };
+        activeDevices.forEach(d => {
+            const t = tierMap[d.ip] || 0;
+            tiers[t].push(d);
+        });
+
+        const tierY = {
+            0: -340,
+            1: -120,
+            2: 120,
+            3: 360,
+            4: 560
+        };
+
+        const payload = [];
+
+        Object.keys(tiers).forEach(tStr => {
+            const t = parseInt(tStr, 10);
+            const list = tiers[t];
+            if (list.length === 0) return;
+
+            list.sort((a, b) => {
+                const ga = a.group || '';
+                const gb = b.group || '';
+                if (ga !== gb) return ga.localeCompare(gb);
+                return (a.name || a.ip).localeCompare(b.name || b.ip);
+            });
+
+            const count = list.length;
+            const spacingX = Math.max(160, Math.min(260, 1400 / Math.max(count, 1)));
+
+            list.forEach((d, idx) => {
+                const x = (idx - (count - 1) / 2) * spacingX;
+                const y = tierY[t] || (t * 200);
+                d.x = x;
+                d.y = y;
+                payload.push({ ip: d.ip, x, y });
+            });
+        });
+
+        nodesDataSet.update(payload.map(p => ({ id: p.ip, x: p.x, y: p.y, physics: false })));
+
+        try {
+            await fetch('/api/devices/positions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } catch (e) {
+            console.error('Failed to save layout positions:', e);
+        }
+
+        networkInstance.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+    }
+
+    function toggleTheaterMode() {
+        const topoLayout = document.querySelector('.topology-layout');
+        const fsBtn = document.getElementById('topo-fullscreen-btn');
+        if (!topoLayout) return;
+
+        isTheaterMode = !isTheaterMode;
+        if (isTheaterMode) {
+            topoLayout.classList.add('theater-mode');
+            if (fsBtn) {
+                fsBtn.textContent = '🖥️ 通常表示';
+                fsBtn.classList.add('topo-btn-theater-active');
+            }
+        } else {
+            topoLayout.classList.remove('theater-mode');
+            if (fsBtn) {
+                fsBtn.textContent = '🖥️ シアターモード';
+                fsBtn.classList.remove('topo-btn-theater-active');
+            }
+        }
+
+        setTimeout(() => {
+            if (networkInstance) {
+                networkInstance.redraw();
+                networkInstance.fit();
+            }
+        }, 150);
+    }
+
+    function toggleAnimationFx() {
+        animationFxEnabled = !animationFxEnabled;
+        localStorage.setItem('ndm_topo_fx', animationFxEnabled ? 'true' : 'false');
+        updateFxButtonState();
+        if (animationFxEnabled) {
+            startFlowAnimation();
+        }
+        if (networkInstance) {
+            networkInstance.redraw();
+        }
+    }
+
+    function updateFxButtonState() {
+        const fxBtn = document.getElementById('topo-fx-toggle-btn');
+        if (!fxBtn) return;
+        if (animationFxEnabled) {
+            fxBtn.textContent = '⚡ FX: ON';
+            fxBtn.classList.add('topo-btn-fx-on');
+            fxBtn.classList.remove('topo-btn-fx-off');
+            fxBtn.title = 'アニメーションFX 有効 (彗星粒子・レーダー波紋 ON)';
+        } else {
+            fxBtn.textContent = '⚡ FX: OFF';
+            fxBtn.classList.remove('topo-btn-fx-on');
+            fxBtn.classList.add('topo-btn-fx-off');
+            fxBtn.title = 'アニメーションFX 無効 (静止描画モード)';
+        }
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isTheaterMode) {
+            toggleTheaterMode();
+        }
+    });
 
     function isTraceEdge(fromIp, toIp) {
         return traceHighlightedEdges.has(`edge-${fromIp}-${toIp}`) || 
@@ -2497,6 +2720,44 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let isFetchingStatus = false;
+    let dismissedConflicts = new Set();
+
+    function updateIpConflicts(conflicts) {
+        const banner = document.getElementById('ip-conflict-banner');
+        const detailsEl = document.getElementById('ip-conflict-details');
+        if (!banner || !detailsEl) return;
+
+        if (!conflicts || conflicts.length === 0) {
+            banner.style.display = 'none';
+            dismissedConflicts.clear();
+            return;
+        }
+
+        const activeConflicts = conflicts.filter(c => !dismissedConflicts.has(c.ip));
+        if (activeConflicts.length === 0) {
+            banner.style.display = 'none';
+            return;
+        }
+
+        banner.style.display = 'block';
+        detailsEl.innerHTML = activeConflicts.map(c => `
+            <div style="margin-top:2px;">
+                <strong>${escapeHTML(c.deviceName || c.ip)} (${escapeHTML(c.ip)})</strong>: 
+                <span style="color:#fca5a5;">${escapeHTML(c.reason || '競合')}</span>
+                <span style="color:var(--text-muted); font-size:0.75rem; margin-left:6px;">[検知: ${escapeHTML(c.detectedAt || '')}]</span>
+            </div>
+        `).join('');
+
+        const dismissBtn = document.getElementById('btn-dismiss-conflict');
+        if (dismissBtn && !dismissBtn._hasListener) {
+            dismissBtn._hasListener = true;
+            dismissBtn.addEventListener('click', () => {
+                activeConflicts.forEach(c => dismissedConflicts.add(c.ip));
+                banner.style.display = 'none';
+            });
+        }
+    }
+
     async function fetchStatus() {
         if (devices.length === 0) return;
         if (isFetchingStatus) return; // prevent parallel requests when server is slow
@@ -2506,6 +2767,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const statusData = await res.json();
             updateDeviceData(statusData);
             updateTopologyStatus();
+            updateIpConflicts(statusData._ipConflicts);
         } catch (err) { console.warn('Error fetching status:', err); }
         finally { isFetchingStatus = false; }
     }
@@ -2585,6 +2847,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const displayName = escapeHTML(d.name || ip);
                 const rateBadge = ultraHighFreqActive ? (isUltraTarget ? '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(251,191,36,0.2); color:#fbbf24; font-weight:700; margin-left:4px;">0.1s</span>' : '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(148,163,184,0.15); color:#94a3b8; margin-left:4px;">5.0s</span>') : '';
                 const checkBadge = (d.checkType === 'tcp' && d.port > 0) ? `<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(99,102,241,0.2); color:#818cf8; font-weight:700; margin-left:4px;" title="TCPポート ${d.port} 死活監視">TCP:${d.port}</span>` : '';
+                const conflictBadge = `<span id="conflict-badge-${safeIpId}" style="display:none; font-size:0.65rem; padding:1px 6px; border-radius:4px; background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:700; margin-left:4px;" title="IPアドレス競合を検知中">🚨 IP競合</span>`;
                 
                 row.innerHTML = `
                     ${!isPausedState ? `<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:${color};border-radius:8px 0 0 8px;"></div>` : ''}
@@ -2595,6 +2858,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <span style="font-weight:600; font-size:0.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${displayName}">${displayName}</span>
                                 ${rateBadge}
                                 ${checkBadge}
+                                ${conflictBadge}
                             </div>
                             <span style="font-size:0.72rem;color:var(--text-muted);">${escapeHTML(ip)}<span id="mac-${safeIpId}" style="font-family:monospace;">${d.mac ? ` / MAC: ${escapeHTML(d.mac)}` : ''}</span></span>
                         </div>
@@ -3006,6 +3270,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (macEl && data.mac && !macEl.textContent) {
                     macEl.textContent = ` / MAC: ${data.mac}`;
                 }
+
+                // ── IP競合バッジ・枠線警告の更新 ──
+                const conflictBadgeEl = document.getElementById(`conflict-badge-${safeIpId}`);
+                const cardEl = document.getElementById(`card-${safeIpId}`);
+                if (data.ipConflict) {
+                    if (conflictBadgeEl) {
+                        conflictBadgeEl.style.display = 'inline-block';
+                        conflictBadgeEl.title = `【IP競合検知】${data.ipConflict.reason} (検出MAC: ${data.ipConflict.detectedMac})`;
+                    }
+                    if (cardEl) {
+                        cardEl.style.border = '1px solid rgba(239,68,68,0.6)';
+                        cardEl.style.boxShadow = '0 0 12px rgba(239,68,68,0.2)';
+                    }
+                } else {
+                    if (conflictBadgeEl) conflictBadgeEl.style.display = 'none';
+                    if (cardEl && !cardEl.classList.contains('paused')) {
+                        cardEl.style.border = '';
+                        cardEl.style.boxShadow = '';
+                    }
+                }
             }
         });
 
@@ -3081,6 +3365,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         deactivateAllModes();
         stopFlowAnimation();
+        if (tabId !== 'tab-topology' && isTheaterMode) {
+            toggleTheaterMode();
+        }
         
         if (tabId === 'tab-topology') {
             initTopology();
@@ -3843,8 +4130,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!fromDev || !toDev) {
             return {
                 color: { color: '#3b82f6', highlight: '#60a5fa', hover: '#93c5fd' },
-                width: 3,
-                dashes: false
+                width: 2.5,
+                dashes: false,
+                tx: 0, rx: 0, totalMbps: 0, isOffline: false
             };
         }
 
@@ -3866,32 +4154,70 @@ document.addEventListener('DOMContentLoaded', () => {
         const toLat = toStatus?.latency || 0;
         const isHighLatency = (fromLat >= warnLat) || (toLat >= warnLat);
 
+        // Throughput calculation for dynamic traffic heatmap
+        let tx = 0, rx = 0;
+        if (fromStatus) {
+            if (fromStatus.tx && !isNaN(parseFloat(fromStatus.tx))) tx = parseFloat(fromStatus.tx);
+            if (fromStatus.rx && !isNaN(parseFloat(fromStatus.rx))) rx = parseFloat(fromStatus.rx);
+            if (tx === 0 && rx === 0 && fromStatus.bandwidth && !isNaN(parseFloat(fromStatus.bandwidth))) {
+                tx = parseFloat(fromStatus.bandwidth);
+            }
+        }
+        if (toStatus) {
+            if (rx === 0 && toStatus.tx && !isNaN(parseFloat(toStatus.tx))) rx = parseFloat(toStatus.tx);
+        }
+        const totalMbps = tx + rx;
+
         if (isOffline) {
             return {
                 color: { color: '#ef4444', highlight: '#f87171', hover: '#fca5a5' },
                 width: 2.5,
-                dashes: [4, 4]
+                dashes: [4, 4],
+                tx, rx, totalMbps, isOffline: true
             };
-        } else if (isHighLatency) {
+        } else if (isHighLatency && totalMbps === 0) {
             return {
                 color: { color: '#f59e0b', highlight: '#fbbf24', hover: '#fde047' },
-                width: 3,
-                dashes: isWireless ? [4, 4] : false
+                width: 3.0,
+                dashes: isWireless ? [4, 4] : false,
+                tx, rx, totalMbps, isOffline: false
             };
         } else {
-            if (isWireless) {
-                return {
-                    color: { color: '#06b6d4', highlight: '#22d3ee', hover: '#67e8f9' },
-                    width: 2.5,
-                    dashes: [6, 4]
-                };
+            // Dynamic traffic heatmap coloring on edges (cyan/blue -> green -> orange -> magenta)
+            let edgeColor, hlColor, hvColor, edgeWidth;
+
+            if (totalMbps >= 75) {
+                // Saturated / very heavy traffic: Magenta Glow
+                edgeColor = '#d946ef';
+                hlColor   = '#e879f9';
+                hvColor   = '#f0abfc';
+                edgeWidth = 4.0;
+            } else if (totalMbps >= 25) {
+                // Heavy traffic: Orange
+                edgeColor = '#f97316';
+                hlColor   = '#fb923c';
+                hvColor   = '#fdba74';
+                edgeWidth = 3.5;
+            } else if (totalMbps >= 5) {
+                // Moderate traffic: Green
+                edgeColor = '#10b981';
+                hlColor   = '#34d399';
+                hvColor   = '#6ee7b7';
+                edgeWidth = 3.0;
             } else {
-                return {
-                    color: { color: '#3b82f6', highlight: '#60a5fa', hover: '#93c5fd' },
-                    width: 2.5,
-                    dashes: false
-                };
+                // Low / idle traffic: Cyan (wireless) or Blue (wired)
+                edgeColor = isWireless ? '#06b6d4' : '#3b82f6';
+                hlColor   = isWireless ? '#22d3ee' : '#60a5fa';
+                hvColor   = isWireless ? '#67e8f9' : '#93c5fd';
+                edgeWidth = 2.5;
             }
+
+            return {
+                color: { color: edgeColor, highlight: hlColor, hover: hvColor },
+                width: edgeWidth,
+                dashes: isWireless ? [6, 4] : false,
+                tx, rx, totalMbps, isOffline: false
+            };
         }
     }
 
@@ -4160,9 +4486,83 @@ document.addEventListener('DOMContentLoaded', () => {
         let groupInitialPositions = {};
         let dragStartPointer = null;
 
-        // Draw group background circles (Cisco Packet Tracer style) and canvas labels
+        // 0. Cyberpunk / CAD Tech Grid & Group Enclosure Backgrounds
         networkInstance.on('beforeDrawing', function(ctx) {
+            const isDay = document.documentElement.getAttribute('data-theme') === 'day';
             const positions = networkInstance.getPositions();
+
+            // Cyberpunk/CAD-like Tech Grid Background (scales with pan & zoom)
+            try {
+                const cWidth = container.clientWidth || 800;
+                const cHeight = container.clientHeight || 600;
+                const tl = networkInstance.DOMtoCanvas({ x: 0, y: 0 });
+                const br = networkInstance.DOMtoCanvas({ x: cWidth, y: cHeight });
+                const minX = Math.min(tl.x, br.x);
+                const maxX = Math.max(tl.x, br.x);
+                const minY = Math.min(tl.y, br.y);
+                const maxY = Math.max(tl.y, br.y);
+
+                ctx.save();
+                const minorGrid = 50;
+                const majorGrid = 250;
+
+                const startMinorX = Math.floor(minX / minorGrid) * minorGrid;
+                const endMinorX = Math.ceil(maxX / minorGrid) * minorGrid;
+                const startMinorY = Math.floor(minY / minorGrid) * minorGrid;
+                const endMinorY = Math.ceil(maxY / minorGrid) * minorGrid;
+
+                // Minor Grid Lines
+                ctx.beginPath();
+                for (let gx = startMinorX; gx <= endMinorX; gx += minorGrid) {
+                    ctx.moveTo(gx, minY);
+                    ctx.lineTo(gx, maxY);
+                }
+                for (let gy = startMinorY; gy <= endMinorY; gy += minorGrid) {
+                    ctx.moveTo(minX, gy);
+                    ctx.lineTo(maxX, gy);
+                }
+                ctx.strokeStyle = isDay ? 'rgba(100, 116, 139, 0.06)' : 'rgba(56, 189, 248, 0.04)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Major Grid Lines
+                const startMajorX = Math.floor(minX / majorGrid) * majorGrid;
+                const endMajorX = Math.ceil(maxX / majorGrid) * majorGrid;
+                const startMajorY = Math.floor(minY / majorGrid) * majorGrid;
+                const endMajorY = Math.ceil(maxY / majorGrid) * majorGrid;
+
+                ctx.beginPath();
+                for (let gx = startMajorX; gx <= endMajorX; gx += majorGrid) {
+                    ctx.moveTo(gx, minY);
+                    ctx.lineTo(gx, maxY);
+                }
+                for (let gy = startMajorY; gy <= endMajorY; gy += majorGrid) {
+                    ctx.moveTo(minX, gy);
+                    ctx.lineTo(maxX, gy);
+                }
+                ctx.strokeStyle = isDay ? 'rgba(100, 116, 139, 0.14)' : 'rgba(56, 189, 248, 0.09)';
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+
+                // Precision Crosshairs at major intersections
+                ctx.beginPath();
+                const crossSize = 5;
+                for (let gx = startMajorX; gx <= endMajorX; gx += majorGrid) {
+                    for (let gy = startMajorY; gy <= endMajorY; gy += majorGrid) {
+                        ctx.moveTo(gx - crossSize, gy);
+                        ctx.lineTo(gx + crossSize, gy);
+                        ctx.moveTo(gx, gy - crossSize);
+                        ctx.lineTo(gx, gy + crossSize);
+                    }
+                }
+                ctx.strokeStyle = isDay ? 'rgba(71, 85, 105, 0.28)' : 'rgba(56, 189, 248, 0.28)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                ctx.restore();
+            } catch (err) {}
+
+            // Group background rounded rectangles
             const groups = {};
             activeDevices.forEach(d => {
                 const pos = positions[d.ip];
@@ -4248,11 +4648,94 @@ document.addEventListener('DOMContentLoaded', () => {
             networkInstance.fit();
         });
 
-        // 1. Packet Flow Animations (Visual dot-flow along links)
-        // 2. Traceroute Hop Highlighting (Glowing nodes & neon red edges)
+        // 1. Radar Ripple Rings on Failed / Warning Nodes
+        // 2. Traceroute Hop Highlighting
+        // 3. Dynamic Traffic Heatmap Glow & Directional Comet-Tail Animation
+        // 4. Center Throughput Badges
         networkInstance.on('afterDrawing', function(ctx) {
             const positions = networkInstance.getPositions();
-            
+            const isDay = document.documentElement.getAttribute('data-theme') === 'day';
+            const now = Date.now();
+
+            // 🫀 Radar Ripple Rings around Failed (red) and Warning (yellow) nodes
+            activeDevices.forEach(d => {
+                const pos = positions[d.ip];
+                if (!pos) return;
+                const statusColor = getDeviceStatusColor(d.ip);
+                const isFailed = (statusColor === '#ef4444');
+                const isWarning = (statusColor === '#f59e0b');
+
+                if (isFailed) {
+                    ctx.save();
+                    if (animationFxEnabled) {
+                        // 3 concentric expanding radar ripple rings
+                        for (let w = 0; w < 3; w++) {
+                            const wavePhase = ((now + w * 600) % 1800) / 1800;
+                            const waveRadius = 40 + wavePhase * 50;
+                            const waveAlpha = (1 - wavePhase) * 0.75;
+                            ctx.beginPath();
+                            ctx.arc(pos.x, pos.y, waveRadius, 0, 2 * Math.PI);
+                            ctx.strokeStyle = `rgba(239, 68, 68, ${waveAlpha})`;
+                            ctx.lineWidth = 2.0 * (1 - wavePhase * 0.5);
+                            ctx.shadowColor = 'rgba(239, 68, 68, 0.8)';
+                            ctx.shadowBlur = 8;
+                            ctx.stroke();
+                        }
+                        // Breathing halo core ring
+                        const pulse = Math.sin(now / 180) * 4;
+                        ctx.beginPath();
+                        ctx.arc(pos.x, pos.y, 42 + pulse, 0, 2 * Math.PI);
+                        ctx.strokeStyle = 'rgba(239, 68, 68, 0.95)';
+                        ctx.lineWidth = 3.0;
+                        ctx.shadowColor = 'rgba(239, 68, 68, 1.0)';
+                        ctx.shadowBlur = 14;
+                        ctx.stroke();
+                    } else {
+                        // Static alert halo
+                        ctx.beginPath();
+                        ctx.arc(pos.x, pos.y, 44, 0, 2 * Math.PI);
+                        ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                } else if (isWarning) {
+                    ctx.save();
+                    if (animationFxEnabled) {
+                        // 2 concentric expanding radar ripple rings
+                        for (let w = 0; w < 2; w++) {
+                            const wavePhase = ((now + w * 1200) % 2400) / 2400;
+                            const waveRadius = 40 + wavePhase * 40;
+                            const waveAlpha = (1 - wavePhase) * 0.65;
+                            ctx.beginPath();
+                            ctx.arc(pos.x, pos.y, waveRadius, 0, 2 * Math.PI);
+                            ctx.strokeStyle = `rgba(245, 158, 11, ${waveAlpha})`;
+                            ctx.lineWidth = 1.8 * (1 - wavePhase * 0.4);
+                            ctx.shadowColor = 'rgba(245, 158, 11, 0.8)';
+                            ctx.shadowBlur = 6;
+                            ctx.stroke();
+                        }
+                        // Breathing halo core ring
+                        const pulse = Math.sin(now / 260) * 3;
+                        ctx.beginPath();
+                        ctx.arc(pos.x, pos.y, 42 + pulse, 0, 2 * Math.PI);
+                        ctx.strokeStyle = 'rgba(245, 158, 11, 0.9)';
+                        ctx.lineWidth = 2.5;
+                        ctx.shadowColor = 'rgba(245, 158, 11, 0.9)';
+                        ctx.shadowBlur = 10;
+                        ctx.stroke();
+                    } else {
+                        // Static warning halo
+                        ctx.beginPath();
+                        ctx.arc(pos.x, pos.y, 43, 0, 2 * Math.PI);
+                        ctx.strokeStyle = 'rgba(245, 158, 11, 0.8)';
+                        ctx.lineWidth = 2.5;
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+            });
+
             // Draw glowing ring around all nodes in traceHighlightedNodes (routers, switches, APs)
             if (traceHighlightedNodes.size > 0) {
                 traceHighlightedNodes.forEach((nodeIp) => {
@@ -4311,61 +4794,144 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
 
-            // Draw animated flow dots on each edge
+            // Edges: Dynamic Glow, Directional Comet-Tail Animation & Center Badges
             const edges = edgesDataSet.get();
             edges.forEach(edge => {
                 const fromPos = positions[edge.from];
                 const toPos = positions[edge.to];
-                if (fromPos && toPos) {
-                    const isTraced = isTraceEdge(edge.from, edge.to);
-                    
-                    // If trace path, draw custom neon highlight
+                if (!fromPos || !toPos) return;
+
+                const isTraced = isTraceEdge(edge.from, edge.to);
+                const estyle = getEdgeStyle(edge.from, edge.to);
+                const isWireless = !!edge.dashes;
+                const isOffline = estyle.isOffline;
+                const tx = estyle.tx || 0;
+                const rx = estyle.rx || 0;
+                const totalMbps = estyle.totalMbps || 0;
+
+                // If trace path, draw custom neon highlight
+                if (isTraced) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(fromPos.x, fromPos.y);
+                    ctx.lineTo(toPos.x, toPos.y);
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+                    ctx.lineWidth = 5;
+                    ctx.shadowColor = 'rgba(239, 68, 68, 0.95)';
+                    ctx.shadowBlur = 12;
+                    ctx.stroke();
+                    ctx.restore();
+                } else if (totalMbps >= 75) {
+                    // Magenta glow for saturated lines
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(fromPos.x, fromPos.y);
+                    ctx.lineTo(toPos.x, toPos.y);
+                    ctx.strokeStyle = 'rgba(217, 70, 239, 0.45)';
+                    ctx.lineWidth = 6.5;
+                    ctx.shadowColor = '#d946ef';
+                    ctx.shadowBlur = 12;
+                    ctx.stroke();
+                    ctx.restore();
+                } else if (totalMbps >= 25) {
+                    // Orange glow for heavy lines
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(fromPos.x, fromPos.y);
+                    ctx.lineTo(toPos.x, toPos.y);
+                    ctx.strokeStyle = 'rgba(249, 115, 22, 0.35)';
+                    ctx.lineWidth = 5.5;
+                    ctx.shadowColor = '#f97316';
+                    ctx.shadowBlur = 8;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // 🌊 Directional packet particle comet-tail animation
+                if (animationFxEnabled && !isOffline) {
                     if (isTraced) {
-                        ctx.save();
-                        ctx.beginPath();
-                        ctx.moveTo(fromPos.x, fromPos.y);
-                        ctx.lineTo(toPos.x, toPos.y);
-                        ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)'; // Hot orange-red
-                        ctx.lineWidth = 5;
-                        ctx.shadowColor = 'rgba(239, 68, 68, 0.9)';
-                        ctx.shadowBlur = 10;
-                        ctx.stroke();
-                        ctx.restore();
-                    }
-
-                    // Check if the link is wireless (has wifi dashes)
-                    const isWireless = !!edge.dashes;
-
-                    // Draw flow packets
-                    const speedMultiplier = isTraced ? 2.5 : 1.0;
-                    const numDots = isTraced ? 3 : 1;
-                    
-                    for (let i = 0; i < numDots; i++) {
-                        const offset = i / numDots;
-                        const progress = (flowAnimationProgress * speedMultiplier + offset) % 1.0;
-                        
-                        const x = fromPos.x + (toPos.x - fromPos.x) * progress;
-                        const y = fromPos.y + (toPos.y - fromPos.y) * progress;
-                        
-                        ctx.save();
-                        ctx.beginPath();
-                        ctx.arc(x, y, isTraced ? 6 : 4, 0, 2 * Math.PI);
-                        
-                        // Sync dot color with connection type unless it's a traceroute packet
-                        let dotColor = '#3b82f6'; // wired blue
-                        if (isTraced) {
-                            dotColor = '#f97316'; // traceroute orange
-                        } else if (isWireless) {
-                            dotColor = '#fbbf24'; // wireless yellow/orange
+                        const numDots = 3;
+                        for (let i = 0; i < numDots; i++) {
+                            const offset = i / numDots;
+                            const prog = (flowAnimationProgress * 2.5 + offset) % 1.0;
+                            drawCometParticle(ctx, fromPos, toPos, prog, '#f97316', true);
                         }
-                        
-                        ctx.fillStyle = dotColor;
-                        ctx.shadowColor = dotColor;
-                        ctx.shadowBlur = isTraced ? 12 : 8;
-                        ctx.fill();
-                        ctx.restore();
+                    } else if (tx > 0 || rx > 0) {
+                        // Forward flow: TX (fromPos -> toPos)
+                        if (tx > 0) {
+                            const txSpeed = 1.0 + Math.min(tx / 60, 2.5);
+                            const txCount = tx >= 50 ? 3 : (tx >= 10 ? 2 : 1);
+                            const txColor = tx >= 75 ? '#ec4899' : (tx >= 25 ? '#fb923c' : (isWireless ? '#38bdf8' : '#60a5fa'));
+                            for (let i = 0; i < txCount; i++) {
+                                const offset = i / txCount;
+                                const prog = (flowAnimationProgress * txSpeed + offset) % 1.0;
+                                drawCometParticle(ctx, fromPos, toPos, prog, txColor, false);
+                            }
+                        }
+                        // Reverse flow: RX (toPos -> fromPos)
+                        if (rx > 0) {
+                            const rxSpeed = 1.0 + Math.min(rx / 60, 2.5);
+                            const rxCount = rx >= 50 ? 3 : (rx >= 10 ? 2 : 1);
+                            const rxColor = rx >= 75 ? '#d946ef' : (rx >= 25 ? '#f97316' : '#34d399');
+                            for (let i = 0; i < rxCount; i++) {
+                                const offset = i / rxCount;
+                                const prog = (flowAnimationProgress * rxSpeed + offset) % 1.0;
+                                drawCometParticle(ctx, toPos, fromPos, prog, rxColor, false);
+                            }
+                        }
+                    } else {
+                        // Idle baseline heartbeat ping packet
+                        const idleColor = isWireless ? '#fbbf24' : '#38bdf8';
+                        const prog = flowAnimationProgress % 1.0;
+                        drawCometParticle(ctx, fromPos, toPos, prog, idleColor, false);
                     }
                 }
+
+                // 🎨 Small throughput pill badge at edge center (e.g. ↑12.4M / ↓45.8M)
+                const mx = (fromPos.x + toPos.x) / 2;
+                const my = (fromPos.y + toPos.y) / 2;
+
+                let badgeText = '';
+                if (isOffline) {
+                    badgeText = '⚡ OFFLINE';
+                } else if (tx > 0 || rx > 0) {
+                    badgeText = `↑${formatMbps(tx)} / ↓${formatMbps(rx)}`;
+                } else if (totalMbps > 0) {
+                    badgeText = `↑${formatMbps(totalMbps)}`;
+                } else {
+                    badgeText = '↑0M / ↓0M';
+                }
+
+                ctx.save();
+                ctx.font = "bold 10px 'Inter', monospace, sans-serif";
+                const textMetrics = ctx.measureText(badgeText);
+                const pillW = textMetrics.width + 16;
+                const pillH = 19;
+                const pillX = mx - pillW / 2;
+                const pillY = my - pillH / 2;
+
+                ctx.fillStyle = isDay ? 'rgba(248, 250, 252, 0.94)' : 'rgba(15, 23, 42, 0.88)';
+                ctx.strokeStyle = estyle.color.color || '#3b82f6';
+                ctx.lineWidth = 1.3;
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+                ctx.shadowBlur = 5;
+
+                ctx.beginPath();
+                if (typeof ctx.roundRect === 'function') {
+                    ctx.roundRect(pillX, pillY, pillW, pillH, 9);
+                } else {
+                    ctx.rect(pillX, pillY, pillW, pillH);
+                }
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.stroke();
+
+                ctx.fillStyle = isOffline ? '#ef4444' : (isDay ? '#0f172a' : '#f8fafc');
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(badgeText, mx, my + 0.5);
+
+                ctx.restore();
             });
         });
 
@@ -4610,6 +5176,23 @@ document.addEventListener('DOMContentLoaded', () => {
             ctxMenu.style.top = params.event.clientY + 'px';
         });
 
+        // Setup visual topology controls
+        const treeLayoutBtn = document.getElementById('topo-tree-layout-btn');
+        if (treeLayoutBtn) {
+            treeLayoutBtn.onclick = () => applyHierarchicalTreeLayout();
+        }
+        const fullscreenBtn = document.getElementById('topo-fullscreen-btn');
+        if (fullscreenBtn) {
+            fullscreenBtn.onclick = () => toggleTheaterMode();
+        }
+        const fxToggleBtn = document.getElementById('topo-fx-toggle-btn');
+        if (fxToggleBtn) {
+            fxToggleBtn.onclick = () => toggleAnimationFx();
+            updateFxButtonState();
+        }
+
+        startFlowAnimation();
+
         initTopologyLatencyChart();
     }
 
@@ -4782,8 +5365,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const eWidth = estyle.width;
                     const eDashes = estyle.dashes;
 
-                    if (!prevE || prevE.color !== eColor || prevE.width !== eWidth || prevE.dashes !== eDashes) {
-                        topoEdgeRenderCache[edgeKey] = { color: eColor, width: eWidth, dashes: eDashes };
+                    const eColorHex = eColor.color;
+                    if (!prevE || prevE.colorHex !== eColorHex || prevE.width !== eWidth || JSON.stringify(prevE.dashes) !== JSON.stringify(eDashes)) {
+                        topoEdgeRenderCache[edgeKey] = { colorHex: eColorHex, width: eWidth, dashes: eDashes };
                         edgesDataSet.update({
                             id: edge.id,
                             color: eColor,
@@ -6223,12 +6807,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (json.status === 'success' && json.data) {
                 const labels = json.data.map(d => {
-                    const dt = new Date(d.Timestamp);
+                    const timeVal = d.Timestamp || d['タイムスタンプ'] || '';
+                    const dt = new Date(timeVal);
+                    if (isNaN(dt.getTime())) return '';
                     return `${dt.getHours()}:${String(dt.getMinutes()).padStart(2,'0')}`;
                 });
-                const latencyData = json.data.map(d => parseFloat(d.Latency_ms) || 0);
-                const txData = json.data.map(d => parseFloat(d.Tx_Mbps) || 0);
-                const rxData = json.data.map(d => parseFloat(d.Rx_Mbps) || 0);
+                const latencyData = json.data.map(d => parseFloat(d.Latency_ms || d['遅延_ms']) || 0);
+                const txData = json.data.map(d => parseFloat(d.Tx_Mbps || d['送信_Mbps'] || d['帯域_Mbps']) || 0);
+                const rxData = json.data.map(d => parseFloat(d.Rx_Mbps || d['受信_Mbps']) || 0);
 
                 if (historyLatencyChart) historyLatencyChart.destroy();
                 if (historyTrafficChart) historyTrafficChart.destroy();

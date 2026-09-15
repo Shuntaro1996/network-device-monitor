@@ -214,6 +214,28 @@
                     </div>
                 </div>
 
+                <!-- IP Conflict Alert Banner (Dynamic) -->
+                <div id="ip-conflict-banner" class="glass-card" style="
+                    display: none;
+                    margin-bottom: 16px;
+                    padding: 12px 18px;
+                    border: 1px solid rgba(239, 68, 68, 0.45);
+                    background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(245, 158, 11, 0.12));
+                    border-radius: 12px;
+                    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.15);
+                ">
+                    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <span style="font-size:1.6rem;">🚨</span>
+                            <div>
+                                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#f87171; letter-spacing:0.02em;">【警告】IPアドレス競合（重複割り当て）を検知しました！</h4>
+                                <div id="ip-conflict-details" style="font-size:0.82rem; color:var(--text-main); margin-top:4px; line-height:1.5;"></div>
+                            </div>
+                        </div>
+                        <button id="btn-dismiss-conflict" class="btn secondary-btn" style="font-size:0.78rem; padding:5px 12px; border-radius:8px; font-weight:600;" title="一時的に警告を非表示にします">閉じる</button>
+                    </div>
+                </div>
+
                 <!-- Heatmap / Timeline Component -->
                 <div id="dashboard-heatmap-card" class="glass-card heatmap-card">
                     <div class="heatmap-header">
@@ -518,6 +540,9 @@
                         <div class="topology-controls glass-card">
                             <button id="topo-link-btn" class="btn secondary-btn topo-btn">🔗 リンク追加</button>
                             <button id="topo-unlink-btn" class="btn secondary-btn topo-btn">✖ リンク削除</button>
+                            <button id="topo-tree-layout-btn" class="btn secondary-btn topo-btn" title="機器の役割(ルーター→コアSW→AP→端末/サーバー)に基づいて階層ツリー状に自動整列します">📐 階層ツリー整列</button>
+                            <button id="topo-fullscreen-btn" class="btn secondary-btn topo-btn" title="全画面シアターモードの切り替え">🖥️ シアターモード</button>
+                            <button id="topo-fx-toggle-btn" class="btn secondary-btn topo-btn" title="彗星パケット粒子・レーダー波紋アニメーションのON/OFF">⚡ FX: ON</button>
                             <span id="topo-mode-text" class="topo-mode-indicator hidden">接続作成モード ON — 送信元から送信先へドラッグしてください</span>
                             <div class="topo-hint">
                                 機器をドラッグして移動、スクロールでズーム。右クリックで詳細メニュー。

@@ -322,8 +322,19 @@ function Test-SystemPrerequisites {
     $pesterVersion = if ($hasPester) { $pesterMod.Version.ToString() } else { "" }
 
     # 6. Iperf3 実行バイナリ (帯域計測ツール)
-    $iperfPath = Join-Path $projectRoot "tools\iperf3.exe"
-    $hasIperf = (Test-Path $iperfPath)
+    $candidatePaths = @(
+        (Join-Path $projectRoot "system\iperf3.18_64\iperf3.exe"),
+        (Join-Path $projectRoot "tools\iperf3.exe")
+    )
+    $iperfPath = ""
+    $hasIperf = $false
+    foreach ($cand in $candidatePaths) {
+        if (Test-Path $cand) {
+            $hasIperf = $true
+            $iperfPath = $cand
+            break
+        }
+    }
     if (-not $hasIperf) {
         $cmdIperf = Get-Command "iperf3.exe" -ErrorAction SilentlyContinue
         if ($cmdIperf) {
@@ -332,8 +343,15 @@ function Test-SystemPrerequisites {
         }
     }
 
-    # 7. ポート 8081 の競合状態
+    # 7. ポートの競合状態 (config.json から設定ポートを取得、デフォルト 8081)
     $port = 8081
+    $configPath = Join-Path $projectRoot "system\config.json"
+    if (Test-Path $configPath) {
+        try {
+            $cfg = Get-Content -Raw $configPath | ConvertFrom-Json
+            if ($cfg.port) { $port = [int]$cfg.port }
+        } catch {}
+    }
     $isPortAvailable = $true
     try {
         $listenerTest = New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Loopback, $port)

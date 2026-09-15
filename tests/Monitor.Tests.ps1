@@ -268,3 +268,45 @@ Describe "9. システム前提環境・モジュール診断 (Common.psm1 / Tes
         $snmpInfo.requiredFor | Should Not BeNullOrEmpty
     }
 }
+
+Describe "10. トポロジー描画強化・UIアセット整合性検証" {
+    It "devices.json が有効な JSON 配列であり、必須属性が含まれていること" {
+        $devicesPath = Join-Path $projectRoot "system\devices.json"
+        (Test-Path $devicesPath) | Should Be $true
+        $json = Get-Content $devicesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $json | Should Not BeNullOrEmpty
+        $json.Count | Should BeGreaterThan 0
+        $first = $json[0]
+        $first.ip | Should Not BeNullOrEmpty
+    }
+
+    It "index.html に階層ツリー整列・シアターモード・アニメーションFX切替ボタンが存在すること" {
+        $htmlPath = Join-Path $projectRoot "system\public\index.html"
+        (Test-Path $htmlPath) | Should Be $true
+        $html = Get-Content $htmlPath -Raw -Encoding UTF8
+        ($html.Contains('id="topo-tree-layout-btn"')) | Should Be $true
+        ($html.Contains('id="topo-fullscreen-btn"')) | Should Be $true
+        ($html.Contains('id="topo-fx-toggle-btn"')) | Should Be $true
+    }
+
+    It "style.css にシアターモードおよびアニメーションFXボタンスタイルが定義されていること" {
+        $cssPath = Join-Path $projectRoot "system\public\style.css"
+        (Test-Path $cssPath) | Should Be $true
+        $css = Get-Content $cssPath -Raw -Encoding UTF8
+        ($css.Contains('.topology-layout.theater-mode')) | Should Be $true
+        ($css.Contains('.topo-btn-fx-on')) | Should Be $true
+        ($css.Contains('.topo-btn-theater-active')) | Should Be $true
+    }
+
+    It "app.js に階層ツリー整列・彗星粒子描画・シアターモード制御関数が存在すること" {
+        $jsPath = Join-Path $projectRoot "system\public\app.js"
+        (Test-Path $jsPath) | Should Be $true
+        $js = Get-Content $jsPath -Raw -Encoding UTF8
+        ($js.Contains('function applyHierarchicalTreeLayout')) | Should Be $true
+        ($js.Contains('function drawCometParticle')) | Should Be $true
+        ($js.Contains('function formatMbps')) | Should Be $true
+        ($js.Contains('function toggleTheaterMode')) | Should Be $true
+        ($js.Contains('function toggleAnimationFx')) | Should Be $true
+    }
+}
+

@@ -292,6 +292,8 @@ flowchart LR
 | `snmpAuthPass` | `string` | `""` | No | SNMPv3 認証パスワード |
 | `snmpPrivProto`| `string` | `"none"` | No | SNMPv3 暗号化プロトコル（`"none"`, `"DES"`, `"AES"`, `"AES128"`） |
 | `snmpPrivPass` | `string` | `""` | No | SNMPv3 暗号化パスワード |
+| `checkType`    | `string` | `"icmp"` | No | 死活監視方式（`"icmp"`: 通常Ping監視, `"tcp"`: TCPポート死活監視） |
+| `port`         | `number` | `0` | No | TCP監視対象ポート番号（`0`〜`65535`。`checkType` が `"tcp"` の場合に使用） |
 
 ---
 
@@ -392,14 +394,15 @@ classDiagram
 
 ### 2.4 出力ログ・CSV仕様
 
-#### 1. 監視ログCSV (`reports/sessions/{IP}.csv` および `{IP}_{TIMESTAMP}.csv`)
-日次ローテーション（日付変更時にアーカイブ）され、UTF-8（BOM付き）で出力されます。
+#### 1. 監視ログCSV (`Reports/sessions/<起動日時>/<IP>.csv`)
+起動ごとのセッションフォルダに機器別CSVとして出力されます。Excel等での直接閲覧の利便性からデフォルトは Shift_JIS (CP932) で日本語ヘッダーにて保存されます。フロントエンドおよび `/api/history` では日本語・英語の両ヘッダーを自動識別する二重互換設計が実装されています。
 ```csv
-Timestamp,IP,Status,LatencyMs,TxMbps,RxMbps
-2026-08-30 06:00:01,192.168.1.1,Success,1.24,45.2,12.8
-2026-08-30 06:00:02,192.168.1.1,Success,1.31,46.1,13.2
-2026-08-30 06:00:03,192.168.1.1,Failed,,0,0
+タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec,ジッター_ms
+2026-08-30 06:00:01,192.168.1.1,Success,1.24,45.2,45.2,12.8,0,0.12
+2026-08-30 06:00:02,192.168.1.1,Success,1.31,46.1,46.1,13.2,0,0.07
+2026-08-30 06:00:03,192.168.1.1,Failed,,0,0,0,1.0,0.00
 ```
+※REST API（`/api/history`）返却時およびフロントエンドグラフ描画時は、英語キー（`Timestamp, Latency_ms, Tx_Mbps, Rx_Mbps`）と日本語キーの双方が自動で正規化・マッピングされます。
 
 #### 2. 監査ログ (`reports/audit.log`)
 管理操作（機器の追加/編集/削除、一括変更、設定更新、ログクリア等）を記録します。
@@ -550,7 +553,7 @@ sequenceDiagram
 ### 3.6 Syslog 受信・解析エンジン
 ネットワーク機器からの障害通知ログ（RFC 3164 / RFC 5424）をリアルタイムに受信・蓄積します。
 * **ポート**: UDP 514（特権ポート）および UDP 1514（非特権ポート代替）を自動バインド。
-* **リングバッファ**: メモリ内に最新 1,000 件のログを保持（古いログから自動破棄）。
+* **リングバッファ**: メモリ内に最新 500 件のログを保持（古いログから自動破棄）。
 * **ファシリティ / セベリティ解析**: PRIヘッダ（`<134>`等）から Facility（`local0`, `auth` 等）および Severity（`Emergency`, `Alert`, `Critical`, `Error`, `Warning`, `Notice`, `Info`, `Debug`）を自動抽出。
 
 ---
@@ -563,6 +566,18 @@ SNMP 詳細収集 Runspace（`$snmpDetailScriptBlock`）が、以下のプロト
 4. **IP-to-Physical ARP Table**: `.1.3.6.1.2.1.4.22.1.2` (MAC-to-IP)
 
 隣接機器のIPが監視対象一覧（`$syncHash.Devices`）に含まれている場合、自動的に `connectedTo` フィールドを更新してトポロジー図に結線を描画します。
+
+---
+
+### 3.8 ARPスキャン・IPアドレス競合自動検知エンジン
+Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャッシュ（`Get-NetNeighbor` / `arp -a`）を走査し、登録機器のIPアドレスに対するMACアドレスの整合性を常時検証します。
+* **判定ロジック**:
+  1. `devices.json` に手動登録されたMACアドレスが存在する場合: 観測されたMACアドレスが不一致であれば直ちに「IP競合」と判定。
+  2. MACアドレス未登録の場合: 初回観測されたMACアドレスを `$syncHash.LearnedMac` として自動学習。学習済みMACから別のMACアドレスへと急変した際に「IP競合」と判定。
+* **競合データの管理**:
+  - `$syncHash.IpConflicts[IP]` に競合IP、機器名、期待MAC、検出MAC、検知日時を保持。
+  - `/api/status` レスポンス（`_ipConflicts`）および専用API `/api/ip-conflicts` を介してリアルタイムにフロントエンドへ配信。
+  - 競合が解消された（正常なMACアドレスに戻った）場合は自動で競合一覧から消去。
 
 ---
 
@@ -628,12 +643,14 @@ SNMP 詳細収集 Runspace（`$snmpDetailScriptBlock`）が、以下のプロト
 | `POST`| `/api/device` | 単一機器の新規追加 | `DevicesLock` 排他制御 |
 | `POST`| `/api/devices/bulk` | 複数機器の一括追加 | `DevicesLock` 排他制御 |
 | `POST`| `/api/device/edit` | 機器設定の編集（IP変更、アイコン、接続先等） | `DevicesLock` 排他制御 |
-| `POST`| `/api/devices/delete` | 機器の削除および関連履歴・ログのクリーンアップ | `DevicesLock` 排他制御 |
+| `POST`| `/api/device/toggle` | 単一機器の監視有効/無効の切り替え | `DevicesLock` 排他制御 |
+| `POST`| `/api/device/upload-image` | 機器アイコン用画像のアップロード | Base64/ファイル保存 |
+| `POST`| `/api/devices/delete` | 機器の削除および関連履歴CSVのクリーンアップ | `DevicesLock` 排他制御 |
 | `POST`| `/api/devices/reorder` | 機器の並び順（表示順序）の保存 | `DevicesLock` 排他制御 |
 | `POST`| `/api/devices/positions`| トポロジー図上の座標（x, y）の一括保存 | `DevicesLock` 排他制御 |
 | `POST`| `/api/devices/bulk-action`| 選択機器の一括操作（一時停止/再開/削除/グループ変更） | `DevicesLock` 排他制御 |
-| `GET` | `/api/devices/export` | 機器設定のエクスポート（JSONダウンロード） | スナップショット読込 |
-| `POST`| `/api/devices/import` | 機器設定のインポート（完全上書き復元） | `DevicesLock` 排他制御 |
+| `GET` | `/api/devices/export` | 機器設定のエクスポート（フロントエンドBlob動的保存） | クライアント側処理 |
+| `POST`| `/api/devices/import` | 機器設定のインポート（JSONによる一括復元） | `DevicesLock` 排他制御 |
 
 #### `POST /api/device/edit` リクエスト例
 ```json
@@ -662,9 +679,11 @@ SNMP 詳細収集 Runspace（`$snmpDetailScriptBlock`）が、以下のプロト
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/config` | 現在のシステム設定取得 | 即時応答 |
 | `POST`| `/api/config/update` | システム設定の更新（周期、閾値、通知先等） | 即時反映 & JSON保存 |
-| `GET` | `/api/config-backup/export` | 設定＋機器情報のフルバックアップJSON生成 | 即時ダウンロード |
-| `POST`| `/api/config-backup/import` | バックアップJSONからの完全リストア | `DevicesLock` 排他制御 |
-| `POST`| `/api/config-backup/run` | Cisco / Allied Telesis 等の機器コンフィグSSH/TFTP自動取得 | `ThreadPool` 非同期実行 |
+| `GET` | `/api/config/export` | 設定＋機器情報のフルバックアップJSON生成・ダウンロード | 即時ダウンロード |
+| `POST`| `/api/config/import` | バックアップJSONからの完全リストア | `DevicesLock` 排他制御 |
+| `GET` | `/api/snapshots/list` | 自動/手動作成された機器構成スナップショット一覧 | 即時応答 |
+| `POST`| `/api/snapshots/restore` | 指定スナップショットからの機器構成ロールバック | `DevicesLock` 排他制御 |
+| `POST`| `/api/config-backup/run` | 機器コンフィグSSH/TFTP自動取得（将来拡張用） | 非同期実行 |
 
 ---
 
@@ -675,12 +694,12 @@ SNMP 詳細収集 Runspace（`$snmpDetailScriptBlock`）が、以下のプロト
 | `POST`| `/api/iperf` | `{ target, port, time, reverse, parallel, udp, bandwidth }` | IPerf3 クライアント計測開始 | プロセス起動 & ストリーム |
 | `POST`| `/api/iperf/stop`| - | 実行中 IPerf3 の強制終了 | `taskkill` 強制Kill |
 | `GET` | `/api/iperf/status`| - | IPerf3 のリアルタイム出力・帯域取得 | 即時応答 (ポーリング用) |
+| `GET` | `/api/iperf/log` | `?file={filename}` | 過去の IPerf3 計測ログ取得・閲覧 | ファイル読込 |
 | `POST`| `/api/iperf/server`| `{ action: "start"\|"stop", port: 5201 }` | IPerf3 サーバーモード起動/停止 | プロセス管理 |
 | `GET` | `/api/iperf/server/status` | - | IPerf3 サーバー稼働状態取得 | 即時応答 |
 | `GET` | `/api/scan` | `?start=192.168.1.1&end=192.168.1.254` | IPレンジ並列Pingスキャン (最大20並列) | **`ThreadPool` 非同期実行** |
-| `GET` | `/api/traceroute` | `?target=8.8.8.8` | Tracert によるホップ経路探索 | **`ThreadPool` 非同期実行** |
-| `GET` | `/api/device/snmp-details` | `?ip=192.168.1.1` | IF/Route/ARP/TCP/Storage/CPU 詳細SNMP取得 | **`ThreadPool` 非同期実行** |
-| `GET` | `/api/mtr` | `?ip=192.168.1.1&action=start\|status\|stop` | Visual MTR 計測・ステータス取得 | プロセス管理 |
+| `GET` | `/api/traceroute` | `?target=192.168.1.1` | MTR 風ビジュアル経路追跡 (tracert 並行実行) | ストリーミング / 即時応答 |
+| `GET` | `/api/web-check` | `?url=https://...` | 指定URLのHTTP応答ステータスおよびSSL証明書有効期限チェック | 即時応答 |
 
 ---
 
@@ -688,16 +707,22 @@ SNMP 詳細収集 Runspace（`$snmpDetailScriptBlock`）が、以下のプロト
 
 | メソッド | URL | 説明 |
 | :--- | :--- | :--- |
-| `GET` | `/api/syslog` | 受信済み Syslog ログ一覧取得 |
-| `POST`| `/api/syslog/clear` | Syslog バッファのクリア |
-| `GET` | `/api/audit-logs` | 監査ログ（最新200件）取得 |
-| `GET` | `/api/history` | 特定機器のPing履歴CSVデータ取得（`?ip=...`） |
+| `GET` | `/api/health` | サーバー死活・メモリ使用量・スレッド健全性取得 |
+| `GET` | `/api/system/prerequisites` | サーバー実行環境の前提モジュール・ツール診断結果返却 |
+| `POST`| `/api/system/install-module` | 不足モジュール（#SNMP / Pester等）の自動インストール実行 |
+| `POST`| `/api/system/cleanup-reports` | 指定日数を超えた古いレポート・ログの一括パージ |
+| `GET` | `/api/syslog` | 受信済み Syslog イベント一覧取得（リングバッファ最大500件） |
+| `GET` | `/api/ip-conflicts` | 検出中のIPアドレス競合（MACアドレス不一致・急変）情報一覧取得 |
+| `GET` | `/api/audit` | 操作監査ログ（`audit.log`）の取得 |
+| `GET` | `/api/history` | 指定機器の過去ログ取得（日本語・英語ヘッダー自動正規化返却） |
 | `POST`| `/api/history/clear`| 全機器の履歴データ・メモリキャッシュのクリア |
 | `GET` | `/api/history/download` | セッション全ログのZIP/CSV一括ダウンロード |
+| `POST`| `/api/reports/export` | 指定期間の稼働統計レポート一括CSVエクスポート |
 | `POST`| `/api/email/test` | SMTP テストメール送信 (**`ThreadPool` 非同期実行**) |
 | `POST`| `/api/webhook/test`| Webhook テスト通知送信 (**`ThreadPool` 非同期実行**) |
 | `GET` | `/api/heartbeat` | クライアント生存通知（タイムアウトタイマー延長） |
 | `POST`| `/api/shutdown` | ブラウザ終了時のサーバー安全終了ビーコン |
+| `POST`| `/api/test-results` | フロントエンド自動テスト結果（`test_results.json`）の保存 |
 
 ---
 

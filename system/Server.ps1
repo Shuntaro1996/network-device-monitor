@@ -83,6 +83,8 @@ $devicesFileTxt  = Join-Path $PSScriptRoot "devices.txt"
     $syncHash.InterfaceErrors = [hashtable]::Synchronized(@{}) # Stores current error counts and deltas
     $syncHash.CheckType       = [hashtable]::Synchronized(@{}) # icmp or tcp
     $syncHash.Port            = [hashtable]::Synchronized(@{}) # TCP port for port monitoring
+    $syncHash.IpConflicts     = [hashtable]::Synchronized(@{}) # Stores detected IP/MAC address conflicts
+    $syncHash.LearnedMac      = [hashtable]::Synchronized(@{}) # Tracks first observed MAC address per IP
     
     # SNMPv3 security parameters
     $syncHash.SnmpVersion   = [hashtable]::Synchronized(@{})
@@ -1025,7 +1027,8 @@ $pingScript = {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $lastFlushTime          = [DateTime]::Now
     $lastCheckpointTime     = [DateTime]::Now   # 60秒ごとに Stats を _checkpoint.json へ保存
-    $lastSlowPingTime = [DateTime]::MinValue
+    $lastSlowPingTime       = [DateTime]::MinValue
+    $lastArpCheckTime       = [DateTime]::MinValue
     
     while ($syncHash.Running) {
         if ($syncHash.PollInterval -lt 0) {
@@ -1594,6 +1597,78 @@ $pingScript = {
                     }
                 }
             } catch { }
+        }
+
+        # ── IPアドレス競合（ARPスキャン）自動検知ロジック (10秒ごとに実行) ──
+        if (($now - $lastArpCheckTime).TotalSeconds -ge 10) {
+            $lastArpCheckTime = $now
+            try {
+                $arpEntries = @{}
+                $neighbors = try { Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue } catch { $null }
+                if ($neighbors) {
+                    foreach ($n in $neighbors) {
+                        if ($n.IPAddress -and $n.LinkLayerAddress -and $n.LinkLayerAddress -ne "00-00-00-00-00-00") {
+                            $normMac = ($n.LinkLayerAddress -replace '[:-]', '-').ToUpper()
+                            $arpEntries[$n.IPAddress] = $normMac
+                        }
+                    }
+                } else {
+                    $arpOut = try { arp -a } catch { $null }
+                    if ($arpOut) {
+                        foreach ($line in $arpOut) {
+                            if ($line -match '^\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+([0-9a-fA-F:-]{11,17})') {
+                                $aIp = $matches[1]
+                                $aMac = ($matches[2] -replace '[:-]', '-').ToUpper()
+                                if ($aMac -ne "00-00-00-00-00-00" -and $aMac -ne "FF-FF-FF-FF-FF-FF") {
+                                    $arpEntries[$aIp] = $aMac
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if ($devices) {
+                    foreach ($devIp in $devices) {
+                        if ($arpEntries.ContainsKey($devIp)) {
+                            $detectedMac = $arpEntries[$devIp]
+                            $expectedMac = if ($syncHash.Mac -and $syncHash.Mac.ContainsKey($devIp) -and $syncHash.Mac[$devIp]) {
+                                ($syncHash.Mac[$devIp] -replace '[:-]', '-').ToUpper()
+                            } else { "" }
+
+                            $learnedMac = if ($syncHash.LearnedMac -and $syncHash.LearnedMac.ContainsKey($devIp)) {
+                                $syncHash.LearnedMac[$devIp]
+                            } else { "" }
+
+                            $isConflict = $false
+                            $conflictReason = ""
+                            if ($expectedMac -and $detectedMac -ne $expectedMac) {
+                                $isConflict = $true
+                                $conflictReason = "登録MAC ($expectedMac) と異なるMAC ($detectedMac) が応答"
+                            } elseif ($learnedMac -and $detectedMac -ne $learnedMac) {
+                                $isConflict = $true
+                                $conflictReason = "前回MAC ($learnedMac) から別MAC ($detectedMac) へ急変"
+                            }
+
+                            if ($isConflict) {
+                                $devName = if ($syncHash.DeviceName -and $syncHash.DeviceName.ContainsKey($devIp)) { $syncHash.DeviceName[$devIp] } else { $devIp }
+                                $syncHash.IpConflicts[$devIp] = @{
+                                    ip           = $devIp
+                                    deviceName   = $devName
+                                    expectedMac  = if ($expectedMac) { $expectedMac } else { $learnedMac }
+                                    detectedMac  = $detectedMac
+                                    reason       = $conflictReason
+                                    detectedAt   = [DateTime]::Now.ToString("yyyy-MM-dd HH:mm:ss")
+                                }
+                            } else {
+                                if ($syncHash.LearnedMac) { $syncHash.LearnedMac[$devIp] = $detectedMac }
+                                if ($syncHash.IpConflicts -and $syncHash.IpConflicts.ContainsKey($devIp)) {
+                                    $syncHash.IpConflicts.Remove($devIp)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {}
         }
 
         # Record last ping loop timestamp for external watchdog health checking
@@ -2576,10 +2651,18 @@ try {
                         }
                         $st.isSuppressed = if ($syncHash.Status.ContainsKey($key) -and $syncHash.Status[$key].ContainsKey('isSuppressed')) { $syncHash.Status[$key].isSuppressed } else { $false }
                         $st.connectedTo  = if ($syncHash.ConnectedTo.ContainsKey($key)) { $syncHash.ConnectedTo[$key] } else { '' }
+                        $st.ipConflict   = if ($syncHash.IpConflicts -and $syncHash.IpConflicts.ContainsKey($key)) { $syncHash.IpConflicts[$key] } else { $null }
                         $statusCopy[$key] = $st
                     }
                     $statusCopy["_iperf"] = $syncHash.IperfState
+                    $statusCopy["_ipConflicts"] = if ($syncHash.IpConflicts) { @($syncHash.IpConflicts.Values) } else { @() }
                     Write-JsonResponse $response $statusCopy
+                }
+                elseif ($urlPath -eq "/api/ip-conflicts" -and $method -eq "GET") {
+                    Write-JsonResponse $response @{
+                        status    = "success"
+                        conflicts = if ($syncHash.IpConflicts) { @($syncHash.IpConflicts.Values) } else { @() }
+                    }
                 }
                 elseif ($urlPath -eq "/api/devices/delete" -and $method -eq "POST") {
                     $reader  = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
@@ -2614,6 +2697,22 @@ try {
                         } finally {
                             [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
                         }
+
+                        # 仕様書準拠: 関連履歴・ログファイルのクリーンアップ
+                        try {
+                            $safeIp = $ipToRemove -replace '[\.:]', '_'
+                            $altSafeIp = $ipToRemove -replace '[\.:_]', '_'
+                            if ($syncHash.SessionDir -and (Test-Path $syncHash.SessionDir)) {
+                                $targetCsvs = @(
+                                    (Join-Path $syncHash.SessionDir "${safeIp}.csv"),
+                                    (Join-Path $syncHash.SessionDir "${altSafeIp}.csv")
+                                )
+                                foreach ($tCsv in $targetCsvs) {
+                                    if (Test-Path $tCsv) { Remove-Item -Path $tCsv -Force -ErrorAction SilentlyContinue }
+                                }
+                            }
+                        } catch {}
+
                         Log-Audit -action "DEVICE_DELETE" -target $ipToRemove -details "Device $ipToRemove deleted" -clientIp $request.RemoteEndPoint.Address.ToString() -reportsDirectory $ReportsDir
                         
                         Write-JsonResponse $response @{ status = "success" }
@@ -4027,10 +4126,28 @@ try {
                     if (Test-Path $csvPath) {
                         try {
                             # Read CSV and convert to list of objects
-                            # We use Import-Csv but for large files we might want to tail it.
-                            # For now, let's take the last 1000 lines.
-                            $data = Import-Csv $csvPath | Select-Object -Last 1000
-                            Write-JsonResponse $response @{ status = "success"; data = $data }
+                            $rawRows = Import-Csv $csvPath | Select-Object -Last 1000
+                            $normalizedData = foreach ($r in $rawRows) {
+                                $ts = if ($r.Timestamp) { $r.Timestamp } elseif ($r.'タイムスタンプ') { $r.'タイムスタンプ' } else { "" }
+                                $lat = if ($null -ne $r.Latency_ms -and $r.Latency_ms -ne "") { $r.Latency_ms } elseif ($null -ne $r.'遅延_ms' -and $r.'遅延_ms' -ne "") { $r.'遅延_ms' } else { "0" }
+                                $tx = if ($null -ne $r.Tx_Mbps -and $r.Tx_Mbps -ne "") { $r.Tx_Mbps } elseif ($null -ne $r.'送信_Mbps' -and $r.'送信_Mbps' -ne "") { $r.'送信_Mbps' } elseif ($null -ne $r.'帯域_Mbps' -and $r.'帯域_Mbps' -ne "") { $r.'帯域_Mbps' } else { "0" }
+                                $rx = if ($null -ne $r.Rx_Mbps -and $r.Rx_Mbps -ne "") { $r.Rx_Mbps } elseif ($null -ne $r.'受信_Mbps' -and $r.'受信_Mbps' -ne "") { $r.'受信_Mbps' } else { "0" }
+                                
+                                [PSCustomObject]@{
+                                    Timestamp    = $ts
+                                    'タイムスタンプ' = $ts
+                                    IP           = if ($r.IP) { $r.IP } elseif ($r.'IPアドレス') { $r.'IPアドレス' } else { "" }
+                                    Status       = if ($r.Status) { $r.Status } elseif ($r.'ステータス') { $r.'ステータス' } else { "" }
+                                    Latency_ms   = $lat
+                                    '遅延_ms'     = $lat
+                                    Tx_Mbps      = $tx
+                                    '送信_Mbps'   = $tx
+                                    Rx_Mbps      = $rx
+                                    '受信_Mbps'   = $rx
+                                    Jitter_ms    = if ($null -ne $r.Jitter_ms -and $r.Jitter_ms -ne "") { $r.Jitter_ms } elseif ($null -ne $r.'ジッター_ms' -and $r.'ジッター_ms' -ne "") { $r.'ジッター_ms' } else { "0" }
+                                }
+                            }
+                            Write-JsonResponse $response @{ status = "success"; data = $normalizedData }
                         } catch {
                             Write-JsonResponse $response @{ error = "Failed to read history data" } 500
                         }
