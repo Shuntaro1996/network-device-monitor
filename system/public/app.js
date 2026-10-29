@@ -3044,6 +3044,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const detailsEl = document.getElementById('ip-conflict-details');
         if (!banner || !detailsEl) return;
 
+        // サーバーからは配列で届く想定だが、0件や1件のときに {} や単体の値で届いても動くようにそろえる
+        if (conflicts && !Array.isArray(conflicts)) {
+            conflicts = conflicts.ip ? [conflicts] : Object.values(conflicts);
+        }
+
         if (!conflicts || conflicts.length === 0) {
             banner.style.display = 'none';
             dismissedConflicts.clear();

@@ -3015,7 +3015,9 @@ try {
                         Target  = $syncHash.IperfState.Target
                         Command = $syncHash.IperfState.Command
                     }
-                    $statusCopy["_ipConflicts"] = if ($syncHash.IpConflicts) { @($syncHash.IpConflicts.Values) } else { @() }
+                    # 先頭の「,」は配列を配列のまま渡すための書き方
+                    # (付けないと、0件のときは {}、1件のときは配列でない値になり、画面側の処理が毎回エラーになる)
+                    $statusCopy["_ipConflicts"] = if ($syncHash.IpConflicts) { , @($syncHash.IpConflicts.Values) } else { , @() }
                     Write-JsonResponse $response $statusCopy
                 }
                 elseif ($urlPath -eq "/api/ip-conflicts" -and $method -eq "GET") {
