@@ -1897,6 +1897,19 @@ document.addEventListener('DOMContentLoaded', () => {
         while (th.length < len) th.unshift('');
         while (sh.length < len) sh.unshift(null);
     }
+    // 1回分の状態をグラフ用の履歴に追加する (古い値は押し出す)
+    function pushLatencyHistory(ip, data) {
+        ensureHistory(ip);
+        // 警告 (遅延・揺らぎ) 中も応答があれば値を描画し、無応答のみ空白にする
+        const hasLatency = (data.status === "Success" || data.status === "Warning") && data.latency !== null && data.latency !== undefined;
+        latencyHistory[ip].push(hasLatency ? data.latency : null);
+        latencyHistory[ip].shift();
+        statusHistory[ip].push(data.status || null);
+        statusHistory[ip].shift();
+        const now = new Date();
+        timeHistory[ip].push(`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`);
+        timeHistory[ip].shift();
+    }
     let latencyStats = {}; // { ip: { min: Number|null, max: Number|null } }
     let charts = {};
     let dashboardUnifiedChart = null;
@@ -3204,6 +3217,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return true;
         });
+        // グラフに描く機器: 超高頻度モードでも、5.0s間隔で監視を続けている機器を含めて表示する
+        // (0.1s対象機器を先頭にして、カードの色とグラフの線の色をそろえる)
+        const chartGlobal = monitoredGlobal.concat(devices.filter(d => d.enabled !== false && !monitoredGlobal.includes(d)));
+        const chartColorOf = (d) => CHART_LINE_COLORS[Math.max(0, chartGlobal.indexOf(d)) % CHART_LINE_COLORS.length] || '#3b82f6';
         for (const groupName of groupNames) {
             let groupDevices = groups[groupName].slice().sort((a, b) => (a.enabled !== false ? 0 : 1) - (b.enabled !== false ? 0 : 1));
             if (activeTab === 'all') {
@@ -3228,7 +3245,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.className = 'device-card glass-card' + (isPausedState ? ' paused' : '');
                 row.id = `card-${safeIpId}`;
                 row.style.position = 'relative';
-                const color = !isPausedState ? CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] : 'transparent';
+                const color = !isPausedState ? chartColorOf(d) : 'transparent';
                 const displayName = escapeHTML(d.name || ip);
                 const rateBadge = ultraHighFreqActive ? (isUltraTarget ? '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(251,191,36,0.2); color:#fbbf24; font-weight:700; margin-left:4px;">0.1s</span>' : '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(148,163,184,0.15); color:#94a3b8; margin-left:4px;">5.0s</span>') : '';
                 const checkBadge = (d.checkType === 'tcp' && d.port > 0) ? `<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(99,102,241,0.2); color:#818cf8; font-weight:700; margin-left:4px;" title="TCPポート ${d.port} 死活監視">TCP:${d.port}</span>` : '';
@@ -3296,8 +3313,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // グラフ描画: 'all' なら全監視デバイス、個別グループ選択中ならそのグループのデバイスを表示
         let chartDevices = (activeTab === 'all')
-            ? monitoredGlobal
-            : monitoredGlobal.filter(d => ((d.group && d.group.trim()) ? d.group.trim() : 'Ungrouped') === activeTab);
+            ? chartGlobal
+            : chartGlobal.filter(d => ((d.group && d.group.trim()) ? d.group.trim() : 'Ungrouped') === activeTab);
         
         // グループ内に有効な監視デバイスがない場合のフォールバック（グループ内の全機器または全監視機器）
         if (chartDevices.length === 0) {
@@ -3318,12 +3335,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 unifiedChartDiv.className = 'dashboard-unified-chart';
                 unifiedChartDiv.innerHTML = `<div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:10px;">${escapeHTML(chartTitle)}</div><div style="flex:1;position:relative;width:100%;height:calc(100% - 25px);"><canvas id="dashboard-unified-canvas"></canvas></div>`;
                 unifiedChartContainer.appendChild(unifiedChartDiv);
-                const datasets = chartDevices.map(d => ({ 
-                    label: d.name || d.ip, 
-                    deviceIp: d.ip, 
-                    data: (latencyHistory[d.ip] && latencyHistory[d.ip].length > 0) ? latencyHistory[d.ip].slice() : Array(getHistoryLength()).fill(null), 
-                    borderColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] || '#3b82f6', 
-                    originalColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] || '#3b82f6',
+                // 超高頻度モードで5.0s間隔の機器は、点線と「(5.0s)」の表記で0.1s対象と見分けられるようにする
+                const isSlowRate = (d) => ultraHighFreqActive && ultraHighFreqTargetSet.size > 0 && !ultraHighFreqTargetSet.has(d.ip);
+                const datasets = chartDevices.map(d => ({
+                    label: (d.name || d.ip) + (isSlowRate(d) ? ' (5.0s)' : ''),
+                    deviceIp: d.ip,
+                    data: (latencyHistory[d.ip] && latencyHistory[d.ip].length > 0) ? latencyHistory[d.ip].slice() : Array(getHistoryLength()).fill(null),
+                    borderColor: chartColorOf(d),
+                    originalColor: chartColorOf(d),
+                    borderDash: isSlowRate(d) ? [6, 4] : [],
                     backgroundColor: 'transparent', 
                     borderWidth: 2, 
                     pointRadius: getHistoryLength() > 30 ? 0 : 2, 
@@ -3522,7 +3542,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const dotEl = document.getElementById(`dot-${safeIpId}`), latencyEl = document.getElementById(`latency-${safeIpId}`);
-            if (!dotEl || !latencyEl) return;
+            if (!dotEl || !latencyEl) {
+                // 画面にカードがない機器 (超高頻度モードで5.0s間隔の機器など) も、グラフ用の履歴だけは記録する
+                if (data && d.enabled !== false) pushLatencyHistory(ip, data);
+                return;
+            }
 
             if (data) {
                 const isSuppressed = isAlertSuppressed(ip) || data.isSuppressed;
@@ -3641,18 +3665,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         outageEl.title = data.status === 'Paused' ? '監視一時停止中' : '瞬断の発生なし（連続正常稼働中）';
                     }
                 }
-                if (latencyHistory[ip]) {
-                    ensureHistory(ip);
-                    // 警告 (遅延・揺らぎ) 中も応答があれば値を描画し、無応答のみ空白にする
-                    const hasLatency = (data.status === "Success" || data.status === "Warning") && data.latency !== null && data.latency !== undefined;
-                    latencyHistory[ip].push(hasLatency ? data.latency : null);
-                    latencyHistory[ip].shift();
-                    statusHistory[ip].push(data.status || null);
-                    statusHistory[ip].shift();
-                    const now = new Date();
-                    timeHistory[ip].push(`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`);
-                    timeHistory[ip].shift();
-                }
+                pushLatencyHistory(ip, data);
                 // ── TX / RX display ─────────────────
                 const txEl = document.getElementById(`traffic-tx-${safeIpId}`);
                 const rxEl = document.getElementById(`traffic-rx-${safeIpId}`);
