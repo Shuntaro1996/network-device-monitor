@@ -181,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const safeTitle = escapeHTML(title);
         const safeMessage = escapeHTML(message);
 
-        const icons = { warning: '⚠️', error: '🔴', info: 'ℹ️' };
+        const icons = { warning: '⚠️', error: '🔴', info: 'ℹ️', success: '✅' };
         toast.innerHTML = `
             <span class="toast-icon">${icons[type] || '🔔'}</span>
             <div class="toast-body">
@@ -287,6 +287,255 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ---- Remote Management Form Controls (Milestone 2) ----
+    const devRemoteEnabled = document.getElementById('dev-remote-enabled');
+    const devRemoteCollapsible = document.getElementById('remote-settings-collapsible');
+    const devRemoteProtocol = document.getElementById('dev-remote-protocol');
+    const devRemoteHost = document.getElementById('dev-remote-host');
+    const devRemotePort = document.getElementById('dev-remote-port');
+    const devRemoteAuthType = document.getElementById('dev-remote-auth-type');
+    const devRemoteUser = document.getElementById('dev-remote-user');
+    const devRemotePass = document.getElementById('dev-remote-pass');
+    const devRemoteKeyPath = document.getElementById('dev-remote-key-path');
+    const devRemoteRebootCmd = document.getElementById('dev-remote-reboot-cmd');
+    const devRemoteCommandsList = document.getElementById('dev-remote-commands-list');
+    const devCmdNameInput = document.getElementById('dev-cmd-name-input');
+    const devCmdDescInput = document.getElementById('dev-cmd-desc-input');
+    const devCmdStringInput = document.getElementById('dev-cmd-string-input');
+    const btnAddRemoteCmd = document.getElementById('btn-add-remote-cmd');
+
+    let currentFormRemoteCommands = [];
+
+    function renderFormRemoteCommands() {
+        if (!devRemoteCommandsList) return;
+        devRemoteCommandsList.innerHTML = '';
+        if (!currentFormRemoteCommands || currentFormRemoteCommands.length === 0) {
+            devRemoteCommandsList.innerHTML = '<div style="color:var(--text-muted); font-size:0.75rem; padding:4px 0;">登録されたカスタムコマンドはありません。</div>';
+            return;
+        }
+        currentFormRemoteCommands.forEach((cmd, idx) => {
+            const item = document.createElement('div');
+            item.className = 'remote-cmd-item';
+            item.innerHTML = `
+                <div style="overflow:hidden; flex:1;">
+                    <div><strong>${escapeHTML(cmd.name || 'コマンド')}</strong> ${cmd.description ? `<span style="color:var(--text-muted); font-size:0.72rem;">(${escapeHTML(cmd.description)})</span>` : ''}</div>
+                    <code>${escapeHTML(cmd.command || '')}</code>
+                </div>
+                <button type="button" class="btn secondary-btn small danger-text" data-idx="${idx}" style="padding:2px 6px; font-size:0.75rem;" title="コマンドを削除">🗑</button>
+            `;
+            item.querySelector('button').addEventListener('click', (e) => {
+                e.preventDefault();
+                currentFormRemoteCommands.splice(idx, 1);
+                renderFormRemoteCommands();
+            });
+            devRemoteCommandsList.appendChild(item);
+        });
+    }
+
+    function updateRemoteFormVisibility() {
+        const proto = devRemoteProtocol ? devRemoteProtocol.value : 'ssh';
+        const auth = devRemoteAuthType ? devRemoteAuthType.value : 'password';
+
+        // Auto-update port if port matches default or is empty
+        if (devRemotePort) {
+            const currentPort = parseInt(devRemotePort.value, 10);
+            if (!currentPort || currentPort === 22 || currentPort === 5985) {
+                devRemotePort.value = (proto === 'winrm') ? 5985 : (proto === 'ssh' ? 22 : '');
+            }
+        }
+
+        // Toggle auth input groups
+        const keyGroup = document.getElementById('remote-key-path-group');
+        const passGroup = document.getElementById('remote-pass-group');
+        const userGroup = document.getElementById('remote-user-group');
+
+        if (keyGroup) keyGroup.classList.toggle('hidden', auth !== 'key');
+        if (passGroup) passGroup.classList.toggle('hidden', auth === 'none' || auth === 'windows_current');
+        if (userGroup) userGroup.classList.toggle('hidden', auth === 'windows_current');
+    }
+
+    if (devRemoteEnabled) {
+        devRemoteEnabled.addEventListener('change', () => {
+            if (devRemoteCollapsible) {
+                devRemoteCollapsible.classList.toggle('hidden', !devRemoteEnabled.checked);
+            }
+        });
+    }
+    if (devRemoteProtocol) {
+        devRemoteProtocol.addEventListener('change', updateRemoteFormVisibility);
+    }
+    if (devRemoteAuthType) {
+        devRemoteAuthType.addEventListener('change', updateRemoteFormVisibility);
+    }
+
+    if (btnAddRemoteCmd) {
+        btnAddRemoteCmd.addEventListener('click', () => {
+            const name = devCmdNameInput ? devCmdNameInput.value.trim() : '';
+            const cmdStr = devCmdStringInput ? devCmdStringInput.value.trim() : '';
+            const desc = devCmdDescInput ? devCmdDescInput.value.trim() : '';
+            if (!cmdStr) {
+                alert('実行コマンドを入力してください。');
+                return;
+            }
+            const newCmd = {
+                id: 'cmd-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+                name: name || cmdStr,
+                command: cmdStr,
+                description: desc
+            };
+            currentFormRemoteCommands.push(newCmd);
+            if (devCmdNameInput) devCmdNameInput.value = '';
+            if (devCmdStringInput) devCmdStringInput.value = '';
+            if (devCmdDescInput) devCmdDescInput.value = '';
+            renderFormRemoteCommands();
+        });
+    }
+
+    function openDeviceModal(device = null) {
+        if (device) {
+            // Edit mode: populate existing device info
+            if (editOldIpInput) editOldIpInput.value = device.ip;
+            if (devIpInput) {
+                devIpInput.value = device.ip;
+                devIpInput.placeholder = '192.168.1.1';
+            }
+            if (devNameInput) devNameInput.value = (device.name && device.name !== device.ip) ? device.name : '';
+            if (devGroupInput) devGroupInput.value = device.group || '';
+            populateGroupDropdown(device.group || '');
+            if (devGroupNew) devGroupNew.classList.add('hidden');
+            if (devCommInput) devCommInput.value = device.community || 'public';
+            if (devEnabledInput) devEnabledInput.checked = device.enabled !== false;
+            if (submitDeviceBtn) submitDeviceBtn.textContent = '機器情報を更新';
+
+            const devLocEl = document.getElementById('dev-location');
+            const devMemoEl = document.getElementById('dev-trouble-memo');
+            const devWebEl = document.getElementById('dev-web-url');
+            const devCheckTypeEl = document.getElementById('dev-check-type');
+            const devPortEl = document.getElementById('dev-port');
+            const devPortGroup = document.getElementById('dev-tcp-port-group');
+            if (devLocEl) devLocEl.value = device.location || '';
+            if (devMemoEl) devMemoEl.value = device.troubleMemo || '';
+            if (devWebEl) devWebEl.value = device.webUrl || '';
+            if (devCheckTypeEl) {
+                devCheckTypeEl.value = device.checkType || 'icmp';
+                if (devPortGroup) {
+                    devPortGroup.classList.toggle('hidden', devCheckTypeEl.value !== 'tcp');
+                }
+            }
+            if (devPortEl) devPortEl.value = device.port || 80;
+
+            if (typeof populateConnectionsDropdown === 'function') {
+                populateConnectionsDropdown(device.ip);
+            }
+            const parents = device.connectedTo ? device.connectedTo.split(',').map(p => p.trim()).filter(p => p) : [];
+            const devConn1 = document.getElementById('dev-parent-ip') || (typeof devConnectedTo !== 'undefined' ? devConnectedTo : null);
+            const devConn2 = typeof devConnectedTo2 !== 'undefined' ? devConnectedTo2 : null;
+            if (devConn1) devConn1.value = parents[0] || '';
+            if (devConn2) devConn2.value = parents[1] || '';
+
+            const imgTypeEl = typeof devImageType !== 'undefined' ? devImageType : document.getElementById('dev-image-type');
+            const imgUploadCont = typeof devImageUploadContainer !== 'undefined' ? devImageUploadContainer : document.getElementById('dev-image-upload-container');
+            const imgUrlEl = typeof devImageUrl !== 'undefined' ? devImageUrl : document.getElementById('dev-image-url');
+
+            if (imgTypeEl && device.image) {
+                if (typeof PREDEFINED_ICONS !== 'undefined' && PREDEFINED_ICONS[device.image]) {
+                    imgTypeEl.value = device.image;
+                    if (imgUploadCont) imgUploadCont.style.display = 'none';
+                } else {
+                    imgTypeEl.value = 'upload';
+                    if (imgUploadCont) imgUploadCont.style.display = 'flex';
+                    if (imgUrlEl) imgUrlEl.value = device.image;
+                }
+            } else if (imgTypeEl) {
+                imgTypeEl.value = '';
+                if (imgUploadCont) imgUploadCont.style.display = 'none';
+                if (imgUrlEl) imgUrlEl.value = '';
+            }
+
+            // Remote settings populate
+            if (devRemoteEnabled) {
+                devRemoteEnabled.checked = !!(device.remote && device.remote.enabled);
+            }
+            if (devRemoteCollapsible) {
+                devRemoteCollapsible.classList.toggle('hidden', !(device.remote && device.remote.enabled));
+            }
+            if (device.remote) {
+                if (devRemoteProtocol) devRemoteProtocol.value = device.remote.protocol || 'ssh';
+                if (devRemoteHost) devRemoteHost.value = device.remote.host || '';
+                if (devRemotePort) devRemotePort.value = device.remote.port || (device.remote.protocol === 'winrm' ? 5985 : 22);
+                if (devRemoteAuthType) devRemoteAuthType.value = device.remote.authType || 'password';
+                if (devRemoteUser) devRemoteUser.value = device.remote.user || '';
+                if (devRemotePass) devRemotePass.value = '';
+                if (devRemoteKeyPath) devRemoteKeyPath.value = device.remote.keyPath || '';
+                if (devRemoteRebootCmd) devRemoteRebootCmd.value = device.remote.rebootCommand || '';
+                currentFormRemoteCommands = Array.isArray(device.remote.commands) ? JSON.parse(JSON.stringify(device.remote.commands)) : [];
+            } else {
+                if (devRemoteProtocol) devRemoteProtocol.value = 'ssh';
+                if (devRemoteHost) devRemoteHost.value = '';
+                if (devRemotePort) devRemotePort.value = 22;
+                if (devRemoteAuthType) devRemoteAuthType.value = 'password';
+                if (devRemoteUser) devRemoteUser.value = '';
+                if (devRemotePass) devRemotePass.value = '';
+                if (devRemoteKeyPath) devRemoteKeyPath.value = '';
+                if (devRemoteRebootCmd) devRemoteRebootCmd.value = '';
+                currentFormRemoteCommands = [];
+            }
+            updateRemoteFormVisibility();
+            renderFormRemoteCommands();
+        } else {
+            // New device / reset mode
+            if (editOldIpInput) editOldIpInput.value = '';
+            if (devIpInput) {
+                devIpInput.value = '';
+                devIpInput.placeholder = '例: 192.168.1.1 または 192.168.1.1, コアルーター';
+            }
+            if (devNameInput) devNameInput.value = '';
+            if (devGroupInput) devGroupInput.value = '';
+            populateGroupDropdown('');
+            if (devGroupNew) devGroupNew.classList.add('hidden');
+            if (devCommInput) devCommInput.value = 'public';
+            if (devEnabledInput) devEnabledInput.checked = true;
+            if (submitDeviceBtn) submitDeviceBtn.textContent = '機器を保存';
+
+            const devLocEl = document.getElementById('dev-location');
+            const devMemoEl = document.getElementById('dev-trouble-memo');
+            const devWebEl = document.getElementById('dev-web-url');
+            const devCheckTypeEl = document.getElementById('dev-check-type');
+            const devPortEl = document.getElementById('dev-port');
+            const devPortGroup = document.getElementById('dev-tcp-port-group');
+            if (devLocEl) devLocEl.value = '';
+            if (devMemoEl) devMemoEl.value = '';
+            if (devWebEl) devWebEl.value = '';
+            if (devCheckTypeEl) devCheckTypeEl.value = 'icmp';
+            if (devPortGroup) devPortGroup.classList.add('hidden');
+            if (devPortEl) devPortEl.value = 80;
+
+            const imgTypeEl = typeof devImageType !== 'undefined' ? devImageType : document.getElementById('dev-image-type');
+            const imgUploadCont = typeof devImageUploadContainer !== 'undefined' ? devImageUploadContainer : document.getElementById('dev-image-upload-container');
+            const imgUrlEl = typeof devImageUrl !== 'undefined' ? devImageUrl : document.getElementById('dev-image-url');
+            if (imgTypeEl) {
+                imgTypeEl.value = '';
+                if (imgUploadCont) imgUploadCont.style.display = 'none';
+                if (imgUrlEl) imgUrlEl.value = '';
+            }
+
+            if (devRemoteEnabled) devRemoteEnabled.checked = false;
+            if (devRemoteCollapsible) devRemoteCollapsible.classList.add('hidden');
+            if (devRemoteProtocol) devRemoteProtocol.value = 'ssh';
+            if (devRemoteHost) devRemoteHost.value = '';
+            if (devRemotePort) devRemotePort.value = 22;
+            if (devRemoteAuthType) devRemoteAuthType.value = 'password';
+            if (devRemoteUser) devRemoteUser.value = '';
+            if (devRemotePass) devRemotePass.value = '';
+            if (devRemoteKeyPath) devRemoteKeyPath.value = '';
+            if (devRemoteRebootCmd) devRemoteRebootCmd.value = '';
+            currentFormRemoteCommands = [];
+            updateRemoteFormVisibility();
+            renderFormRemoteCommands();
+        }
+    }
+    window.openDeviceModal = openDeviceModal;
 
     const threshLatencyEl = document.getElementById('thresh-latency');
     const threshBandwidthEl = document.getElementById('thresh-bandwidth');
@@ -503,7 +752,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (isPausedState) {
                 cardEl.style.order = '90';
-            } else if (data && (data.status === 'Failed' || data.status === 'Offline')) {
+            } else if (data && (data.status === 'Failed' || data.status === 'Error' || data.status === 'Offline')) {
                 cardEl.style.order = '10'; // 最優先（最上部）
             } else if (data && data.status === 'Warning') {
                 cardEl.style.order = '20'; // 警告（2番目）
@@ -594,7 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const optionsHtml = devices.map(d => {
             const label = (d.name && d.name !== d.ip) ? `${d.name} (${d.ip})` : d.ip;
-            return `<option value="${d.ip}">${label}</option>`;
+            return `<option value="${escapeHTML(d.ip)}">${escapeHTML(label)}</option>`;
         }).join('');
 
         const savedArr = savedIps ? savedIps.split(',').map(s => s.trim()).filter(Boolean) : [];
@@ -1568,13 +1817,6 @@ document.addEventListener('DOMContentLoaded', () => {
         highFreqTargetSelect2.addEventListener('change', () => { saveConfig(); });
     }
 
-    if (loggingToggleBtn) {
-        loggingToggleBtn.addEventListener('click', () => {
-            updateLoggingToggleUI(!isLoggingEnabled);
-            saveConfig();
-        });
-    }
-
     // ── Outage threshold inputs: confirm on Enter/Tab/blur ──────────────────
     [configOutageThresh1, configOutageThresh2].forEach((el, idx) => {
         if (!el) return;
@@ -1623,6 +1865,38 @@ document.addEventListener('DOMContentLoaded', () => {
     let devices = [];
     let latencyHistory = {};
     let timeHistory = {};
+    let statusHistory = {}; // ヒートマップ用: 各サンプル時点のステータス (Success / Warning / Failed ...)
+
+    // 遅延グラフの保持期間: 更新間隔にかかわらず約30秒分を保持する
+    // (0.1秒更新でも15点=1.5秒で消えてしまわないように点数を間隔から算出)
+    const HISTORY_WINDOW_MS = 30000;
+    const HEATMAP_BAR_COUNT = 15;
+    // 画面の更新間隔の下限: 0.1秒監視でもサーバーへの状態問い合わせは0.2秒ごとに抑え、
+    // サーバー (1窓口で順番に処理) が問い合わせで埋まって止まるのを防ぐ
+    // ※ Ping自体は0.1秒ごとに行われ、ロス率・瞬断の判定もサーバー側で0.1秒単位のまま
+    const UI_MIN_REFRESH_MS = 200;
+    function getHistoryLength() {
+        const iv = Math.max(UI_MIN_REFRESH_MS, parseInt(systemConfig.pollInterval) || 1000);
+        return Math.min(300, Math.max(15, Math.ceil(HISTORY_WINDOW_MS / iv)));
+    }
+    // 履歴配列を生成し、更新間隔の変更に合わせて長さを調整する (配列参照は維持)
+    function ensureHistory(ip) {
+        const len = getHistoryLength();
+        if (!latencyHistory[ip]) {
+            latencyHistory[ip] = Array(len).fill(null);
+            timeHistory[ip] = Array(len).fill('');
+            statusHistory[ip] = Array(len).fill(null);
+            return;
+        }
+        if (!statusHistory[ip]) statusHistory[ip] = Array(latencyHistory[ip].length).fill(null);
+        const lh = latencyHistory[ip], th = timeHistory[ip], sh = statusHistory[ip];
+        while (lh.length > len) lh.shift();
+        while (th.length > len) th.shift();
+        while (sh.length > len) sh.shift();
+        while (lh.length < len) lh.unshift(null);
+        while (th.length < len) th.unshift('');
+        while (sh.length < len) sh.unshift(null);
+    }
     let latencyStats = {}; // { ip: { min: Number|null, max: Number|null } }
     let charts = {};
     let dashboardUnifiedChart = null;
@@ -1766,6 +2040,20 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // ダッシュボード統合グラフも配色を切り替える (デイモードで目盛りが見えなくなるのを防止)
+        if (dashboardUnifiedChart) {
+            ['x', 'y'].forEach(axis => {
+                const sc = dashboardUnifiedChart.options.scales[axis];
+                if (!sc) return;
+                if (sc.ticks) sc.ticks.color = tickColor;
+                if (sc.grid) sc.grid.color = gridColor;
+                if (sc.border) sc.border.color = borderColor;
+            });
+            const lg = dashboardUnifiedChart.options.plugins && dashboardUnifiedChart.options.plugins.legend;
+            if (lg && lg.labels) lg.labels.color = legendColor;
+            dashboardUnifiedChart.update('none');
+        }
+
         if (topologyLatencyChart) {
             if (topologyLatencyChart.options.scales.x) {
                 if (topologyLatencyChart.options.scales.x.ticks) topologyLatencyChart.options.scales.x.ticks.color = tickColor;
@@ -1810,9 +2098,13 @@ document.addEventListener('DOMContentLoaded', () => {
             networkInstance.disableEditMode();
         }
         const linkBtn = document.getElementById('topo-link-btn');
-        if (linkBtn) linkBtn.classList.remove('link-active');
+        if (linkBtn) {
+            linkBtn.classList.remove('link-active');
+            linkBtn.textContent = '🔗 リンク追加';
+        }
         const modeText = document.getElementById('topo-mode-text');
         if (modeText && !isUnlinkMode) {
+            modeText.classList.add('hidden');
             modeText.style.display = 'none';
         }
     }
@@ -1820,9 +2112,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function deactivateUnlinkMode() {
         isUnlinkMode = false;
         const unlinkBtn = document.getElementById('topo-unlink-btn');
-        if (unlinkBtn) unlinkBtn.classList.remove('unlink-active');
+        if (unlinkBtn) {
+            unlinkBtn.classList.remove('unlink-active');
+            unlinkBtn.textContent = '✖ リンク削除';
+        }
         const modeText = document.getElementById('topo-mode-text');
         if (modeText && !isLinkMode) {
+            modeText.classList.add('hidden');
             modeText.style.display = 'none';
         }
     }
@@ -1834,12 +2130,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startFlowAnimation() {
         if (flowAnimationId) return;
-        function animate() {
-            const viewTopo = document.getElementById('view-topology');
-            if (networkInstance && viewTopo && viewTopo.classList.contains('active')) {
-                if (animationFxEnabled) {
-                    flowAnimationProgress = (flowAnimationProgress + 0.008) % 1.0;
+        const viewTopo = document.getElementById('view-topology');
+        if (!viewTopo || !viewTopo.classList.contains('active') || document.hidden) {
+            return;
+        }
+        let lastFrameTime = performance.now();
+        const FRAME_INTERVAL_MS = 1000 / 30; // ~33.3ms for 30 FPS
+        function animate(timestamp) {
+            const currentViewTopo = document.getElementById('view-topology');
+            if (!currentViewTopo || !currentViewTopo.classList.contains('active') || document.hidden) {
+                flowAnimationId = null;
+                return;
+            }
+            const now = timestamp || performance.now();
+            const elapsed = now - lastFrameTime;
+            if (networkInstance && animationFxEnabled) {
+                if (elapsed >= FRAME_INTERVAL_MS) {
+                    flowAnimationProgress = (flowAnimationProgress + 0.016) % 1.0;
                     networkInstance.redraw();
+                    lastFrameTime = now - (elapsed % FRAME_INTERVAL_MS);
                 }
             }
             flowAnimationId = requestAnimationFrame(animate);
@@ -1891,14 +2200,15 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fill();
         }
 
-        // Glowing head
+        // Glowing head (optimized shadowBlur)
         ctx.globalAlpha = 1.0;
         ctx.beginPath();
         ctx.arc(hx, hy, isTraced ? 5.5 : 4.2, 0, 2 * Math.PI);
         ctx.fillStyle = '#ffffff';
         ctx.shadowColor = color;
-        ctx.shadowBlur = isTraced ? 12 : 9;
+        ctx.shadowBlur = isTraced ? 6 : 4;
         ctx.fill();
+        ctx.shadowBlur = 0;
 
         ctx.beginPath();
         ctx.arc(hx, hy, isTraced ? 6.5 : 5.0, 0, 2 * Math.PI);
@@ -2153,13 +2463,23 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+    let resizeDebounceTimer = null;
     window.addEventListener('resize', () => {
-        if (topologyNetwork) {
-            topologyNetwork.fit();
-        }
-        if (dashboardUnifiedChart) {
-            dashboardUnifiedChart.resize();
-        }
+        clearTimeout(resizeDebounceTimer);
+        resizeDebounceTimer = setTimeout(() => {
+            if (typeof topologyNetwork !== 'undefined' && topologyNetwork) {
+                topologyNetwork.fit();
+            }
+            if (typeof networkInstance !== 'undefined' && networkInstance) {
+                networkInstance.fit();
+            }
+            if (dashboardUnifiedChart) {
+                dashboardUnifiedChart.resize();
+            }
+            if (typeof topologyLatencyChart !== 'undefined' && topologyLatencyChart) {
+                topologyLatencyChart.resize();
+            }
+        }, 150);
     });
 
     // Initialize
@@ -2171,12 +2491,32 @@ document.addEventListener('DOMContentLoaded', () => {
         startStatusLoop(currentInterval);
     });
 
+    let consecutiveFetchErrors = 0;
+    let isOfflineBannerShown = false;
+    let statusAbortController = null;
+    let configuredPollInterval = 1000;
     let statusInterval = null;
+
     function startStatusLoop(pollIntervalMs) {
+        if (pollIntervalMs) {
+            configuredPollInterval = pollIntervalMs;
+        }
         if (statusInterval) clearInterval(statusInterval);
         // Synchronize UI refresh exactly with the monitoring interval.
-        // For very high frequency (0.1s), the UI will update every 100ms.
-        const uiInterval = pollIntervalMs || 1000;
+        // For very high frequency (0.1s), the UI refresh is floored at UI_MIN_REFRESH_MS (200ms).
+        // If offline banner is currently displayed, throttle to 3500ms backoff.
+        const uiInterval = isOfflineBannerShown ? 3500 : Math.max(UI_MIN_REFRESH_MS, configuredPollInterval || 1000);
+        statusInterval = setInterval(fetchStatus, uiInterval);
+    }
+
+    function throttleStatusLoop(throttledIntervalMs = 3500) {
+        if (statusInterval) clearInterval(statusInterval);
+        statusInterval = setInterval(fetchStatus, throttledIntervalMs);
+    }
+
+    function restoreStatusLoop() {
+        if (statusInterval) clearInterval(statusInterval);
+        const uiInterval = Math.max(UI_MIN_REFRESH_MS, configuredPollInterval || 1000);
         statusInterval = setInterval(fetchStatus, uiInterval);
     }
 
@@ -2375,6 +2715,28 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Remote Management Configuration Serialization (Milestone 2)
+        const remoteConfig = {
+            enabled: !!(devRemoteEnabled && devRemoteEnabled.checked),
+            protocol: devRemoteProtocol ? devRemoteProtocol.value : 'ssh',
+            host: devRemoteHost ? devRemoteHost.value.trim() : '',
+            port: devRemotePort ? (parseInt(devRemotePort.value, 10) || (devRemoteProtocol && devRemoteProtocol.value === 'winrm' ? 5985 : 22)) : 22,
+            authType: devRemoteAuthType ? devRemoteAuthType.value : 'password',
+            user: devRemoteUser ? devRemoteUser.value.trim() : '',
+            keyPath: devRemoteKeyPath ? devRemoteKeyPath.value.trim() : '',
+            rebootCommand: devRemoteRebootCmd ? devRemoteRebootCmd.value.trim() : '',
+            commands: currentFormRemoteCommands || []
+        };
+        const passVal = devRemotePass ? devRemotePass.value : '';
+        if (passVal) {
+            remoteConfig.password = passVal;
+        } else if (editOldIpInput && editOldIpInput.value) {
+            const existingDev = devices.find(x => x.ip === editOldIpInput.value);
+            if (existingDev && existingDev.remote && existingDev.remote.password) {
+                remoteConfig.password = existingDev.remote.password;
+            }
+        }
+
         if (editOldIpInput && editOldIpInput.value) {
             // Edit mode
             const newIpStr = devIpInput.value.trim();
@@ -2398,7 +2760,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 community: devCommInput.value.trim(),
                 enabled: devEnabledInput.checked,
                 image: imageVal,
-                connectedTo: connectedToVal
+                connectedTo: connectedToVal,
+                remote: remoteConfig
             };
             
             try {
@@ -2409,10 +2772,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 if (res.ok) {
                     deviceForm.reset();
-                    editOldIpInput.value = '';
-                    submitDeviceBtn.textContent = '機器を保存';
+                    openDeviceModal(null);
                     await fetchDevices();
                     renderManageList();
+                } else if (res.status === 409) {
+                    alert(`IPアドレス ${payload.newIp} は別の機器で既に使われています。別のIPアドレスを指定してください。`);
                 } else {
                     alert('機器情報の更新に失敗しました。');
                 }
@@ -2441,7 +2805,8 @@ document.addEventListener('DOMContentLoaded', () => {
             community: devCommInput.value.trim(),
             enabled: devEnabledInput.checked,
             image: imageVal,
-            connectedTo: connectedToVal
+            connectedTo: connectedToVal,
+            remote: remoteConfig
         }];
         
         try {
@@ -2452,6 +2817,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (res.ok) {
                 deviceForm.reset();
+                openDeviceModal(null);
                 await fetchDevices();
                 renderManageList();
             } else {
@@ -2545,56 +2911,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 li.querySelector('.edit-dev-btn').addEventListener('click', (e) => {
                     e.preventDefault();
-                    if(editOldIpInput) editOldIpInput.value = d.ip;
-                    devIpInput.value = d.ip;
-                    devNameInput.value = d.name !== d.ip ? d.name : '';
-                    // Set group dropdown and hidden input to device's current group
-                    if(devGroupInput) devGroupInput.value = d.group || '';
-                    populateGroupDropdown(d.group || '');
-                    if (devGroupNew) devGroupNew.classList.add('hidden');
-                    devCommInput.value = d.community || 'public';
-                    devEnabledInput.checked = isEnabled;
-                    if(submitDeviceBtn) submitDeviceBtn.textContent = '機器情報を更新';
-                    devIpInput.placeholder = '192.168.1.1';
-
-                    const devLocEl = document.getElementById('dev-location');
-                    const devMemoEl = document.getElementById('dev-trouble-memo');
-                    const devWebEl = document.getElementById('dev-web-url');
-                    const devCheckTypeEl = document.getElementById('dev-check-type');
-                    const devPortEl = document.getElementById('dev-port');
-                    const devPortGroup = document.getElementById('dev-tcp-port-group');
-                    if (devLocEl) devLocEl.value = d.location || '';
-                    if (devMemoEl) devMemoEl.value = d.troubleMemo || '';
-                    if (devWebEl) devWebEl.value = d.webUrl || '';
-                    if (devCheckTypeEl) {
-                        devCheckTypeEl.value = d.checkType || 'icmp';
-                        if (devPortGroup) {
-                            devPortGroup.classList.toggle('hidden', devCheckTypeEl.value !== 'tcp');
-                        }
-                    }
-                    if (devPortEl) devPortEl.value = d.port || 80;
-
-                    populateConnectionsDropdown(d.ip);
-                    const parents = d.connectedTo ? d.connectedTo.split(',').map(p => p.trim()).filter(p => p) : [];
-                    if (devConnectedTo) devConnectedTo.value = parents[0] || '';
-                    if (devConnectedTo2) devConnectedTo2.value = parents[1] || '';
-                    
-                    if (d.image) {
-                        if (PREDEFINED_ICONS[d.image]) {
-                            devImageType.value = d.image;
-                            devImageUploadContainer.style.display = 'none';
-                        } else {
-                            devImageType.value = 'upload';
-                            devImageUploadContainer.style.display = 'flex';
-                            devImageUrl.value = d.image;
-                        }
-                    } else {
-                        devImageType.value = '';
-                        devImageUploadContainer.style.display = 'none';
-                        devImageUrl.value = '';
-                    }
-
-                    // Highlight the item being edited
+                    openDeviceModal(d);
                     manageDeviceList.querySelectorAll('.manage-item').forEach(el => el.style.background = 'transparent');
                     li.style.background = 'rgba(59, 130, 246, 0.15)';
                 });
@@ -2762,14 +3079,77 @@ document.addEventListener('DOMContentLoaded', () => {
         if (devices.length === 0) return;
         if (isFetchingStatus) return; // prevent parallel requests when server is slow
         isFetchingStatus = true;
+
+        if (statusAbortController) {
+            try { statusAbortController.abort(); } catch (e) {}
+        }
+        statusAbortController = new AbortController();
+        const currentController = statusAbortController;
+        const timeoutId = setTimeout(() => {
+            try { currentController.abort(); } catch (e) {}
+        }, 4000);
+
         try {
-            const res = await fetch('/api/status');
+            const res = await fetch('/api/status', { signal: currentController.signal });
+            clearTimeout(timeoutId);
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status} ${res.statusText}`);
+            }
             const statusData = await res.json();
-            updateDeviceData(statusData);
-            updateTopologyStatus();
-            updateIpConflicts(statusData._ipConflicts);
-        } catch (err) { console.warn('Error fetching status:', err); }
-        finally { isFetchingStatus = false; }
+
+            // Reconnection recovery handling
+            if (isOfflineBannerShown || consecutiveFetchErrors >= 3) {
+                const banner = document.getElementById('network-offline-banner');
+                if (banner) {
+                    banner.style.display = 'none';
+                }
+                document.body.classList.remove('backend-offline');
+                isOfflineBannerShown = false;
+                restoreStatusLoop();
+                showToast('success', '再接続完了', '✅ サーバーとの再接続が完了しました', 4000);
+            }
+            consecutiveFetchErrors = 0;
+
+            // 画面描画中の例外はサーバー切断ではないため、通信エラーとして数えない
+            // (数えると3回で「サーバーとの接続が途切れています」と誤表示され、更新も3.5秒間隔に落ちる)
+            try {
+                updateDeviceData(statusData);
+                updateTopologyStatus();
+                updateIpConflicts(statusData._ipConflicts);
+            } catch (renderErr) {
+                console.error('Error rendering status:', renderErr);
+            }
+        } catch (err) {
+            clearTimeout(timeoutId);
+            console.warn('Error fetching status:', err);
+            consecutiveFetchErrors++;
+            if (consecutiveFetchErrors >= 3 && !isOfflineBannerShown) {
+                isOfflineBannerShown = true;
+                throttleStatusLoop(3500);
+                document.body.classList.add('backend-offline');
+                const banner = document.getElementById('network-offline-banner');
+                if (banner) {
+                    banner.style.display = 'flex';
+                }
+            }
+        } finally {
+            if (statusAbortController === currentController) {
+                statusAbortController = null;
+            }
+            isFetchingStatus = false;
+        }
+    }
+
+    const bannerReconnectBtn = document.getElementById('btn-banner-reconnect');
+    if (bannerReconnectBtn) {
+        bannerReconnectBtn.addEventListener('click', () => {
+            if (statusAbortController) {
+                try { statusAbortController.abort(); } catch (e) {}
+                statusAbortController = null;
+            }
+            isFetchingStatus = false;
+            fetchStatus();
+        });
     }
 
     function renderDeviceGrid() {
@@ -2829,7 +3209,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const section = document.createElement('div');
             section.className = 'group-section';
             section.style.display = (activeTab === 'all' || groupName === activeTab) ? 'flex' : 'none';
-            section.innerHTML = `<div class="group-header" style="font-size:1.1rem; font-weight:700; color:var(--text-main); border-bottom:2px solid var(--glass-border); padding-bottom:5px; margin-bottom:10px;"><span>${groupName}</span></div>`;
+            section.innerHTML = `<div class="group-header" style="font-size:1.1rem; font-weight:700; color:var(--text-main); border-bottom:2px solid var(--glass-border); padding-bottom:5px; margin-bottom:10px;"><span>${escapeHTML(groupName)}</span></div>`;
             const grid = document.createElement('div');
             grid.className = 'group-grid';
             grid.style.display = 'flex'; grid.style.flexDirection = 'column'; grid.style.gap = '8px';
@@ -2881,7 +3261,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button class="toggle-monitor-btn" data-ip="${ip}" style="background:transparent;border:none;color:${!isPausedState ? '#f59e0b' : '#10b981'};cursor:pointer;font-size:1.1rem;" title="${!isPausedState ? '監視を一時停止' : '監視を再開'}">${!isPausedState ? '⏸' : '▶'}</button>
                     </div>`;
                 grid.appendChild(row);
-                if (!latencyHistory[ip]) { latencyHistory[ip] = Array(15).fill(null); timeHistory[ip] = Array(15).fill(''); }
+                ensureHistory(ip);
                 if (!latencyStats[ip]) { latencyStats[ip] = { min: null, max: null }; }
                 
                 // Hover focus highlight on unified chart
@@ -2936,38 +3316,44 @@ document.addEventListener('DOMContentLoaded', () => {
                 const datasets = chartDevices.map(d => ({ 
                     label: d.name || d.ip, 
                     deviceIp: d.ip, 
-                    data: (latencyHistory[d.ip] && latencyHistory[d.ip].length > 0) ? latencyHistory[d.ip].slice() : Array(15).fill(null), 
+                    data: (latencyHistory[d.ip] && latencyHistory[d.ip].length > 0) ? latencyHistory[d.ip].slice() : Array(getHistoryLength()).fill(null), 
                     borderColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] || '#3b82f6', 
                     originalColor: CHART_LINE_COLORS[monitoredGlobal.indexOf(d) % CHART_LINE_COLORS.length] || '#3b82f6',
                     backgroundColor: 'transparent', 
                     borderWidth: 2, 
-                    pointRadius: 2, 
+                    pointRadius: getHistoryLength() > 30 ? 0 : 2, 
                     fill: false, 
-                    tension: 0.4 
+                    spanGaps: false,
+                    tension: getHistoryLength() > 30 ? 0.2 : 0.4 
                 }));
                 const labelIp = (chartDevices[0] && chartDevices[0].ip && timeHistory[chartDevices[0].ip]) ? chartDevices[0].ip : (monitoredGlobal[0] ? monitoredGlobal[0].ip : null);
-                const chartLabels = (labelIp && timeHistory[labelIp]) ? timeHistory[labelIp] : Array(15).fill('');
+                const chartLabels = (labelIp && timeHistory[labelIp]) ? timeHistory[labelIp] : Array(getHistoryLength()).fill('');
+                const isDayTheme = (document.documentElement.getAttribute('data-theme') === 'day');
+                const uTick = isDayTheme ? '#1e293b' : 'rgba(200,210,230,0.9)';
+                const uGrid = isDayTheme ? 'rgba(15, 23, 42, 0.25)' : 'rgba(200,210,230,0.25)';
+                const uBorder = isDayTheme ? 'rgba(15, 23, 42, 0.6)' : 'rgba(200,210,230,0.6)';
+                const uLegend = isDayTheme ? '#0f172a' : 'rgba(200,210,230,0.9)';
                 dashboardUnifiedChart = new Chart(unifiedChartDiv.querySelector('canvas').getContext('2d'), {
                     type: 'line', data: { labels: chartLabels, datasets },
                     options: { responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
                         scales: {
                             x: {
-                                ticks: { maxTicksLimit: 10, font: { size: 10 }, color: 'rgba(200,210,230,0.9)' },
-                                grid: { color: 'rgba(200,210,230,0.25)', lineWidth: 1 },
-                                border: { color: 'rgba(200,210,230,0.6)', width: 1 }
+                                ticks: { maxTicksLimit: 10, font: { size: 10 }, color: uTick },
+                                grid: { color: uGrid, lineWidth: 1 },
+                                border: { color: uBorder, width: 1 }
                             },
                             y: {
-                                min: 0, suggestedMax: 100,
-                                ticks: { font: { size: 10 }, color: 'rgba(200,210,230,0.9)' },
-                                grid: { color: 'rgba(200,210,230,0.25)', lineWidth: 1 },
-                                border: { color: 'rgba(200,210,230,0.6)', width: 1 }
+                                min: 0, grace: '15%',
+                                ticks: { font: { size: 10 }, color: uTick },
+                                grid: { color: uGrid, lineWidth: 1 },
+                                border: { color: uBorder, width: 1 }
                             }
                         },
                         plugins: { 
                             legend: { 
                                 display: true, 
                                 position: 'bottom', 
-                                labels: { font: { size: 9 }, color: 'rgba(200,210,230,0.9)', usePointStyle: true, boxWidth: 15 },
+                                labels: { font: { size: 9 }, color: uLegend, usePointStyle: true, boxWidth: 15 },
                                 onClick: (e, legendItem, legend) => {
                                     const index = legendItem.datasetIndex;
                                     const ci = legend.chart;
@@ -2996,7 +3382,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ds.borderWidth = 1;
             }
         });
-        dashboardUnifiedChart.update();
+        dashboardUnifiedChart.update('none');
     }
 
     function resetChartHighlight() {
@@ -3005,7 +3391,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ds.borderColor = ds.originalColor || ds.borderColor;
             ds.borderWidth = 2;
         });
-        dashboardUnifiedChart.update();
+        dashboardUnifiedChart.update('none');
     }
 
     // Helper to start iperf from Dashboard
@@ -3066,6 +3452,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const warnLat = parseFloat(threshLatencyEl ? threshLatencyEl.value : 100) || 100;
 
+        // Prune stale device elements that are no longer active
+        const activeSafeIds = new Set(monitoredDevices.map(d => `heatmap-item-${d.ip.replace(/\./g, '-')}`));
+        Array.from(container.children).forEach(child => {
+            if (!child.id || !child.id.startsWith('heatmap-item-')) {
+                child.remove();
+            } else if (!activeSafeIds.has(child.id)) {
+                child.remove();
+            }
+        });
+
         monitoredDevices.forEach(d => {
             const ip = d.ip, safeIpId = ip.replace(/\./g, '-');
             let itemEl = document.getElementById(`heatmap-item-${safeIpId}`);
@@ -3082,14 +3478,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const barsEl = document.getElementById(`heatmap-bars-${safeIpId}`);
             if (barsEl && latencyHistory[ip]) {
-                const history = latencyHistory[ip];
-                const barsHtml = history.map(lat => {
+                const history = latencyHistory[ip].slice(-HEATMAP_BAR_COUNT);
+                const stHist = (statusHistory[ip] || []).slice(-HEATMAP_BAR_COUNT);
+                const barsHtml = history.map((lat, idx) => {
                     let bg = '#64748b'; // paused / null
                     let title = '停止 / データなし';
                     if (lat !== null) {
-                        if (lat >= warnLat) {
+                        // 遅延は閾値未満でも、揺らぎ・ロス率で「警告」判定された時点は黄色で表示する
+                        if (lat >= warnLat || stHist[idx] === 'Warning') {
                             bg = '#f59e0b';
-                            title = `高遅延: ${lat}ms`;
+                            title = (lat >= warnLat) ? `高遅延: ${lat}ms` : `警告 (揺らぎ/ロス): ${lat}ms`;
                         } else {
                             bg = '#10b981';
                             title = `正常: ${lat}ms`;
@@ -3127,15 +3525,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     ? 'success' 
                     : (data.status === "Warning")
                         ? 'warning'
-                        : (data.status === "Failed" || data.status === "Offline") 
+                        : (data.status === "Failed" || data.status === "Error" || data.status === "Offline") 
                             ? (isSuppressed ? 'unreachable' : 'error') 
                             : 'paused';
                 dotEl.className = 'status-dot ' + statusClass;
 
-                if (data.status === "Failed" && canAlert(ip, 'offline') && !isSuppressed) {
+                if ((data.status === "Failed" || data.status === "Error") && !isSuppressed && canAlert(ip, 'offline')) {
                     showToast('error', `🔴 ${data.name || ip} オフライン`, `IP: ${ip} 応答なし`, 5000);
                     playAlertSound('error');
-                } else if (data.status === "Warning" && canAlert(ip, 'warning') && !isSuppressed) {
+                } else if (data.status === "Warning" && !isSuppressed && canAlert(ip, 'warning')) {
                     showToast('warning', `⚠️ ${data.name || ip} 警告状態 (遅延/瞬断)`, `IP: ${ip} 遅延: ${data.latency != null ? data.latency + 'ms' : '単発断'}`, 4000);
                     playAlertSound('warning');
                 }
@@ -3144,7 +3542,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if ((data.status === "Success" || data.status === "Warning") && data.latency !== null) {
                     latencyEl.textContent = `${data.latency} ms`;
                     latencyEl.className = 'header-latency' + (data.status === "Warning" || data.latency >= warnLat ? ' bad' : '');
-                    if (data.latency >= warnLat && canAlert(ip, 'latency') && !isSuppressed) {
+                    if (data.latency >= warnLat && !isSuppressed && canAlert(ip, 'latency')) {
                         showToast('warning', `⚠️ ${data.name || ip} 高遅延検知`, `IP: ${ip} 遅延: ${data.latency}ms (閾値: ${warnLat}ms)`, 5000);
                         playAlertSound('warning');
                     }
@@ -3156,7 +3554,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (data.status === "Paused") {
                         latencyEl.textContent = '-- ms';
                         latencyEl.className = 'header-latency paused-text';
-                    } else if (data.status === "Failed" || data.status === "Offline") {
+                    } else if (data.status === "Failed" || data.status === "Error" || data.status === "Offline") {
                         latencyEl.textContent = isSuppressed ? '到達不能 (親障害)' : 'タイムアウト';
                         latencyEl.className = 'header-latency ' + (isSuppressed ? 'unreachable-text' : 'bad');
                     } else {
@@ -3239,8 +3637,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 if (latencyHistory[ip]) {
-                    latencyHistory[ip].push(data.status === "Success" ? data.latency : null);
+                    ensureHistory(ip);
+                    // 警告 (遅延・揺らぎ) 中も応答があれば値を描画し、無応答のみ空白にする
+                    const hasLatency = (data.status === "Success" || data.status === "Warning") && data.latency !== null && data.latency !== undefined;
+                    latencyHistory[ip].push(hasLatency ? data.latency : null);
                     latencyHistory[ip].shift();
+                    statusHistory[ip].push(data.status || null);
+                    statusHistory[ip].shift();
                     const now = new Date();
                     timeHistory[ip].push(`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`);
                     timeHistory[ip].shift();
@@ -3316,13 +3719,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     s.data = latencyHistory[s.deviceIp];
                 }
             });
-            dashboardUnifiedChart.update();
+            const vDash = document.getElementById('view-dashboard');
+            if (vDash && vDash.classList.contains('active') && !document.hidden) {
+                dashboardUnifiedChart.update('none');
+            }
         }
         if (topologyLatencyChart) {
             const mon = devices.filter(d => d.enabled !== false);
             if (mon.length > 0) {
-                topologyLatencyChart.data.labels = timeHistory[mon[0].ip] || Array(15).fill('');
-                topologyLatencyChart.update();
+                topologyLatencyChart.data.labels = timeHistory[mon[0].ip] || Array(getHistoryLength()).fill('');
+                const vTopo = document.getElementById('view-topology');
+                if (vTopo && vTopo.classList.contains('active') && !document.hidden) {
+                    topologyLatencyChart.update('none');
+                }
             }
         }
     }
@@ -3369,8 +3778,15 @@ document.addEventListener('DOMContentLoaded', () => {
             toggleTheaterMode();
         }
         
-        if (tabId === 'tab-topology') {
+        if (tabId === 'tab-dashboard') {
+            if (dashboardUnifiedChart && !document.hidden) {
+                dashboardUnifiedChart.update('none');
+            }
+        } else if (tabId === 'tab-topology') {
             initTopology();
+            if (animationFxEnabled && !document.hidden) {
+                startFlowAnimation();
+            }
         } else if (tabId === 'tab-iperf') {
             populateIperfDeviceList();
         } else if (tabId === 'tab-syslog') {
@@ -3398,12 +3814,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Client Heartbeat & Auto-shutdown on browser close ──
-    // Send periodic heartbeat every 2.5s to keep server alive
-    setInterval(() => {
+    // Send periodic heartbeat every 2.5s to keep server alive.
+    // Uses a Web Worker timer so Chrome/Edge background tab throttling (60s+) never interrupts heartbeats during long-term runs.
+    const triggerHeartbeatFetch = () => {
         if (navigator.onLine !== false) {
             fetch('/api/heartbeat', { method: 'GET', cache: 'no-store' }).catch(() => {});
         }
-    }, 2500);
+    };
+    let heartbeatWorkerStarted = false;
+    try {
+        if (window.Worker && window.Blob && window.URL) {
+            const workerCode = 'setInterval(function(){ postMessage("hb"); }, 2500);';
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            const hbWorker = new Worker(URL.createObjectURL(blob));
+            hbWorker.onmessage = triggerHeartbeatFetch;
+            heartbeatWorkerStarted = true;
+        }
+    } catch (e) {}
+    if (!heartbeatWorkerStarted) {
+        setInterval(triggerHeartbeatFetch, 2500);
+    }
 
     // Send immediate heartbeat & refresh status when tab becomes visible or focused
     const sendImmediateHeartbeat = () => {
@@ -3417,23 +3847,37 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
             sendImmediateHeartbeat();
+            const viewTopo = document.getElementById('view-topology');
+            if (viewTopo && viewTopo.classList.contains('active') && animationFxEnabled) {
+                startFlowAnimation();
+            }
+            const viewDash = document.getElementById('view-dashboard');
+            if (viewDash && viewDash.classList.contains('active') && dashboardUnifiedChart) {
+                dashboardUnifiedChart.update('none');
+            }
+        } else {
+            stopFlowAnimation();
         }
     });
     window.addEventListener('focus', sendImmediateHeartbeat);
 
     // Trigger server shutdown and log save when browser window/tab is closed
-    const sendShutdownBeacon = () => {
+    const sendShutdownBeacon = (e) => {
+        if (e && e.persisted) return;
         try {
             if (navigator.sendBeacon) {
                 navigator.sendBeacon('/api/shutdown');
             } else {
                 fetch('/api/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
             }
-        } catch (e) {}
+        } catch (err) {}
     };
 
     window.addEventListener('beforeunload', sendShutdownBeacon);
-    window.addEventListener('pagehide', sendShutdownBeacon);
+    window.addEventListener('pagehide', (e) => {
+        if (e && e.persisted) return;
+        sendShutdownBeacon(e);
+    });
 
     // File Upload event listeners
     if (devImageFile) {
@@ -4109,7 +4553,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let data = window.lastStatusData ? window.lastStatusData[ip] : null;
         const threshLatency = parseFloat(threshLatencyEl.value) || 100;
         if (!data) return '#64748b';
-        if (data.status === "Failed" || data.status === "Offline") {
+        if (data.status === "Failed" || data.status === "Error" || data.status === "Offline") {
             if (isAlertSuppressed(ip) || data.isSuppressed) {
                 return '#c084fc'; // 到達不能（紫）
             }
@@ -4138,7 +4582,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const fromStatus = window.lastStatusData ? window.lastStatusData[fromIp] : null;
         const toStatus = window.lastStatusData ? window.lastStatusData[toIp] : null;
-        const isOffline = (fromStatus?.status === 'Failed') || (toStatus?.status === 'Failed');
+        const isOffline = ['Failed', 'Error'].includes(fromStatus?.status) || ['Failed', 'Error'].includes(toStatus?.status);
 
         const hasWifiBand = (fromStatus?.wifiBand && fromStatus.wifiBand !== '') || 
                             (toStatus?.wifiBand && toStatus.wifiBand !== '');
@@ -4298,10 +4742,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let latencySvgText = '';
             let latencyTooltipText = '';
-            if (statusData && statusData.status === "Success" && statusData.latency !== null) {
+            if (statusData && (statusData.status === "Success" || statusData.status === "Warning") && statusData.latency !== null && statusData.latency !== undefined) {
                 latencySvgText = `${statusData.latency} ms`;
                 latencyTooltipText = `\nLatency: ${statusData.latency} ms`;
-            } else if (statusData && statusData.status === "Failed") {
+            } else if (statusData && (statusData.status === "Failed" || statusData.status === "Error")) {
                 latencySvgText = 'Offline';
                 latencyTooltipText = `\nStatus: Offline`;
             }
@@ -4502,6 +4946,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const minY = Math.min(tl.y, br.y);
                 const maxY = Math.max(tl.y, br.y);
 
+                const scale = (typeof networkInstance.getScale === 'function') ? networkInstance.getScale() : 1;
                 ctx.save();
                 const minorGrid = 50;
                 const majorGrid = 250;
@@ -4511,53 +4956,65 @@ document.addEventListener('DOMContentLoaded', () => {
                 const startMinorY = Math.floor(minY / minorGrid) * minorGrid;
                 const endMinorY = Math.ceil(maxY / minorGrid) * minorGrid;
 
-                // Minor Grid Lines
-                ctx.beginPath();
-                for (let gx = startMinorX; gx <= endMinorX; gx += minorGrid) {
-                    ctx.moveTo(gx, minY);
-                    ctx.lineTo(gx, maxY);
-                }
-                for (let gy = startMinorY; gy <= endMinorY; gy += minorGrid) {
-                    ctx.moveTo(minX, gy);
-                    ctx.lineTo(maxX, gy);
-                }
-                ctx.strokeStyle = isDay ? 'rgba(100, 116, 139, 0.06)' : 'rgba(56, 189, 248, 0.04)';
-                ctx.lineWidth = 1;
-                ctx.stroke();
+                const countMinorX = Math.round((endMinorX - startMinorX) / minorGrid);
+                const countMinorY = Math.round((endMinorY - startMinorY) / minorGrid);
 
-                // Major Grid Lines
+                // Minor Grid Lines (throttle/skip if zoomed out or excessive lines)
+                if (scale >= 0.45 && countMinorX <= 80 && countMinorY <= 80) {
+                    ctx.beginPath();
+                    for (let gx = startMinorX; gx <= endMinorX; gx += minorGrid) {
+                        ctx.moveTo(gx, minY);
+                        ctx.lineTo(gx, maxY);
+                    }
+                    for (let gy = startMinorY; gy <= endMinorY; gy += minorGrid) {
+                        ctx.moveTo(minX, gy);
+                        ctx.lineTo(maxX, gy);
+                    }
+                    ctx.strokeStyle = isDay ? 'rgba(100, 116, 139, 0.06)' : 'rgba(56, 189, 248, 0.04)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+
+                // Major Grid Lines (capped)
                 const startMajorX = Math.floor(minX / majorGrid) * majorGrid;
                 const endMajorX = Math.ceil(maxX / majorGrid) * majorGrid;
                 const startMajorY = Math.floor(minY / majorGrid) * majorGrid;
                 const endMajorY = Math.ceil(maxY / majorGrid) * majorGrid;
 
-                ctx.beginPath();
-                for (let gx = startMajorX; gx <= endMajorX; gx += majorGrid) {
-                    ctx.moveTo(gx, minY);
-                    ctx.lineTo(gx, maxY);
-                }
-                for (let gy = startMajorY; gy <= endMajorY; gy += majorGrid) {
-                    ctx.moveTo(minX, gy);
-                    ctx.lineTo(maxX, gy);
-                }
-                ctx.strokeStyle = isDay ? 'rgba(100, 116, 139, 0.14)' : 'rgba(56, 189, 248, 0.09)';
-                ctx.lineWidth = 1.2;
-                ctx.stroke();
+                const countMajorX = Math.round((endMajorX - startMajorX) / majorGrid);
+                const countMajorY = Math.round((endMajorY - startMajorY) / majorGrid);
 
-                // Precision Crosshairs at major intersections
-                ctx.beginPath();
-                const crossSize = 5;
-                for (let gx = startMajorX; gx <= endMajorX; gx += majorGrid) {
+                if (countMajorX <= 60 && countMajorY <= 60) {
+                    ctx.beginPath();
+                    for (let gx = startMajorX; gx <= endMajorX; gx += majorGrid) {
+                        ctx.moveTo(gx, minY);
+                        ctx.lineTo(gx, maxY);
+                    }
                     for (let gy = startMajorY; gy <= endMajorY; gy += majorGrid) {
-                        ctx.moveTo(gx - crossSize, gy);
-                        ctx.lineTo(gx + crossSize, gy);
-                        ctx.moveTo(gx, gy - crossSize);
-                        ctx.lineTo(gx, gy + crossSize);
+                        ctx.moveTo(minX, gy);
+                        ctx.lineTo(maxX, gy);
+                    }
+                    ctx.strokeStyle = isDay ? 'rgba(100, 116, 139, 0.14)' : 'rgba(56, 189, 248, 0.09)';
+                    ctx.lineWidth = 1.2;
+                    ctx.stroke();
+
+                    // Precision Crosshairs at major intersections (only if reasonable count)
+                    if (countMajorX * countMajorY <= 150) {
+                        ctx.beginPath();
+                        const crossSize = 5;
+                        for (let gx = startMajorX; gx <= endMajorX; gx += majorGrid) {
+                            for (let gy = startMajorY; gy <= endMajorY; gy += majorGrid) {
+                                ctx.moveTo(gx - crossSize, gy);
+                                ctx.lineTo(gx + crossSize, gy);
+                                ctx.moveTo(gx, gy - crossSize);
+                                ctx.lineTo(gx, gy + crossSize);
+                            }
+                        }
+                        ctx.strokeStyle = isDay ? 'rgba(71, 85, 105, 0.28)' : 'rgba(56, 189, 248, 0.28)';
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
                     }
                 }
-                ctx.strokeStyle = isDay ? 'rgba(71, 85, 105, 0.28)' : 'rgba(56, 189, 248, 0.28)';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
 
                 ctx.restore();
             } catch (err) {}
@@ -4668,7 +5125,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isFailed) {
                     ctx.save();
                     if (animationFxEnabled) {
-                        // 3 concentric expanding radar ripple rings
+                        // 3 concentric expanding radar ripple rings (optimized blur)
                         for (let w = 0; w < 3; w++) {
                             const wavePhase = ((now + w * 600) % 1800) / 1800;
                             const waveRadius = 40 + wavePhase * 50;
@@ -4678,8 +5135,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             ctx.strokeStyle = `rgba(239, 68, 68, ${waveAlpha})`;
                             ctx.lineWidth = 2.0 * (1 - wavePhase * 0.5);
                             ctx.shadowColor = 'rgba(239, 68, 68, 0.8)';
-                            ctx.shadowBlur = 8;
+                            ctx.shadowBlur = 4;
                             ctx.stroke();
+                            ctx.shadowBlur = 0;
                         }
                         // Breathing halo core ring
                         const pulse = Math.sin(now / 180) * 4;
@@ -4688,8 +5146,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         ctx.strokeStyle = 'rgba(239, 68, 68, 0.95)';
                         ctx.lineWidth = 3.0;
                         ctx.shadowColor = 'rgba(239, 68, 68, 1.0)';
-                        ctx.shadowBlur = 14;
+                        ctx.shadowBlur = 5;
                         ctx.stroke();
+                        ctx.shadowBlur = 0;
                     } else {
                         // Static alert halo
                         ctx.beginPath();
@@ -4702,7 +5161,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (isWarning) {
                     ctx.save();
                     if (animationFxEnabled) {
-                        // 2 concentric expanding radar ripple rings
+                        // 2 concentric expanding radar ripple rings (optimized blur)
                         for (let w = 0; w < 2; w++) {
                             const wavePhase = ((now + w * 1200) % 2400) / 2400;
                             const waveRadius = 40 + wavePhase * 40;
@@ -4712,8 +5171,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             ctx.strokeStyle = `rgba(245, 158, 11, ${waveAlpha})`;
                             ctx.lineWidth = 1.8 * (1 - wavePhase * 0.4);
                             ctx.shadowColor = 'rgba(245, 158, 11, 0.8)';
-                            ctx.shadowBlur = 6;
+                            ctx.shadowBlur = 4;
                             ctx.stroke();
+                            ctx.shadowBlur = 0;
                         }
                         // Breathing halo core ring
                         const pulse = Math.sin(now / 260) * 3;
@@ -4722,8 +5182,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         ctx.strokeStyle = 'rgba(245, 158, 11, 0.9)';
                         ctx.lineWidth = 2.5;
                         ctx.shadowColor = 'rgba(245, 158, 11, 0.9)';
-                        ctx.shadowBlur = 10;
+                        ctx.shadowBlur = 5;
                         ctx.stroke();
+                        ctx.shadowBlur = 0;
                     } else {
                         // Static warning halo
                         ctx.beginPath();
@@ -4747,8 +5208,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)'; // Neon red glow
                         ctx.lineWidth = 4 + Math.sin(Date.now() / 150) * 1.5; // Pulsing glow
                         ctx.shadowColor = 'rgba(239, 68, 68, 0.9)';
-                        ctx.shadowBlur = 15;
+                        ctx.shadowBlur = 6;
                         ctx.stroke();
+                        ctx.shadowBlur = 0;
                         ctx.restore();
                     }
                 });
@@ -4809,7 +5271,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rx = estyle.rx || 0;
                 const totalMbps = estyle.totalMbps || 0;
 
-                // If trace path, draw custom neon highlight
+                // If trace path, draw custom neon highlight (optimized blur)
                 if (isTraced) {
                     ctx.save();
                     ctx.beginPath();
@@ -4818,8 +5280,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
                     ctx.lineWidth = 5;
                     ctx.shadowColor = 'rgba(239, 68, 68, 0.95)';
-                    ctx.shadowBlur = 12;
+                    ctx.shadowBlur = 6;
                     ctx.stroke();
+                    ctx.shadowBlur = 0;
                     ctx.restore();
                 } else if (totalMbps >= 75) {
                     // Magenta glow for saturated lines
@@ -4830,8 +5293,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     ctx.strokeStyle = 'rgba(217, 70, 239, 0.45)';
                     ctx.lineWidth = 6.5;
                     ctx.shadowColor = '#d946ef';
-                    ctx.shadowBlur = 12;
+                    ctx.shadowBlur = 6;
                     ctx.stroke();
+                    ctx.shadowBlur = 0;
                     ctx.restore();
                 } else if (totalMbps >= 25) {
                     // Orange glow for heavy lines
@@ -4842,8 +5306,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     ctx.strokeStyle = 'rgba(249, 115, 22, 0.35)';
                     ctx.lineWidth = 5.5;
                     ctx.shadowColor = '#f97316';
-                    ctx.shadowBlur = 8;
+                    ctx.shadowBlur = 4;
                     ctx.stroke();
+                    ctx.shadowBlur = 0;
                     ctx.restore();
                 }
 
@@ -4914,7 +5379,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.strokeStyle = estyle.color.color || '#3b82f6';
                 ctx.lineWidth = 1.3;
                 ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-                ctx.shadowBlur = 5;
+                ctx.shadowBlur = 3;
 
                 ctx.beginPath();
                 if (typeof ctx.roundRect === 'function') {
@@ -5222,10 +5687,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const datasets = activeDevices.map((d, index) => {
             const color = CHART_LINE_COLORS[index % CHART_LINE_COLORS.length];
             
-            if (!latencyHistory[d.ip]) {
-                latencyHistory[d.ip] = Array(15).fill(null);
-                timeHistory[d.ip] = Array(15).fill('');
-            }
+            ensureHistory(d.ip);
 
             return {
                 label: d.name || d.ip,
@@ -5234,7 +5696,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 borderColor: color,
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                pointRadius: 2,
+                pointRadius: getHistoryLength() > 30 ? 0 : 2,
                 pointBackgroundColor: color,
                 fill: false,
                 tension: 0.4
@@ -5252,7 +5714,7 @@ document.addEventListener('DOMContentLoaded', () => {
         topologyLatencyChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: timeHistory[activeDevices[0].ip] || Array(15).fill(''),
+                labels: timeHistory[activeDevices[0].ip] || Array(getHistoryLength()).fill(''),
                 datasets: datasets
             },
             options: {
@@ -5269,7 +5731,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     y: { 
                         display: true, 
                         min: 0, 
-                        suggestedMax: 100,
+                        grace: '15%',
                         ticks: { color: initialTickColor, font: { size: 10 } },
                         grid: { color: initialGridColor, lineWidth: 1 },
                         border: { color: initialBorderColor, width: 1 }
@@ -5318,10 +5780,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let latencySvgText = '';
             let latencyTooltipText = '';
-            if (statusData && statusData.status === "Success" && statusData.latency !== null) {
+            if (statusData && (statusData.status === "Success" || statusData.status === "Warning") && statusData.latency !== null && statusData.latency !== undefined) {
                 latencySvgText = `${statusData.latency} ms`;
                 latencyTooltipText = `\nLatency: ${statusData.latency} ms`;
-            } else if (statusData && statusData.status === "Failed") {
+            } else if (statusData && (statusData.status === "Failed" || statusData.status === "Error")) {
                 latencySvgText = 'Offline';
                 latencyTooltipText = `\nStatus: Offline`;
             }
@@ -5436,8 +5898,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 isLinkMode = true;
                 networkInstance.addEdgeMode();
                 topoLinkBtn.classList.add('link-active');
+                topoLinkBtn.textContent = '🔗 リンク追加中（もう一度押すと終了）';
                 const modeText = document.getElementById('topo-mode-text');
                 if (modeText) {
+                    modeText.classList.remove('hidden');
                     modeText.style.display = 'inline';
                     modeText.innerHTML = '接続作成モード: ON <span style="font-size:0.75rem;">⚡ 送信元から送信先へドラッグしてください</span>';
                     modeText.style.color = 'var(--warning)';
@@ -5457,8 +5921,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 deactivateLinkMode();
                 isUnlinkMode = true;
                 topoUnlinkBtn.classList.add('unlink-active');
+                topoUnlinkBtn.textContent = '✖ リンク削除中（もう一度押すと終了）';
                 const modeText = document.getElementById('topo-mode-text');
                 if (modeText) {
+                    modeText.classList.remove('hidden');
                     modeText.style.display = 'inline';
                     modeText.innerHTML = '接続解除モード: ON <span style="font-size:0.75rem;">❌ 解除したい機器または接続線をクリックしてください</span>';
                     modeText.style.color = 'var(--error)';
@@ -5917,6 +6383,14 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(mtrPollInterval);
             mtrPollInterval = null;
         }
+        if (historyLatencyChart) {
+            try { historyLatencyChart.destroy(); } catch (e) {}
+            historyLatencyChart = null;
+        }
+        if (historyTrafficChart) {
+            try { historyTrafficChart.destroy(); } catch (e) {}
+            historyTrafficChart = null;
+        }
         currentSnmpIp = null;
     }
 
@@ -6037,13 +6511,25 @@ document.addEventListener('DOMContentLoaded', () => {
         // Start real-time polling every 3 seconds
         if (snmpPollInterval) clearInterval(snmpPollInterval);
         snmpPollInterval = setInterval(async () => {
-            if (currentSnmpIp === device.ip) {
+            // 前回の取得 (全インターフェース・経路表の走査で数秒〜数十秒かかる) が終わるまで次を送らない
+            // 重なるとサーバーの作業スレッドを占有し、機器にも問い合わせが殺到して取得失敗の原因になる
+            if (currentSnmpIp === device.ip && !snmpFetchInFlight) {
                 await fetchSnmpDetails(device, true);
             }
         }, 3000);
     }
 
+    let snmpFetchInFlight = false;
     async function fetchSnmpDetails(device, isQuiet) {
+        snmpFetchInFlight = true;
+        try {
+            return await fetchSnmpDetailsInner(device, isQuiet);
+        } finally {
+            snmpFetchInFlight = false;
+        }
+    }
+
+    async function fetchSnmpDetailsInner(device, isQuiet) {
         if (!isQuiet) {
             document.getElementById('snmp-loading').classList.remove('hidden');
             document.getElementById('snmp-error').classList.add('hidden');
@@ -6067,7 +6553,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('snmp-sysName').textContent = getSnmpValue(data.sysName, device.name || 'N/A');
             document.getElementById('snmp-ip').textContent = device.ip;
             document.getElementById('snmp-sysUpTime').textContent = getSnmpValue(data.sysUpTime, 'N/A');
-            document.getElementById('snmp-sysDescr').textContent = getSnmpValue(data.sysDescr, 'N/A');
+            // SNMP取得失敗時はサーバーが返す原因 (snmpError) を表示する
+            document.getElementById('snmp-sysDescr').textContent = data.snmpError ? `⚠ ${data.snmpError}` : getSnmpValue(data.sysDescr, 'N/A');
 
             // CPU Progress
             const rawCpu = getSnmpValue(data.cpu, 'N/A');
@@ -6147,12 +6634,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     const statusBadge = `<span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:600; background:${badgeBg}; color:${badgeColor}; border:1px solid ${badgeBorder};"><span style="width:6px; height:6px; border-radius:50%; background:${dotBg};"></span>${operStr} / ${adminStr}</span>`;
                     
-                    // Errors and Discards (from syncHash.InterfaceErrors)
-                    const ipErrors = statusData._iperfErrors ? statusData._iperfErrors[currentSnmpIp] : null; // Wait, I should use statusData._errors or similar
-                    // Actually, let's just get it from the 'data.interfaces' if we were to augment it on server
-                    // But in Server.ps1 I put it in $syncHash.InterfaceErrors.
-                    // Let's assume I will augment the API response to include these details per interface.
-                    
+                    // Errors and Discards (サーバーが data.interfaces の各要素に付与済み)
+                    // ※ 以前ここで未定義の statusData を参照しており、インターフェースが1つでもあると
+                    //   ReferenceError で SNMP詳細画面の描画全体が失敗していた
                     const inErr = getSnmpValue(iface.inErrors, '0');
                     const outErr = getSnmpValue(iface.outErrors, '0');
                     const inDisc = getSnmpValue(iface.inDiscards, '0');
@@ -7338,9 +7822,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 6. Update SNMP Modal Opening with Manual Link and Backup
+    // 6. Update SNMP Modal Opening with Manual Link, Backup, and Remote Control (Milestone 2)
     const originalOpenSnmpDetailsModal = openSnmpDetailsModal;
     openSnmpDetailsModal = async function(device) {
+        if (typeof device === 'string') {
+            const found = devices.find(d => d.ip === device);
+            device = found || { ip: device, name: device };
+        }
         if (originalOpenSnmpDetailsModal) await originalOpenSnmpDetailsModal(device);
         
         // Populate manual and location tab
@@ -7364,10 +7852,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Load backup list
         loadConfigBackupList(device.ip);
+
+        // Milestone 2: Setup Remote Tab for Device
+        setupRemoteTabForDevice(device);
+
+        // Milestone 2: Setup Device Logs Tab for Device
+        setupDeviceLogTabForDevice(device);
     };
+    window.openSnmpDetailsModal = openSnmpDetailsModal;
 
     // 7. Helper: Render simple mode memo badge into device cards
-    const originalRenderDeviceCard = renderDeviceCard;
+    const originalRenderDeviceCard = typeof renderDeviceCard !== 'undefined' ? renderDeviceCard : null;
     if (typeof originalRenderDeviceCard === 'function') {
         renderDeviceCard = function(device) {
             const card = originalRenderDeviceCard(device);
@@ -7383,5 +7878,909 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return card;
         };
+    }
+
+    // =========================================================================
+    // 8. Milestone 2: Remote Device Management & Execution Logic
+    // =========================================================================
+    const btnRemoteReboot = document.getElementById('btn-remote-reboot');
+    const remoteCmdSelect = document.getElementById('remote-cmd-select');
+    const btnRemoteExecCmd = document.getElementById('btn-remote-exec-cmd');
+    const remoteCustomCmdInput = document.getElementById('remote-custom-cmd-input');
+    const btnRemoteRunCustom = document.getElementById('btn-remote-run-custom');
+    const remoteConsoleOutput = document.getElementById('remote-console-output');
+    const btnRemoteClearConsole = document.getElementById('btn-remote-clear-console');
+    const btnRemoteCopyConsole = document.getElementById('btn-remote-copy-console');
+    const remoteExecStatusDot = document.getElementById('remote-exec-status-dot');
+    const btnGotoDeviceEdit = document.getElementById('btn-goto-device-edit');
+
+    // Double-Confirmation Modal Elements
+    const remoteConfirmModal = document.getElementById('remote-confirm-modal');
+    const remoteConfirmDeviceName = document.getElementById('remote-confirm-device-name');
+    const remoteConfirmDeviceIp = document.getElementById('remote-confirm-device-ip');
+    const remoteConfirmActionText = document.getElementById('remote-confirm-action-text');
+    const btnRemoteConfirmCancel = document.getElementById('btn-remote-confirm-cancel');
+    const btnRemoteConfirmExecute = document.getElementById('btn-remote-confirm-execute');
+    const closeRemoteConfirmBtn = document.getElementById('close-remote-confirm-btn');
+    const confirmSafetyCheckbox = document.getElementById('confirm-safety-checkbox');
+
+    let pendingRemoteExecution = null;
+
+    function openRemoteConfirmModal(device, actionText, executionFn) {
+        if (!remoteConfirmModal) {
+            if (confirm(`【二重確認】対象: ${device.name || device.ip} (${device.ip})\n実行内容: ${actionText}\n実行しますか？`)) {
+                executionFn();
+            }
+            return;
+        }
+        if (remoteConfirmDeviceName) remoteConfirmDeviceName.textContent = device.name || device.ip;
+        if (remoteConfirmDeviceIp) remoteConfirmDeviceIp.textContent = device.ip;
+        if (remoteConfirmActionText) remoteConfirmActionText.textContent = actionText;
+        if (confirmSafetyCheckbox) {
+            confirmSafetyCheckbox.checked = true;
+        }
+        if (btnRemoteConfirmExecute) {
+            btnRemoteConfirmExecute.disabled = false;
+            btnRemoteConfirmExecute.style.opacity = '1';
+            btnRemoteConfirmExecute.style.cursor = 'pointer';
+        }
+
+        pendingRemoteExecution = executionFn;
+        remoteConfirmModal.style.display = 'flex';
+        remoteConfirmModal.classList.add('active');
+    }
+
+    function closeRemoteConfirmModal() {
+        if (remoteConfirmModal) {
+            remoteConfirmModal.style.display = 'none';
+            remoteConfirmModal.classList.remove('active');
+        }
+        pendingRemoteExecution = null;
+    }
+
+    if (btnRemoteConfirmCancel) {
+        btnRemoteConfirmCancel.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeRemoteConfirmModal();
+        });
+    }
+    if (closeRemoteConfirmBtn) {
+        closeRemoteConfirmBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeRemoteConfirmModal();
+        });
+    }
+    if (remoteConfirmModal) {
+        remoteConfirmModal.addEventListener('click', (e) => {
+            if (e.target === remoteConfirmModal) {
+                closeRemoteConfirmModal();
+            }
+        });
+    }
+    if (confirmSafetyCheckbox) {
+        confirmSafetyCheckbox.addEventListener('change', () => {
+            const isChecked = confirmSafetyCheckbox.checked;
+            if (btnRemoteConfirmExecute) {
+                btnRemoteConfirmExecute.disabled = !isChecked;
+                btnRemoteConfirmExecute.style.opacity = isChecked ? '1' : '0.5';
+                btnRemoteConfirmExecute.style.cursor = isChecked ? 'pointer' : 'not-allowed';
+            }
+        });
+    }
+    if (btnRemoteConfirmExecute) {
+        btnRemoteConfirmExecute.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (confirmSafetyCheckbox && !confirmSafetyCheckbox.checked) {
+                return;
+            }
+            if (pendingRemoteExecution) {
+                const fn = pendingRemoteExecution;
+                closeRemoteConfirmModal();
+                fn();
+            }
+        });
+    }
+
+    // Clear and Copy Console buttons
+    if (btnRemoteClearConsole) {
+        btnRemoteClearConsole.addEventListener('click', () => {
+            if (remoteConsoleOutput) {
+                remoteConsoleOutput.textContent = 'ログをクリアしました。待機中...';
+            }
+        });
+    }
+    if (btnRemoteCopyConsole) {
+        btnRemoteCopyConsole.addEventListener('click', () => {
+            if (remoteConsoleOutput && navigator.clipboard) {
+                navigator.clipboard.writeText(remoteConsoleOutput.textContent);
+                showToast('info', 'コピー完了', 'コンソールログをクリップボードにコピーしました');
+            }
+        });
+    }
+
+    // Go to device edit from disabled banner
+    if (btnGotoDeviceEdit) {
+        btnGotoDeviceEdit.addEventListener('click', () => {
+            const targetIp = currentSnmpIp;
+            closeSnmpModal();
+            const manageNavBtn = document.querySelector('[data-view="view-manage"]');
+            if (manageNavBtn) manageNavBtn.click();
+            setTimeout(() => {
+                if (targetIp) {
+                    const dev = devices.find(d => d.ip === targetIp);
+                    if (dev && typeof openDeviceModal === 'function') {
+                        openDeviceModal(dev);
+                    } else {
+                        const editBtn = document.querySelector(`.edit-dev-btn[data-ip="${targetIp}"]`);
+                        if (editBtn) editBtn.click();
+                    }
+                }
+            }, 100);
+        });
+    }
+
+    // Execute Remote Command API Caller
+    async function executeRemoteActionApi(device, params) {
+        const nowStr = new Date().toLocaleTimeString();
+        const actionDesc = params.action === 'reboot'
+            ? '機器の再起動 (Reboot)'
+            : (params.customCommand ? `任意コマンド実行: ${params.customCommand}` : `プリセットコマンド実行 (ID: ${params.commandId})`);
+
+        if (remoteExecStatusDot) {
+            remoteExecStatusDot.className = 'status-dot';
+            remoteExecStatusDot.style.background = '#f59e0b';
+        }
+        if (btnRemoteReboot) btnRemoteReboot.disabled = true;
+        if (btnRemoteExecCmd) btnRemoteExecCmd.disabled = true;
+        if (btnRemoteRunCustom) btnRemoteRunCustom.disabled = true;
+
+        if (remoteConsoleOutput) {
+            remoteConsoleOutput.textContent += `\n[${nowStr}] 実行中: ${actionDesc} (タイムアウト: 15秒)...\n`;
+            remoteConsoleOutput.scrollTop = remoteConsoleOutput.scrollHeight;
+        }
+
+        try {
+            const payload = {
+                ip: device.ip,
+                action: params.action,
+                commandId: params.commandId || undefined,
+                customCommand: params.customCommand || undefined,
+                timeoutSec: 15
+            };
+
+            const res = await fetch('/api/device/remote-exec', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            const finishTime = data.timestamp || new Date().toLocaleTimeString();
+
+            if (res.ok && data.success) {
+                if (remoteExecStatusDot) {
+                    remoteExecStatusDot.className = 'status-dot success';
+                    remoteExecStatusDot.style.background = '#10b981';
+                }
+                if (remoteConsoleOutput) {
+                    remoteConsoleOutput.textContent += `[${finishTime}] ✅ 実行成功 (${data.executionTimeMs || 0}ms) - 状態: ${data.status} (終了コード: ${data.exitCode})\n`;
+                    if (data.stdout && data.stdout.trim()) {
+                        remoteConsoleOutput.textContent += `--- [標準出力 (STDOUT)] ---\n${data.stdout.trim()}\n`;
+                    }
+                    if (data.stderr && data.stderr.trim()) {
+                        remoteConsoleOutput.textContent += `--- [標準エラー (STDERR)] ---\n${data.stderr.trim()}\n`;
+                    }
+                    remoteConsoleOutput.textContent += `------------------------------------------------------\n`;
+                    remoteConsoleOutput.scrollTop = remoteConsoleOutput.scrollHeight;
+                }
+                showToast('success', 'リモート操作完了', `${device.name || device.ip} の操作が完了しました`);
+            } else {
+                if (remoteExecStatusDot) {
+                    remoteExecStatusDot.className = 'status-dot error';
+                    remoteExecStatusDot.style.background = '#ef4444';
+                }
+                if (remoteConsoleOutput) {
+                    remoteConsoleOutput.textContent += `[${finishTime}] ❌ 実行失敗 (${data.executionTimeMs || 0}ms) - 状態: ${data.status || 'FAILED'} (終了コード: ${data.exitCode !== undefined ? data.exitCode : -1})\n`;
+                    if (data.error || data.message) {
+                        remoteConsoleOutput.textContent += `エラー詳細: ${data.error || data.message}\n`;
+                    }
+                    if (data.stdout && data.stdout.trim()) {
+                        remoteConsoleOutput.textContent += `--- [標準出力 (STDOUT)] ---\n${data.stdout.trim()}\n`;
+                    }
+                    if (data.stderr && data.stderr.trim()) {
+                        remoteConsoleOutput.textContent += `--- [標準エラー (STDERR)] ---\n${data.stderr.trim()}\n`;
+                    }
+                    remoteConsoleOutput.textContent += `------------------------------------------------------\n`;
+                    remoteConsoleOutput.scrollTop = remoteConsoleOutput.scrollHeight;
+                }
+                showToast('error', 'リモート操作失敗', data.error || data.message || 'コマンド実行がエラーを返しました');
+            }
+        } catch (err) {
+            console.error('Remote execution error:', err);
+            if (remoteExecStatusDot) {
+                remoteExecStatusDot.className = 'status-dot error';
+                remoteExecStatusDot.style.background = '#ef4444';
+            }
+            if (remoteConsoleOutput) {
+                remoteConsoleOutput.textContent += `[${new Date().toLocaleTimeString()}] ❌ 通信エラー: サーバーとの通信に失敗しました (${err.message})\n------------------------------------------------------\n`;
+                remoteConsoleOutput.scrollTop = remoteConsoleOutput.scrollHeight;
+            }
+            showToast('error', '通信エラー', `サーバーとの通信に失敗しました: ${err.message}`);
+        } finally {
+            if (btnRemoteReboot) btnRemoteReboot.disabled = false;
+            if (btnRemoteExecCmd) btnRemoteExecCmd.disabled = false;
+            if (btnRemoteRunCustom) btnRemoteRunCustom.disabled = false;
+        }
+    }
+
+    // Quick Reboot click handler
+    if (btnRemoteReboot) {
+        btnRemoteReboot.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!currentSnmpIp) return;
+            const currentDev = devices.find(d => d.ip === currentSnmpIp);
+            if (!currentDev || !currentDev.remote || !currentDev.remote.enabled) {
+                showToast('warning', '警告', 'この機器はリモート管理が有効になっていません');
+                return;
+            }
+            const rebootCmdText = currentDev.remote.rebootCommand ? `コマンド: ${currentDev.remote.rebootCommand}` : 'プロトコル標準再起動';
+            openRemoteConfirmModal(currentDev, `機器の再起動 (Reboot) - ${rebootCmdText}`, () => {
+                executeRemoteActionApi(currentDev, { action: 'reboot' });
+            });
+        });
+    }
+
+    // Preset Command Execute click handler
+    if (btnRemoteExecCmd) {
+        btnRemoteExecCmd.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!currentSnmpIp) return;
+            const currentDev = devices.find(d => d.ip === currentSnmpIp);
+            if (!currentDev || !currentDev.remote || !currentDev.remote.enabled) {
+                showToast('warning', '警告', 'この機器はリモート管理が有効になっていません');
+                return;
+            }
+            const cmdId = remoteCmdSelect ? remoteCmdSelect.value : '';
+            if (!cmdId) {
+                showToast('warning', 'コマンド未選択', '実行するプリセットコマンドを選択してください');
+                return;
+            }
+            const cmdObj = (currentDev.remote.commands || []).find(c => c.id === cmdId);
+            const cmdName = cmdObj ? `${cmdObj.name} (${cmdObj.command})` : cmdId;
+            openRemoteConfirmModal(currentDev, `登録コマンド実行: ${cmdName}`, () => {
+                executeRemoteActionApi(currentDev, { action: 'command', commandId: cmdId });
+            });
+        });
+    }
+
+    // Custom One-off Command Run click handler
+    if (btnRemoteRunCustom) {
+        btnRemoteRunCustom.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!currentSnmpIp) return;
+            const currentDev = devices.find(d => d.ip === currentSnmpIp);
+            if (!currentDev || !currentDev.remote || !currentDev.remote.enabled) {
+                showToast('warning', '警告', 'この機器はリモート管理が有効になっていません');
+                return;
+            }
+            const customCmd = remoteCustomCmdInput ? remoteCustomCmdInput.value.trim() : '';
+            if (!customCmd) {
+                showToast('warning', 'コマンド未入力', '実行するコマンド文字列を入力してください');
+                return;
+            }
+            openRemoteConfirmModal(currentDev, `任意コマンド実行: ${customCmd}`, () => {
+                executeRemoteActionApi(currentDev, { action: 'command', customCommand: customCmd });
+            });
+        });
+    }
+
+    // Populate Remote Tab in SNMP Modal
+    function setupRemoteTabForDevice(device) {
+        const disabledBanner = document.getElementById('remote-disabled-banner');
+        const activePanel = document.getElementById('remote-active-panel');
+        const summaryName = document.getElementById('remote-summary-name');
+        const summaryIp = document.getElementById('remote-summary-ip');
+        const summaryProtocol = document.getElementById('remote-summary-protocol');
+        const summaryStatus = document.getElementById('remote-summary-status');
+        const summaryPort = document.getElementById('remote-summary-port');
+        const summaryUser = document.getElementById('remote-summary-user');
+
+        const isRemoteEnabled = !!(device.remote && device.remote.enabled);
+
+        if (!isRemoteEnabled) {
+            if (disabledBanner) disabledBanner.style.display = 'block';
+            if (activePanel) activePanel.style.display = 'none';
+            return;
+        }
+
+        if (disabledBanner) disabledBanner.style.display = 'none';
+        if (activePanel) activePanel.style.display = 'flex';
+
+        if (summaryName) summaryName.textContent = device.name || device.ip;
+        if (summaryIp) summaryIp.textContent = device.ip;
+        if (summaryProtocol) summaryProtocol.textContent = (device.remote.protocol || 'ssh').toUpperCase();
+        if (summaryStatus) summaryStatus.textContent = '有効 (Active)';
+        if (summaryPort) summaryPort.textContent = device.remote.port || (device.remote.protocol === 'winrm' ? 5985 : 22);
+        if (summaryUser) summaryUser.textContent = device.remote.user || '(未指定)';
+
+        // Populate preset commands dropdown
+        if (remoteCmdSelect) {
+            remoteCmdSelect.innerHTML = '';
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = '-- 実行するコマンドを選択してください --';
+            remoteCmdSelect.appendChild(defaultOpt);
+
+            const commands = device.remote.commands || [];
+            if (commands.length > 0) {
+                commands.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = `${c.name || 'コマンド'} (${c.command})`;
+                    remoteCmdSelect.appendChild(opt);
+                });
+            } else {
+                const emptyOpt = document.createElement('option');
+                emptyOpt.value = '';
+                emptyOpt.disabled = true;
+                emptyOpt.textContent = '(登録されたカスタムコマンドはありません)';
+                remoteCmdSelect.appendChild(emptyOpt);
+            }
+        }
+
+        // Initialize console message
+        if (remoteConsoleOutput) {
+            remoteConsoleOutput.textContent = `[待機中] 対象機器: ${device.name || device.ip} (${device.ip}) - コマンドを選択または再起動ボタンを押してください。`;
+        }
+        if (remoteExecStatusDot) {
+            remoteExecStatusDot.className = 'status-dot';
+            remoteExecStatusDot.style.background = '#94a3b8';
+        }
+    }
+
+    // =========================================================================
+    // 9. Milestone 2: Device Log Retrieval & Console Viewer Logic
+    // =========================================================================
+    const DEVICE_LOG_PRESETS = [
+        { id: "cisco_show_logging", name: "Cisco / ネットワーク機器: show logging", command: "show logging" },
+        { id: "yamaha_show_log", name: "Yamaha ルーター: show log", command: "show log" },
+        { id: "linux_journalctl", name: "Linux: journalctl (直近200行)", command: "journalctl -n 200 --no-pager" },
+        { id: "linux_dmesg", name: "Linux: カーネルメッセージ (dmesg)", command: "dmesg -T | tail -n 200" },
+        { id: "linux_syslog", name: "Linux: システムログ (/var/log/syslog)", command: "tail -n 200 /var/log/syslog" },
+        { id: "windows_winevent_sys", name: "Windows: システムイベントログ (直近100件)", command: "Get-WinEvent -LogName System -MaxEvents 100 | Format-Table TimeCreated, Id, LevelDisplayName, Message -AutoSize | Out-String -Width 4096" },
+        { id: "windows_winevent_app", name: "Windows: アプリケーションイベントログ (直近100件)", command: "Get-WinEvent -LogName Application -MaxEvents 100 | Format-Table TimeCreated, Id, LevelDisplayName, Message -AutoSize | Out-String -Width 4096" },
+        { id: "custom", name: "カスタムコマンド入力", command: "" }
+    ];
+
+    const deviceLogDisabledBanner = document.getElementById('device-log-disabled-banner');
+    const deviceLogActivePanel = document.getElementById('device-log-active-panel');
+    const btnGotoDeviceEditFromLogs = document.getElementById('btn-goto-device-edit-from-logs');
+    const deviceLogProtocolIcon = document.getElementById('device-log-protocol-icon');
+    const deviceLogSummaryName = document.getElementById('device-log-summary-name');
+    const deviceLogSummaryIp = document.getElementById('device-log-summary-ip');
+    const deviceLogSummaryProtocol = document.getElementById('device-log-summary-protocol');
+    const deviceLogSummaryStatus = document.getElementById('device-log-summary-status');
+    const deviceLogSummaryPort = document.getElementById('device-log-summary-port');
+    const deviceLogSummaryUser = document.getElementById('device-log-summary-user');
+
+    const deviceLogPresetSelect = document.getElementById('device-log-preset-select');
+    const deviceLogCustomCmd = document.getElementById('device-log-custom-cmd');
+    const deviceLogTimeout = document.getElementById('device-log-timeout');
+    const deviceLogFetchBtn = document.getElementById('device-log-fetch-btn');
+    const deviceLogFetchSpinner = document.getElementById('device-log-fetch-spinner');
+    const deviceLogFetchBtnText = document.getElementById('device-log-fetch-btn-text');
+    const deviceLogFetchBtnIcon = document.getElementById('device-log-fetch-btn-icon');
+
+    const deviceLogStatusDot = document.getElementById('device-log-status-dot');
+    const deviceLogMetaInfo = document.getElementById('device-log-meta-info');
+    const deviceLogConsole = document.getElementById('device-log-console');
+    const deviceLogSearchInput = document.getElementById('device-log-search-input');
+    const deviceLogSearchCount = document.getElementById('device-log-search-count');
+    const deviceLogFilterMatchOnly = document.getElementById('device-log-filter-match-only');
+    const deviceLogClearBtn = document.getElementById('device-log-clear-btn');
+    const deviceLogCopyBtn = document.getElementById('device-log-copy-btn');
+    const deviceLogDownloadBtn = document.getElementById('device-log-download-btn');
+
+    const deviceLogHistoryRefreshBtn = document.getElementById('device-log-history-refresh-btn');
+    const deviceLogHistoryList = document.getElementById('device-log-history-list');
+
+    let currentDeviceLogRawText = '';
+    let currentDeviceLogTimestamp = '';
+    let currentDeviceLogIp = '';
+    let isFetchingDeviceLog = false;
+
+    // Helper: format bytes for log size
+    function formatLogBytes(bytes) {
+        if (!bytes || bytes <= 0) return '0 B';
+        if (bytes >= 1048576) return (bytes / 1048576).toFixed(2) + ' MB';
+        if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return bytes + ' B';
+    }
+
+    // Populate Device Logs Tab in SNMP Modal
+    function setupDeviceLogTabForDevice(device) {
+        if (!device) return;
+        currentDeviceLogIp = device.ip;
+
+        const isRemoteEnabled = !!(device.remote && device.remote.enabled);
+
+        if (!isRemoteEnabled) {
+            if (deviceLogDisabledBanner) deviceLogDisabledBanner.style.display = 'block';
+            if (deviceLogActivePanel) deviceLogActivePanel.style.display = 'none';
+            return;
+        }
+
+        if (deviceLogDisabledBanner) deviceLogDisabledBanner.style.display = 'none';
+        if (deviceLogActivePanel) deviceLogActivePanel.style.display = 'flex';
+
+        const proto = ((device.remote && device.remote.protocol) || 'ssh').toLowerCase();
+
+        if (deviceLogSummaryName) deviceLogSummaryName.textContent = device.name || device.ip;
+        if (deviceLogSummaryIp) deviceLogSummaryIp.textContent = device.ip;
+        if (deviceLogSummaryProtocol) deviceLogSummaryProtocol.textContent = proto.toUpperCase();
+        if (deviceLogSummaryStatus) deviceLogSummaryStatus.textContent = '有効 (Active)';
+        if (deviceLogSummaryPort) deviceLogSummaryPort.textContent = (device.remote && device.remote.port) || (proto === 'winrm' ? 5985 : 22);
+        if (deviceLogSummaryUser) deviceLogSummaryUser.textContent = (device.remote && device.remote.user) || '(未指定)';
+
+        if (deviceLogProtocolIcon) {
+            deviceLogProtocolIcon.textContent = proto === 'winrm' ? '🖥️' : (proto === 'custom' ? '🛠️' : '⚡');
+        }
+
+        // Set default preset based on protocol / device characteristics
+        if (deviceLogPresetSelect) {
+            let defaultPresetId = 'cisco_show_logging';
+            if (proto === 'winrm') {
+                defaultPresetId = 'windows_winevent_sys';
+            } else {
+                const nameLower = (device.name || '').toLowerCase();
+                if (nameLower.includes('yamaha') || nameLower.includes('rtx')) {
+                    defaultPresetId = 'yamaha_show_log';
+                } else if (nameLower.includes('linux') || nameLower.includes('ubuntu') || nameLower.includes('debian') || nameLower.includes('centos')) {
+                    defaultPresetId = 'linux_journalctl';
+                }
+            }
+            deviceLogPresetSelect.value = defaultPresetId;
+            const matched = DEVICE_LOG_PRESETS.find(p => p.id === defaultPresetId);
+            if (deviceLogCustomCmd) {
+                deviceLogCustomCmd.value = matched ? matched.command : 'show logging';
+            }
+        }
+
+        // Initialize status and console if empty or changed target
+        if (deviceLogStatusDot) {
+            deviceLogStatusDot.className = 'status-dot';
+            deviceLogStatusDot.style.background = '#94a3b8';
+        }
+
+        // Reset console for this device if not currently loaded
+        if (!currentDeviceLogRawText || currentDeviceLogIp !== device.ip) {
+            currentDeviceLogRawText = '';
+            currentDeviceLogTimestamp = '';
+            if (deviceLogConsole) {
+                deviceLogConsole.textContent = `待機中... 対象機器: ${device.name || device.ip} (${device.ip})\n「今すぐログを取得」ボタンを押すと、機器から取得したログがここに表示されます。`;
+            }
+            if (deviceLogMetaInfo) deviceLogMetaInfo.textContent = '';
+            if (deviceLogSearchCount) deviceLogSearchCount.textContent = '';
+        }
+
+        // Load historical logs
+        loadDeviceLogHistory(device.ip);
+    }
+
+    // Go to device edit from logs banner
+    if (btnGotoDeviceEditFromLogs) {
+        btnGotoDeviceEditFromLogs.addEventListener('click', () => {
+            const targetIp = currentDeviceLogIp || currentSnmpIp;
+            closeSnmpModal();
+            const manageNavBtn = document.querySelector('[data-view="view-manage"]');
+            if (manageNavBtn) manageNavBtn.click();
+            setTimeout(() => {
+                if (targetIp) {
+                    const dev = devices.find(d => d.ip === targetIp);
+                    if (dev && typeof openDeviceModal === 'function') {
+                        openDeviceModal(dev);
+                    } else {
+                        const editBtn = document.querySelector(`.edit-dev-btn[data-ip="${targetIp}"]`);
+                        if (editBtn) editBtn.click();
+                    }
+                }
+            }, 100);
+        });
+    }
+
+    // Preset selection change listener
+    if (deviceLogPresetSelect) {
+        deviceLogPresetSelect.addEventListener('change', () => {
+            const presetId = deviceLogPresetSelect.value;
+            const preset = DEVICE_LOG_PRESETS.find(p => p.id === presetId);
+            if (preset && preset.id !== 'custom') {
+                if (deviceLogCustomCmd) {
+                    deviceLogCustomCmd.value = preset.command;
+                }
+            }
+        });
+    }
+
+    // Custom command input change listener
+    if (deviceLogCustomCmd) {
+        deviceLogCustomCmd.addEventListener('input', () => {
+            const val = deviceLogCustomCmd.value.trim();
+            const matched = DEVICE_LOG_PRESETS.find(p => p.id !== 'custom' && p.command.trim() === val);
+            if (matched) {
+                if (deviceLogPresetSelect) deviceLogPresetSelect.value = matched.id;
+            } else {
+                if (deviceLogPresetSelect) deviceLogPresetSelect.value = 'custom';
+            }
+        });
+    }
+
+    // Render Monospace Console with safe keyword search & match highlight
+    function renderDeviceLogConsole() {
+        if (!deviceLogConsole) return;
+        if (!currentDeviceLogRawText) {
+            deviceLogConsole.textContent = '待機中... 「今すぐログを取得」ボタンを押すと、対象機器から取得したログがここに表示されます。';
+            if (deviceLogSearchCount) deviceLogSearchCount.textContent = '';
+            return;
+        }
+
+        const searchQuery = deviceLogSearchInput ? deviceLogSearchInput.value.trim() : '';
+        const filterMatchOnly = deviceLogFilterMatchOnly ? deviceLogFilterMatchOnly.checked : false;
+
+        const rawLines = currentDeviceLogRawText.split(/\r?\n/);
+        let matchedLinesCount = 0;
+        let totalMatches = 0;
+
+        if (!searchQuery) {
+            // No search query: render all lines safely escaped
+            deviceLogConsole.innerHTML = rawLines.map(line => escapeHTML(line)).join('\n');
+            if (deviceLogSearchCount) {
+                deviceLogSearchCount.textContent = `${rawLines.length} 行`;
+            }
+            return;
+        }
+
+        // Search query active: prepare safe regex for match detection
+        const safeQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const reg = new RegExp(`(${safeQuery})`, 'gi');
+
+        // Escaped query for matching against escaped HTML line
+        const escapedQuery = escapeHTML(searchQuery).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedReg = new RegExp(`(${escapedQuery})`, 'gi');
+
+        const filteredLines = [];
+        for (let i = 0; i < rawLines.length; i++) {
+            const line = rawLines[i];
+            const lineMatches = line.match(reg);
+            if (lineMatches && lineMatches.length > 0) {
+                matchedLinesCount++;
+                totalMatches += lineMatches.length;
+                // Escape line content FIRST to prevent XSS
+                const safeLine = escapeHTML(line);
+                // Inject <mark> highlights into escaped content
+                filteredLines.push(safeLine.replace(escapedReg, '<mark class="log-search-match">$1</mark>'));
+            } else if (!filterMatchOnly) {
+                filteredLines.push(escapeHTML(line));
+            }
+        }
+
+        if (filteredLines.length === 0) {
+            deviceLogConsole.innerHTML = '<span style="color:var(--text-muted);">(一致する行がありません)</span>';
+        } else {
+            deviceLogConsole.innerHTML = filteredLines.join('\n');
+        }
+
+        if (deviceLogSearchCount) {
+            deviceLogSearchCount.textContent = `${totalMatches} 件一致 (${matchedLinesCount} 行)`;
+        }
+    }
+
+    // Keyword Search and Match-only filter input listeners
+    if (deviceLogSearchInput) {
+        deviceLogSearchInput.addEventListener('input', () => {
+            renderDeviceLogConsole();
+        });
+    }
+    if (deviceLogFilterMatchOnly) {
+        deviceLogFilterMatchOnly.addEventListener('change', () => {
+            renderDeviceLogConsole();
+        });
+    }
+
+    // Clear Console Button
+    if (deviceLogClearBtn) {
+        deviceLogClearBtn.addEventListener('click', () => {
+            currentDeviceLogRawText = '';
+            currentDeviceLogTimestamp = '';
+            if (deviceLogConsole) {
+                deviceLogConsole.textContent = 'ログをクリアしました。待機中...';
+            }
+            if (deviceLogMetaInfo) deviceLogMetaInfo.textContent = '';
+            if (deviceLogSearchCount) deviceLogSearchCount.textContent = '';
+            if (deviceLogStatusDot) {
+                deviceLogStatusDot.className = 'status-dot';
+                deviceLogStatusDot.style.background = '#94a3b8';
+            }
+        });
+    }
+
+    // Copy Console Button
+    if (deviceLogCopyBtn) {
+        deviceLogCopyBtn.addEventListener('click', () => {
+            const textToCopy = currentDeviceLogRawText || (deviceLogConsole ? deviceLogConsole.textContent : '');
+            if (!textToCopy || !textToCopy.trim()) {
+                showToast('warning', 'ログなし', 'コピーするログデータがありません');
+                return;
+            }
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(textToCopy).then(() => {
+                    showToast('info', 'コピー完了', 'ログテキストをクリップボードにコピーしました');
+                }).catch(err => {
+                    console.error('Copy failed:', err);
+                    showToast('warning', 'コピー失敗', 'クリップボードへのアクセスが拒否されました');
+                });
+            } else {
+                showToast('warning', '未対応', 'お使いのブラウザはクリップボード操作に対応していません');
+            }
+        });
+    }
+
+    // Download Console Log as Client-Side Blob (.log / .txt)
+    if (deviceLogDownloadBtn) {
+        deviceLogDownloadBtn.addEventListener('click', () => {
+            const blobContent = currentDeviceLogRawText || (deviceLogConsole ? deviceLogConsole.textContent : '');
+            if (!blobContent || !blobContent.trim()) {
+                showToast('warning', 'ログなし', '保存するログデータがありません');
+                return;
+            }
+
+            try {
+                const blob = new Blob([blobContent], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const safeIp = (currentDeviceLogIp || 'device').replace(/[:.]/g, '_');
+                const tsStr = (currentDeviceLogTimestamp || new Date().toISOString()).replace(/[^0-9]/g, '_').slice(0, 15);
+                a.href = url;
+                a.download = `${safeIp}_${tsStr}.log`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('success', 'ダウンロード開始', 'ログファイルを保存しました');
+            } catch (err) {
+                console.error('Blob download error:', err);
+                showToast('error', '保存エラー', `ログのダウンロードに失敗しました: ${err.message}`);
+            }
+        });
+    }
+
+    // Fetch Log Execution Button Click Listener
+    if (deviceLogFetchBtn) {
+        deviceLogFetchBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (isFetchingDeviceLog) return;
+
+            const targetIp = currentDeviceLogIp || currentSnmpIp;
+            if (!targetIp) {
+                showToast('warning', '対象未選択', '機器が選択されていません');
+                return;
+            }
+
+            const currentDev = devices.find(d => d.ip === targetIp);
+            if (!currentDev || !currentDev.remote || !currentDev.remote.enabled) {
+                showToast('warning', '警告', 'この機器はリモート管理が有効になっていません');
+                return;
+            }
+
+            const presetId = deviceLogPresetSelect ? deviceLogPresetSelect.value : 'custom';
+            const customCmd = deviceLogCustomCmd ? deviceLogCustomCmd.value.trim() : '';
+            if (!customCmd && presetId === 'custom') {
+                showToast('warning', 'コマンド未入力', '実行するログ取得コマンドを入力してください');
+                return;
+            }
+
+            const timeoutSec = deviceLogTimeout ? (parseInt(deviceLogTimeout.value, 10) || 30) : 30;
+
+            // UI state: fetching
+            isFetchingDeviceLog = true;
+            if (deviceLogFetchBtn) deviceLogFetchBtn.disabled = true;
+            if (deviceLogFetchSpinner) deviceLogFetchSpinner.classList.remove('hidden');
+            if (deviceLogFetchBtnText) deviceLogFetchBtnText.textContent = 'ログ取得中...';
+            if (deviceLogStatusDot) {
+                deviceLogStatusDot.className = 'status-dot';
+                deviceLogStatusDot.style.background = '#f59e0b';
+            }
+
+            const startTime = Date.now();
+            const nowStr = new Date().toLocaleTimeString();
+
+            if (deviceLogConsole) {
+                deviceLogConsole.textContent = `[${nowStr}] 🚀 ログ取得を開始しました (コマンド: "${customCmd || presetId}", タイムアウト: ${timeoutSec}秒)...\n通信中...`;
+            }
+
+            try {
+                const res = await fetch('/api/device/fetch-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ip: targetIp,
+                        presetId: presetId,
+                        customCommand: customCmd,
+                        timeoutSec: timeoutSec
+                    })
+                });
+
+                const data = await res.json();
+                const duration = data.durationMs || (Date.now() - startTime);
+
+                if (res.ok && data.success) {
+                    if (deviceLogStatusDot) {
+                        deviceLogStatusDot.className = 'status-dot success';
+                        deviceLogStatusDot.style.background = '#10b981';
+                    }
+                    currentDeviceLogRawText = data.stdout || '';
+                    currentDeviceLogTimestamp = data.timestamp || new Date().toISOString();
+
+                    if (deviceLogMetaInfo) {
+                        const sizeStr = formatLogBytes(data.sizeBytes);
+                        deviceLogMetaInfo.textContent = `所要時間: ${duration}ms | 行数: ${data.lineCount}行 | サイズ: ${sizeStr}${data.truncated ? ' (1MB超過のため表示切詰)' : ''}`;
+                    }
+
+                    renderDeviceLogConsole();
+                    if (deviceLogConsole) {
+                        deviceLogConsole.scrollTop = deviceLogConsole.scrollHeight;
+                    }
+
+                    showToast('success', 'ログ取得成功', `${currentDev.name || targetIp} から ${data.lineCount} 行のログを取得しました`);
+
+                    // Refresh history list
+                    loadDeviceLogHistory(targetIp);
+                } else {
+                    if (deviceLogStatusDot) {
+                        deviceLogStatusDot.className = 'status-dot error';
+                        deviceLogStatusDot.style.background = '#ef4444';
+                    }
+                    const errMsg = data.error || (data.status === 'TIMEOUT' ? `タイムアウト (${timeoutSec}秒) を超過しました` : 'ログ取得に失敗しました');
+
+                    if (data.stdout && data.stdout.trim()) {
+                        currentDeviceLogRawText = data.stdout;
+                        currentDeviceLogTimestamp = data.timestamp || new Date().toISOString();
+                        renderDeviceLogConsole();
+                    } else if (deviceLogConsole) {
+                        deviceLogConsole.textContent = `[${nowStr}] ❌ ログ取得失敗 (${duration}ms)\nステータス: ${data.status || 'ERROR'}\nエラー詳細: ${errMsg}\n${data.stderr ? `\n--- [標準エラー] ---\n${data.stderr}` : ''}`;
+                    }
+
+                    if (deviceLogMetaInfo) {
+                        deviceLogMetaInfo.textContent = `エラー: ${data.status || 'FAILED'} (${duration}ms)`;
+                    }
+
+                    showToast('error', 'ログ取得失敗', errMsg);
+                }
+            } catch (err) {
+                console.error('Fetch log request failed:', err);
+                if (deviceLogStatusDot) {
+                    deviceLogStatusDot.className = 'status-dot error';
+                    deviceLogStatusDot.style.background = '#ef4444';
+                }
+                if (deviceLogConsole) {
+                    deviceLogConsole.textContent = `[${nowStr}] ❌ 通信エラー: サーバーとの通信に失敗しました (${err.message})`;
+                }
+                showToast('error', '通信エラー', `サーバーとの通信に失敗しました: ${err.message}`);
+            } finally {
+                isFetchingDeviceLog = false;
+                if (deviceLogFetchBtn) deviceLogFetchBtn.disabled = false;
+                if (deviceLogFetchSpinner) deviceLogFetchSpinner.classList.add('hidden');
+                if (deviceLogFetchBtnText) deviceLogFetchBtnText.textContent = '今すぐログを取得';
+            }
+        });
+    }
+
+    // Historical Logs Loader
+    async function loadDeviceLogHistory(ip) {
+        if (!deviceLogHistoryList) return;
+        if (!ip) {
+            deviceLogHistoryList.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:12px;">機器が選択されていません</div>';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/device/logs?ip=${encodeURIComponent(ip)}`);
+            if (!res.ok) {
+                deviceLogHistoryList.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:12px;">履歴の取得に失敗しました</div>';
+                return;
+            }
+            const data = await res.json();
+            const logs = data.logs || [];
+
+            if (logs.length === 0) {
+                deviceLogHistoryList.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:12px;">保存された過去ログはありません</div>';
+                return;
+            }
+
+            let html = '';
+            logs.forEach(log => {
+                const safeFileName = escapeHTML(log.fileName);
+                const safeTimestamp = escapeHTML(log.timestamp || '-');
+                const safeSize = escapeHTML(log.sizeFormatted || formatLogBytes(log.sizeBytes));
+                const lineCount = log.lineCount !== undefined ? log.lineCount : '-';
+
+                html += `
+                    <div class="device-log-history-item">
+                        <div class="device-log-history-meta">
+                            <div class="device-log-history-title">
+                                <span>📄</span>
+                                <span style="font-family:'Cascadia Code', Consolas, monospace; font-size:0.8rem;">${safeFileName}</span>
+                            </div>
+                            <div class="device-log-history-sub">
+                                <span>取得日時: ${safeTimestamp}</span> | 
+                                <span>サイズ: ${safeSize}</span> | 
+                                <span>行数: ${lineCount}行</span>
+                            </div>
+                        </div>
+                        <div class="device-log-history-actions">
+                            <button class="btn secondary-btn small btn-preview-log" data-filename="${safeFileName}" type="button" title="このログをビューワーに読み込み">👁️ プレビュー</button>
+                            <a class="btn secondary-btn small" href="/api/device/log-download?file=${encodeURIComponent(log.fileName)}" download="${safeFileName}" title="ファイルをダウンロード">💾 ダウンロード</a>
+                        </div>
+                    </div>
+                `;
+            });
+            deviceLogHistoryList.innerHTML = html;
+
+            // Wire up Preview buttons
+            const previewBtns = deviceLogHistoryList.querySelectorAll('.btn-preview-log');
+            previewBtns.forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const fileName = btn.getAttribute('data-filename');
+                    if (!fileName) return;
+
+                    btn.disabled = true;
+                    const origText = btn.textContent;
+                    btn.textContent = '読込中...';
+
+                    try {
+                        const dlRes = await fetch(`/api/device/log-download?file=${encodeURIComponent(fileName)}`);
+                        if (dlRes.ok) {
+                            const text = await dlRes.text();
+                            currentDeviceLogRawText = text;
+                            currentDeviceLogTimestamp = fileName;
+                            if (deviceLogMetaInfo) {
+                                deviceLogMetaInfo.textContent = `プレビュー読込: ${fileName} (${formatLogBytes(text.length)})`;
+                            }
+                            if (deviceLogStatusDot) {
+                                deviceLogStatusDot.className = 'status-dot success';
+                                deviceLogStatusDot.style.background = '#10b981';
+                            }
+                            renderDeviceLogConsole();
+                            if (deviceLogConsole) {
+                                deviceLogConsole.scrollTop = 0;
+                                deviceLogConsole.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            }
+                            showToast('info', 'プレビュー表示', `${fileName} を読み込みました`);
+                        } else {
+                            showToast('error', '読込失敗', `ログファイル ${fileName} を取得できませんでした`);
+                        }
+                    } catch (err) {
+                        console.error('Log preview fetch error:', err);
+                        showToast('error', '読込エラー', err.message);
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = origText;
+                    }
+                });
+            });
+
+        } catch (err) {
+            console.error('Load device log history error:', err);
+            deviceLogHistoryList.innerHTML = `<div style="color:var(--text-muted); text-align:center; padding:12px;">履歴読み込みエラー: ${escapeHTML(err.message)}</div>`;
+        }
+    }
+
+    // Historical Logs Refresh Button
+    if (deviceLogHistoryRefreshBtn) {
+        deviceLogHistoryRefreshBtn.addEventListener('click', () => {
+            const targetIp = currentDeviceLogIp || currentSnmpIp;
+            if (targetIp) {
+                loadDeviceLogHistory(targetIp);
+                showToast('info', '更新', 'ログ履歴を再読み込みしました');
+            }
+        });
     }
 });

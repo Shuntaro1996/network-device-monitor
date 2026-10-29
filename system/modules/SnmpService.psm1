@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Common モジュール（秘密情報復号など）をインポート
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -ErrorAction SilentlyContinue
+Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
 
 # ── 1. SharpSnmpLib の初期化 ────────────────────────────────────────────────
 
@@ -34,10 +34,20 @@ function Check-WebAndSslEndpoint {
     
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
+        if (-not ("TrustAllCertsPolicy" -as [type])) {
+            Add-Type -TypeDefinition @"
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+public static class TrustAllCertsPolicy {
+    public static RemoteCertificateValidationCallback Callback = delegate(object s, X509Certificate c, X509Chain ch, SslPolicyErrors e) { return true; };
+}
+"@ -ErrorAction SilentlyContinue
+        }
         $req = [System.Net.HttpWebRequest]::Create($url)
         $req.Timeout = $timeoutMs
         $req.AllowAutoRedirect = $true
-        $req.ServerCertificateValidationCallback = { $true } # 自己署名証明書も許可
+        $req.ServerCertificateValidationCallback = [TrustAllCertsPolicy]::Callback # 自己署名証明書も許可（C#デリゲートでRunspace非依存）
         $resp = $req.GetResponse()
         $sw.Stop()
         $res.Success = $true

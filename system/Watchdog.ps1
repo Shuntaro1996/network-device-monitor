@@ -3,11 +3,13 @@
 # ==============================================================================
 # 【役割】
 # 1. system/Server.ps1 を子プロセスとして起動・監視します。
-# 2. 15秒ごとに http://localhost:8081/api/health を叩き、プロセスが生きているだけでなく
+# 2. 起動直後は 200ms 間隔で http://localhost:8081/api/health の応答開始を検知し、
+#    サーバーの準備が完全に整った瞬間にブラウザを自動起動します（「接続できませんでした」を防止）。
+# 3. 稼働中は 15秒ごとに http://localhost:8081/api/health を叩き、プロセスが生きているだけでなく
 #    「内部のPing監視ループやWebサーバーが正常に応答しているか（ハングアップしていないか）」を検証します。
-# 3. 連続3回タイムアウトまたは応答停止を検知した場合、ハングアップとみなしてプロセスを強制終了（Kill）し、
+# 4. 連続3回タイムアウトまたは応答停止を検知した場合、ハングアップとみなしてプロセスを強制終了（Kill）し、
 #    3秒後に自動再起動（自己治癒・自動復旧）します。
-# 4. 正常終了（ExitCode = 0）時は、自身も安全に終了します。
+# 5. 正常終了（ExitCode = 0）時は、自身も安全に終了します。
 # ==============================================================================
 
 param(
@@ -15,12 +17,27 @@ param(
     [int]$CheckIntervalSec = 15,
     [int]$HealthTimeoutSec = 5,
     [int]$MaxConsecutiveFails = 3,
-    [int]$CircuitBreakerLimit = 5
+    [int]$CircuitBreakerLimit = 5,
+    [switch]$LaunchBrowser,
+    [switch]$RunPreflight
 )
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $serverScript = Join-Path $scriptDir "Server.ps1"
 $debugLog = Join-Path $scriptDir "debug.log"
+
+# If invoked from Start-Monitor.bat with -RunPreflight, execute BOM check and Prerequisite check in-process
+# to avoid spawning multiple separate powershell.exe processes (saves ~1.5s startup time).
+if ($RunPreflight) {
+    $bomScript = Join-Path $scriptDir "Ensure-Utf8Bom.ps1"
+    if ([System.IO.File]::Exists($bomScript)) {
+        try { & $bomScript -Quiet } catch {}
+    }
+    $prereqScript = Join-Path $scriptDir "Check-Prerequisites.ps1"
+    if ([System.IO.File]::Exists($prereqScript)) {
+        try { & $prereqScript } catch {}
+    }
+}
 
 function Write-WatchdogLog([string]$msg, [string]$color = "Cyan") {
     $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
@@ -34,6 +51,7 @@ function Write-WatchdogLog([string]$msg, [string]$color = "Cyan") {
 Write-WatchdogLog "Watchdog started (Target: http://localhost:$Port/api/health, Interval: ${CheckIntervalSec}s)" "Green"
 
 $crashCount = 0
+$browserLaunched = $false
 
 while ($true) {
     Write-WatchdogLog "Launching Server.ps1 process..." "Gray"
@@ -52,16 +70,54 @@ while ($true) {
     }
 
     $pidVal = $proc.Id
-    Write-WatchdogLog "Server.ps1 started (PID: $pidVal)" "Green"
+    Write-WatchdogLog "Server.ps1 started (PID: $pidVal). Waiting for HTTP listener readiness..." "Green"
 
-    # Startup grace period (give server 10 seconds to bind HttpListener)
-    Start-Sleep -Seconds 10
+    # Fast readiness probe (poll every 200ms up to 20s until HTTP listener responds)
+    $healthUrl = "http://localhost:$Port/api/health"
+    $readySw = [System.Diagnostics.Stopwatch]::StartNew()
+    $serverReady = $false
+    while (-not $proc.HasExited -and $readySw.Elapsed.TotalSeconds -lt 20) {
+        try {
+            $req = [System.Net.HttpWebRequest]::Create($healthUrl)
+            $req.Timeout = 1000
+            $req.Method = "GET"
+            $resp = $req.GetResponse()
+            $statusCode = [int]$resp.StatusCode
+            $resp.Close()
+            if ($statusCode -eq 200) {
+                $serverReady = $true
+                break
+            }
+        } catch {}
+        Start-Sleep -Milliseconds 200
+    }
+
+    if ($serverReady) {
+        $elapsedMs = [int]$readySw.Elapsed.TotalMilliseconds
+        Write-WatchdogLog "Server HTTP listener ready in ${elapsedMs}ms (http://localhost:$Port/)" "Green"
+        if ($LaunchBrowser -and -not $browserLaunched) {
+            Write-WatchdogLog "Opening Web UI in browser (http://localhost:$Port)..." "Cyan"
+            try {
+                Start-Process "http://localhost:$Port"
+                $browserLaunched = $true
+            } catch {}
+        }
+    }
+
+    # Wait before first periodic health check
+    for ($i = 0; $i -lt $CheckIntervalSec; $i++) {
+        if ($proc.HasExited) { break }
+        Start-Sleep -Seconds 1
+    }
 
     $consecutiveHangFails = 0
+    # 一定時間 (10分) 安定稼働したらクラッシュ回数をリセットする
+    # (リセットしないと、長期運用で散発的に起きた再起動が積算され「短時間に連続5回」の判定が誤発動する)
+    $stableResetSec = 600
+    $instanceSw = [System.Diagnostics.Stopwatch]::StartNew()
 
     # Monitoring loop for this process instance
     while (-not $proc.HasExited) {
-        $healthUrl = "http://localhost:$Port/api/health"
         $isHealthy = $false
 
         try {
@@ -89,6 +145,10 @@ while ($true) {
 
         if ($isHealthy) {
             $consecutiveHangFails = 0
+            if ($crashCount -gt 0 -and $instanceSw.Elapsed.TotalSeconds -ge $stableResetSec) {
+                Write-WatchdogLog "Server stable for $stableResetSec s. Resetting crash counter ($crashCount -> 0)." "Green"
+                $crashCount = 0
+            }
         } else {
             $consecutiveHangFails++
             Write-WatchdogLog "[WARNING] Health check probe failed ($consecutiveHangFails/$MaxConsecutiveFails) on PID $pidVal" "Yellow"
@@ -98,7 +158,7 @@ while ($true) {
                 try {
                     $proc.Kill()
                 } catch {}
-                $crashCount++
+                # クラッシュ回数は下の「Abnormal termination」処理で1回だけ数える (ここで数えると二重カウントになる)
                 break
             }
         }
@@ -113,7 +173,7 @@ while ($true) {
     # Process terminated
     $exitCode = 0
     try {
-        $proc.WaitForExit(3000)
+        $null = $proc.WaitForExit(3000)
         $exitCode = $proc.ExitCode
     } catch {}
 

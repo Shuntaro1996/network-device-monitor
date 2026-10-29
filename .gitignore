@@ -24,3 +24,11 @@ Reports/*
 __pycache__/
 *.pyc
 
+# Agents & Backups
+.agents/
+system/backups/
+tests/temp_*
+
+
+# Machine-specific BOM check cache
+system/.bom_cache

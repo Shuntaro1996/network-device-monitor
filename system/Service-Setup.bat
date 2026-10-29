@@ -1,45 +1,45 @@
 @echo off
 REM =========================================================================
-REM Service-Setup.bat - Windows ã‚µãƒ¼ãƒ“ã‚¹ç™»éŒ²ãƒ»ç®¡ç†æ”¯æ´ãƒ„ãƒ¼ãƒ«
+REM Service-Setup.bat - Windows ƒT[ƒrƒX“o˜^EŠÇ—Žx‰‡ƒc[ƒ‹
 REM =========================================================================
 setlocal
 cd /d "%~dp0.."
-chcp 65001 >nul
+chcp 932 >nul
 
 echo =========================================================
-echo   Network Device Monitor - Windows ã‚µãƒ¼ãƒ“ã‚¹ç™»éŒ²æ”¯æ´
+echo   Network Device Monitor - Windows ƒT[ƒrƒX“o˜^Žx‰‡
 echo =========================================================
 echo.
-echo ã“ã®ã‚¹ã‚¯ãƒªãƒ—ãƒˆã¯ã€Network Device Monitor ã‚’ Windows ã‚µãƒ¼ãƒ“ã‚¹ã¨ã—ã¦
-echo OSèµ·å‹•æ™‚ã«ãƒãƒƒã‚¯ã‚°ãƒ©ã‚¦ãƒ³ãƒ‰ã§è‡ªå‹•å®Ÿè¡Œã™ã‚‹ãŸã‚ã®ã‚¬ã‚¤ãƒ‰ãƒ»è¨­å®šã‚’è¡Œã„ã¾ã™ã€‚
+echo ‚±‚ÌƒXƒNƒŠƒvƒg‚ÍANetwork Device Monitor ‚ð Windows ƒT[ƒrƒX‚Æ‚µ‚Ä
+echo OS‹N“®Žž‚ÉƒoƒbƒNƒOƒ‰ƒEƒ“ƒh‚ÅŽ©“®ŽÀs‚·‚é‚½‚ß‚ÌƒKƒCƒhEÝ’è‚ðs‚¢‚Ü‚·B
 echo.
-echo [1] é€šå¸¸èµ·å‹•ï¼ˆWatchdogä»˜ããƒ»æŽ¨å¥¨ï¼‰: Start-Monitor.bat ã‚’å®Ÿè¡Œ
-echo [2] Windows ã‚¿ã‚¹ã‚¯ã‚¹ã‚±ã‚¸ãƒ¥ãƒ¼ãƒ©ã§ã®PCèµ·å‹•æ™‚è‡ªå‹•èµ·å‹•ã®ç™»éŒ²
-echo [3] Windows ã‚µãƒ¼ãƒ“ã‚¹ç™»éŒ²ï¼ˆNSSMã‚’åˆ©ç”¨ã—ãŸå®Œå…¨ãƒãƒƒã‚¯ã‚°ãƒ©ã‚¦ãƒ³ãƒ‰å¸¸é§ï¼‰
+echo [1] ’Êí‹N“®iWatchdog•t‚«E„§j: Start-Monitor.bat ‚ðŽÀs
+echo [2] Windows ƒ^ƒXƒNƒXƒPƒWƒ…[ƒ‰‚Å‚ÌPC‹N“®ŽžŽ©“®‹N“®‚Ì“o˜^
+echo [3] Windows ƒT[ƒrƒX“o˜^iNSSM‚ð—˜—p‚µ‚½Š®‘SƒoƒbƒNƒOƒ‰ƒEƒ“ƒhí’“j
 echo.
 
-set /p CHOICE="å®Ÿè¡Œã—ãŸã„ç•ªå·ã‚’é¸æŠžã—ã¦ãã ã•ã„ [1/2/3/Q]: "
+set /p CHOICE="ŽÀs‚µ‚½‚¢”Ô†‚ð‘I‘ð‚µ‚Ä‚­‚¾‚³‚¢ [1/2/3/Q]: "
 if /i "%CHOICE%"=="1" (
     start "" "Start-Monitor.bat"
     goto :EOF
 )
 if /i "%CHOICE%"=="2" (
     echo.
-    echo ã‚¿ã‚¹ã‚¯ã‚¹ã‚±ã‚¸ãƒ¥ãƒ¼ãƒ©ã«ç™»éŒ²ã—ã¾ã™ï¼ˆç®¡ç†è€…æ¨©é™ãŒå¿…è¦ï¼‰...
+    echo ƒ^ƒXƒNƒXƒPƒWƒ…[ƒ‰‚É“o˜^‚µ‚Ü‚·iŠÇ—ŽÒŒ ŒÀ‚ª•K—vj...
     schtasks /create /tn "NetworkDeviceMonitor" /tr "\"%~dp0..\Start-Monitor.bat\"" /sc onstart /ru SYSTEM /f
     if %errorlevel% equ 0 (
-        echo [OK] ã‚¿ã‚¹ã‚¯ã‚¹ã‚±ã‚¸ãƒ¥ãƒ¼ãƒ©ã«ã€ŒNetworkDeviceMonitorã€ã‚’ç™»éŒ²ã—ã¾ã—ãŸã€‚
+        echo [OK] ƒ^ƒXƒNƒXƒPƒWƒ…[ƒ‰‚ÉuNetworkDeviceMonitorv‚ð“o˜^‚µ‚Ü‚µ‚½B
     ) else (
-        echo [ERROR] ç™»éŒ²ã«å¤±æ•—ã—ã¾ã—ãŸã€‚ç®¡ç†è€…æ¨©é™ã®ã‚³ãƒžãƒ³ãƒ‰ãƒ—ãƒ­ãƒ³ãƒ—ãƒˆã§å®Ÿè¡Œã—ã¦ãã ã•ã„ã€‚
+        echo [ERROR] “o˜^‚ÉŽ¸”s‚µ‚Ü‚µ‚½BŠÇ—ŽÒŒ ŒÀ‚ÌƒRƒ}ƒ“ƒhƒvƒƒ“ƒvƒg‚ÅŽÀs‚µ‚Ä‚­‚¾‚³‚¢B
     )
     pause
     goto :EOF
 )
 if /i "%CHOICE%"=="3" (
     echo.
-    echo ã€NSSM ã«ã‚ˆã‚‹ã‚µãƒ¼ãƒ“ã‚¹ç™»éŒ²æ‰‹é †ã€‘
-    echo 1. NSSM (https://nssm.cc/) ã‚’ãƒ€ã‚¦ãƒ³ãƒ­ãƒ¼ãƒ‰ã—ã€nssm.exe ã‚’æœ¬ãƒ•ã‚©ãƒ«ãƒ€ã«é…ç½®ã—ã¾ã™ã€‚
-    echo 2. ç®¡ç†è€…ã‚³ãƒžãƒ³ãƒ‰ãƒ—ãƒ­ãƒ³ãƒ—ãƒˆã§ä»¥ä¸‹ã‚’å®Ÿè¡Œã—ã¾ã™:
+    echo yNSSM ‚É‚æ‚éƒT[ƒrƒX“o˜^Žè‡z
+    echo 1. NSSM (https://nssm.cc/) ‚ðƒ_ƒEƒ“ƒ[ƒh‚µAnssm.exe ‚ð–{ƒtƒHƒ‹ƒ_‚É”z’u‚µ‚Ü‚·B
+    echo 2. ŠÇ—ŽÒƒRƒ}ƒ“ƒhƒvƒƒ“ƒvƒg‚ÅˆÈ‰º‚ðŽÀs‚µ‚Ü‚·:
     echo      nssm install NetworkDeviceMonitor "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" "-NoProfile -ExecutionPolicy Bypass -File \"%~dp0Server.ps1\""
     echo      nssm set NetworkDeviceMonitor AppDirectory "%~dp0.."
     echo      nssm set NetworkDeviceMonitor AppRestartDelay 3000

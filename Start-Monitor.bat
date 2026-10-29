@@ -1,52 +1,38 @@
 @echo off
 REM =========================================================================
-REM „ÄêÂàùÂøÉËÄÖÂêë„Åë„ÅÆÁ∞°Âçò„Å™Ëß£Ë™¨„Äë
-REM „Åì„ÅÆ„Éï„Ç°„Ç§„É´„ÅØ„ÄÅ„Åì„ÅÆ„Äå„Éç„ÉÉ„Éà„ÉØ„Éº„ÇØÊ©üÂô®Áõ£Ë¶ñ„Ç∑„Çπ„ÉÜ„É†„Äç„Çí‰∏ÄÁô∫Ëµ∑Âãï„Åô„Çã„Åü„ÇÅ„ÅÆ„Çπ„Ç§„ÉÉ„ÉÅ„Åß„Åô„ÄÇ
+REM ÅyèâêSé“å¸ÇØÇÃä»íPÇ»âê‡Åz
+REM Ç±ÇÃÉtÉ@ÉCÉãÇÕÅAÇ±ÇÃÅuÉlÉbÉgÉèÅ[ÉNã@äÌäƒéãÉVÉXÉeÉÄÅvÇàÍî≠ãNìÆÇ∑ÇÈÇΩÇﬂÇÃÉXÉCÉbÉ`Ç≈Ç∑ÅB
 REM 
-REM „ÉÄ„Éñ„É´„ÇØ„É™„ÉÉ„ÇØ„Åô„Çã„Å®„ÄÅ‰ª•‰∏ã„ÅÆ„Åì„Å®„ÇíËá™Âãï„ÅßË°å„ÅÑ„Åæ„ÅôÔºö
-REM 1. Áõ£Ë¶ñ„Éá„Éº„Çø„ÇíÂèéÈõÜ„Åó„Åü„Çä‰øùÂ≠ò„Åó„Åü„Çä„Åô„Çã„ÄåË£èÂÅ¥„ÅÆ„Çµ„Éº„Éê„ÉºÔºàPowerShellÔºâ„Äç„ÇíËµ∑Âãï„Åó„Åæ„Åô„ÄÇ
-REM 2. ÁîªÈù¢„ÇíË°®Á§∫„Åô„Çã„Åü„ÇÅ„ÅÆ„ÄåWeb„Éñ„É©„Ç¶„Ç∂„Äç„ÇíËá™Âãï„ÅßÁ´ã„Å°‰∏ä„Åí„ÄÅÁõ£Ë¶ñÁîªÈù¢Ôºàhttp://localhost:8081Ôºâ„ÇíÈñã„Åç„Åæ„Åô„ÄÇ
+REM É_ÉuÉãÉNÉäÉbÉNÇ∑ÇÈÇ∆ÅAà»â∫ÇÃÇ±Ç∆Çé©ìÆÇ≈çsÇ¢Ç‹Ç∑ÅF
+REM 1. äƒéãÉfÅ[É^Çé˚èWÇµÇΩÇËï€ë∂ÇµÇΩÇËÇ∑ÇÈÅuó†ë§ÇÃÉTÅ[ÉoÅ[ÅiPowerShellÅjÅvÇãNìÆÇµÇ‹Ç∑ÅB
+REM 2. ÉTÅ[ÉoÅ[ÇÃãNìÆäÆóπÇämîFÇµÇΩèuä‘Ç…ÅuWebÉuÉâÉEÉUÅvÇé©ìÆÇ≈óßÇøè„Ç∞ÅAäƒéãâÊñ Åihttp://localhost:8081ÅjÇäJÇ´Ç‹Ç∑ÅB
 REM 
-REM ‚Äª Áõ£Ë¶ñ„ÇíÊ≠¢„ÇÅ„Åü„ÅÑ„Å®„Åç„ÅØ„ÄÅ„Åì„ÅÆËµ∑Âãï„Åó„ÅüÈªí„ÅÑÁîªÈù¢Ôºà„Ç≥„Éû„É≥„Éâ„Éó„É≠„É≥„Éó„ÉàÔºâ„ÅÆ‰∏≠„Åß
-REM    [Enter] „Ç≠„ÉºÔºàÊîπË°å„Ç≠„ÉºÔºâ„ÇíÊäº„Åô„Å†„Åë„ÅßÂÆâÂÖ®„Å´„Çµ„Éº„Éê„Éº„ÅåÂÅúÊ≠¢„Åó„ÄÅ„É≠„Ç∞„Åå‰øùÂ≠ò„Åï„Çå„Åæ„Åô„ÄÇ
+REM Å¶ äƒéãÇé~ÇﬂÇΩÇ¢Ç∆Ç´ÇÕÅAÇ±ÇÃãNìÆÇµÇΩçïÇ¢âÊñ ÅiÉRÉ}ÉìÉhÉvÉçÉìÉvÉgÅjÇÃíÜÇ≈
+REM    [Enter] ÉLÅ[Åiâ¸çsÉLÅ[ÅjÇâüÇ∑ÇæÇØÇ≈à¿ëSÇ…ÉTÅ[ÉoÅ[Ç™í‚é~ÇµÅAÉçÉOÇ™ï€ë∂Ç≥ÇÍÇ‹Ç∑ÅB
 REM =========================================================================
 
 setlocal
+chcp 932 >nul
 cd /d "%~dp0"
-chcp 65001 >nul
 
 echo ==============================================
 echo   Network Monitor (Single UI Version - PS)
 echo ==============================================
-
 echo.
 echo [1/2] Starting local PowerShell server on port 8081...
-
-:: Give the server a moment to start, then launch browser
-start "Launch Browser" cmd /c "timeout /t 2 >nul & start http://localhost:8081"
-
-echo [2/2] Launching Web UI...
+echo [2/2] Web UI will open automatically as soon as the server is ready.
 echo.
 echo ==============================================
-echo   Server is running! 
-echo   Your browser will open automatically.
-echo.
 echo   Press [Enter] in this window to STOP the server
 echo   and save logs to the Reports folder.
 echo ==============================================
 
-:: Automatic UTF-8 BOM check for PowerShell 5.1 compatibility
-powershell -NoProfile -ExecutionPolicy Bypass -File "system\Ensure-Utf8Bom.ps1"
-
-:: System Prerequisites & PowerShell Module Check (with auto-setup option)
-powershell -NoProfile -ExecutionPolicy Bypass -File "system\Check-Prerequisites.ps1"
-
-:: Launch server via Watchdog (monitors process survival and HTTP /api/health responsiveness)
-powershell -NoProfile -ExecutionPolicy Bypass -File "system\Watchdog.ps1"
+:: Run preflight (UTF-8 BOM check + Prerequisite check), launch Server via Watchdog, and open browser when ready
+powershell -NoProfile -ExecutionPolicy Bypass -File "system\Watchdog.ps1" -RunPreflight -LaunchBrowser
 set EXIT_CODE=%errorlevel%
 
 echo.
 echo ==============================================
-echo   [INFO] Áõ£Ë¶ñ„Ç∑„Çπ„ÉÜ„É†„ÅåÁµÇ‰∫Ü„Åó„Åæ„Åó„Åü (Exit: %EXIT_CODE%)
+echo   [INFO] äƒéãÉVÉXÉeÉÄÇ™èIóπÇµÇ‹ÇµÇΩ (Exit: %EXIT_CODE%)
 echo ==============================================
 goto :EOF

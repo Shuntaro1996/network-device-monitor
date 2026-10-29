@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Common モジュールの Unprotect-SecretString を利用可能にする
-Import-Module (Join-Path $PSScriptRoot "Common.psm1") -ErrorAction SilentlyContinue
+Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
 
 function Send-WebhookNotification {
     <#
@@ -65,11 +65,25 @@ function Send-WebhookNotification {
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($jsonPayload)
         $webReq.ContentLength = $bytes.Length
         $reqStream = $webReq.GetRequestStream()
-        $reqStream.Write($bytes, 0, $bytes.Length)
-        $reqStream.Close()
-        $webResp = $webReq.GetResponse()
-        if ($null -ne $webResp) { $webResp.Close() }
-        return $true
+        try {
+            $reqStream.Write($bytes, 0, $bytes.Length)
+        } finally {
+            $reqStream.Close()
+        }
+        $webResp = $null
+        try {
+            $webResp = $webReq.GetResponse()
+            return $true
+        } catch [System.Net.WebException] {
+            if ($_.Response) {
+                try { $_.Response.Close(); $_.Response.Dispose() } catch {}
+            }
+            return $false
+        } finally {
+            if ($null -ne $webResp) {
+                try { $webResp.Close(); $webResp.Dispose() } catch {}
+            }
+        }
     } catch {
         return $false
     }
@@ -102,7 +116,7 @@ function Send-EmailNotification {
         }
 
         $mail = New-Object System.Net.Mail.MailMessage
-        $mail.From = New-Object System.Net.Mail.MailAddress (if ($from) { $from } else { "monitor@localhost" })
+        $mail.From = New-Object System.Net.Mail.MailAddress($(if ($from) { $from } else { "monitor@localhost" }))
         foreach ($addr in ($to -split '[,;]')) {
             if ($addr.Trim()) { $mail.To.Add($addr.Trim()) }
         }

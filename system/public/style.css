@@ -567,6 +567,93 @@ body {
 .status-badge { font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; background: rgba(16,185,129,0.2); color: #4ade80; }
 
 /* =========================================================
+   Network Offline Warning Banner
+   ========================================================= */
+#network-offline-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(90deg, rgba(220, 38, 38, 0.95), rgba(185, 28, 28, 0.98), rgba(220, 38, 38, 0.95));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #ffffff;
+    padding: 10px 18px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    box-shadow: 0 4px 20px rgba(220, 38, 38, 0.45);
+    border-bottom: 2px solid rgba(254, 202, 202, 0.4);
+    animation: banner-slide-down 0.3s ease-out;
+}
+
+@keyframes banner-slide-down {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.offline-banner-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    text-align: center;
+    flex-wrap: wrap;
+}
+
+.offline-banner-icon {
+    font-size: 1.15rem;
+    animation: pulse-warn 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse-warn {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.15); opacity: 0.8; }
+}
+
+.offline-banner-text {
+    letter-spacing: 0.02em;
+}
+
+.offline-banner-retry-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: #ffffff;
+    padding: 3px 12px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: all 0.2s ease;
+}
+
+.offline-banner-retry-btn:hover {
+    background: rgba(255, 255, 255, 0.35);
+    transform: scale(1.03);
+}
+
+:root[data-theme="day"] #network-offline-banner {
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.96), rgba(220, 38, 38, 0.98), rgba(239, 68, 68, 0.96));
+    box-shadow: 0 4px 16px rgba(220, 38, 38, 0.35);
+}
+
+body.backend-offline .device-card {
+    opacity: 0.88;
+    filter: grayscale(15%);
+    transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+/* =========================================================
    Toast Notification System
    ========================================================= */
 #toast-container {
@@ -601,6 +688,7 @@ body {
 .toast-warning { border-left: 3px solid #f59e0b; }
 .toast-error   { border-left: 3px solid #ef4444; }
 .toast-info    { border-left: 3px solid #3b82f6; }
+.toast-success { border-left: 3px solid #10b981; }
 .toast-icon { font-size: 1.1rem; flex-shrink: 0; line-height: 1.4; }
 .toast-body { flex: 1; min-width: 0; }
 .toast-title { font-weight: 700; font-size: 0.85rem; color: #f1f5f9; }
@@ -773,12 +861,77 @@ body {
 }
 
 @media (max-width: 1024px) {
-    .container { flex-direction: column; padding: 1rem; gap: 1.5rem; }
-    .glass-sidebar { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; }
-    .sidebar-brand { border-bottom: none; padding-bottom: 0; margin-right: 1.5rem; }
-    .tab-navigation { flex-direction: row; width: auto; flex: 1; }
-    .sidebar-actions { border-top: none; padding-top: 0; flex-direction: row; width: 100%; margin-top: 0.5rem; }
-    .threshold-controls { flex-direction: row; flex: 1; }
+    .container {
+        flex-direction: column;
+        padding: 1rem;
+        gap: 1.5rem;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+    .glass-sidebar {
+        width: 100%;
+        position: static;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .sidebar-brand {
+        border-bottom: none;
+        padding-bottom: 0;
+        margin-right: 1.5rem;
+    }
+    .tab-navigation {
+        flex-direction: row;
+        width: auto;
+        flex: 1;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+    }
+    .sidebar-actions {
+        border-top: none;
+        padding-top: 0;
+        flex-direction: row;
+        width: 100%;
+        margin-top: 0.5rem;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .threshold-controls {
+        flex-direction: row;
+        flex: 1;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .threshold-item {
+        flex: 1 1 180px;
+        min-width: 140px;
+    }
+    .topology-layout {
+        flex-direction: column;
+        width: 100%;
+        gap: 1rem;
+    }
+    .topo-edit-panel {
+        width: 100%;
+        position: static;
+        box-sizing: border-box;
+    }
+    .topo-container {
+        height: 52vh;
+        min-height: 380px;
+        width: 100%;
+    }
+    .topo-chart-card .chart-wrapper {
+        height: 240px;
+    }
+    .topology-controls {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .topo-hint {
+        margin-left: 0;
+        width: 100%;
+    }
 }
 
 @media (max-width: 768px) {
@@ -872,6 +1025,37 @@ body {
     color: #c084fc !important;
     background: rgba(168, 85, 247, 0.15) !important;
     box-shadow: 0 0 10px rgba(168, 85, 247, 0.25);
+}
+
+/* Link / Unlink mode ON: make the active button obvious */
+.topo-btn.link-active {
+    border-color: var(--warning) !important;
+    color: #fff !important;
+    background: var(--warning) !important;
+    font-weight: 700;
+    animation: topoModePulseWarn 1.4s ease-in-out infinite;
+}
+
+.topo-btn.unlink-active {
+    border-color: var(--error) !important;
+    color: #fff !important;
+    background: var(--error) !important;
+    font-weight: 700;
+    animation: topoModePulseErr 1.4s ease-in-out infinite;
+}
+
+@keyframes topoModePulseWarn {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55); }
+    50%      { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+}
+
+@keyframes topoModePulseErr {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+    50%      { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .topo-btn.link-active, .topo-btn.unlink-active { animation: none; }
 }
 
 /* Fullscreen Theater Mode for Topology */
@@ -1823,4 +2007,167 @@ body.simple-mode .device-title-area .device-ip {
     border-color: rgba(59, 130, 246, 0.4);
     transform: translateY(-1px);
 }
+
+/* =========================================================
+   Remote Management & Execution Styles (Milestone 2)
+   ========================================================= */
+.remote-settings-container {
+    background: rgba(30, 41, 59, 0.4);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 10px;
+    padding: 14px;
+    transition: all 0.2s ease;
+}
+:root[data-theme="day"] .remote-settings-container {
+    background: #f1f5f9;
+    border-color: rgba(59, 130, 246, 0.3);
+}
+.remote-settings-container:hover {
+    border-color: rgba(59, 130, 246, 0.45);
+}
+.remote-toggle-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+.remote-toggle-header label {
+    cursor: pointer;
+}
+.remote-settings-body {
+    transition: max-height 0.3s ease, opacity 0.2s ease;
+}
+.remote-cmd-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    font-size: 0.8rem;
+}
+:root[data-theme="day"] .remote-cmd-item {
+    background: #ffffff;
+    border-color: rgba(0, 0, 0, 0.1);
+}
+.remote-cmd-item strong {
+    color: var(--text-main);
+}
+.remote-cmd-item code {
+    color: #60a5fa;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 0.75rem;
+}
+.remote-summary-card {
+    background: rgba(15, 23, 42, 0.6) !important;
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+:root[data-theme="day"] .remote-summary-card {
+    background: #ffffff !important;
+}
+
+/* Terminal Console Dark Window */
+#remote-console-output {
+    background: #090d16 !important;
+    color: #4ade80 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+    line-height: 1.6;
+}
+#remote-console-output::-webkit-scrollbar {
+    width: 6px;
+}
+#remote-console-output::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+:root[data-theme="day"] #remote-console-output {
+    background: #0f172a !important;
+    color: #38bdf8 !important;
+}
+
+/* Remote Confirm Modal */
+#remote-confirm-modal .config-modal-box {
+    border-top: 4px solid #ef4444;
+}
+#remote-confirm-modal .modal-header h2 {
+    color: #f87171;
+}
+
+/* =========================================================
+   Device Logs Tab & Terminal Console (Milestone 2)
+   ========================================================= */
+#device-log-console {
+    background: #090d16 !important;
+    color: #f1f5f9 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+    line-height: 1.5;
+}
+#device-log-console::-webkit-scrollbar {
+    width: 6px;
+}
+#device-log-console::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+:root[data-theme="day"] #device-log-console {
+    background: #0f172a !important;
+    color: #f8fafc !important;
+}
+
+/* Log Search Highlight */
+mark.log-search-match {
+    background: #facc15 !important;
+    color: #000000 !important;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    box-shadow: 0 0 6px rgba(250, 204, 21, 0.6);
+}
+
+/* History Log List Item */
+.device-log-history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.device-log-history-item:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+.device-log-history-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.device-log-history-title {
+    font-weight: 600;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.device-log-history-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.device-log-history-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+
 

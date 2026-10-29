@@ -1,19 +1,26 @@
 @echo off
 REM =========================================================================
-REM Run-Tests.bat - Network Device Monitor è‡ªå‹•ãƒ†ã‚¹ãƒˆå®Ÿè¡Œ
+REM Run-Tests.bat - Network Device Monitor ©“®ƒeƒXƒgÀsƒ‰ƒ“ƒ`ƒƒ[
+REM y‰SÒŒü‚¯‚ÌŠÈ’P‚È‰ğàz
+REM ‚±‚ÌƒXƒNƒŠƒvƒg‚ÍAƒlƒbƒgƒ[ƒN‹@ŠíŠÄ‹ƒVƒXƒeƒ€‚Ì‘S‹@”\‚ª³í‚É“®‚¢‚Ä‚¢‚é‚©
+REM i’ÊMAİ’è•Û‘¶Aƒ}ƒ‹ƒ`ƒXƒŒƒbƒh•Àsˆ—AAPIƒf[ƒ^‚È‚Çj‚ğˆêŠ‡‚µ‚Ä
+REM ©“®f’fiƒeƒXƒgj‚·‚éƒƒ“ƒNƒŠƒbƒNÀsƒc[ƒ‹‚Å‚·B
 REM =========================================================================
 setlocal
 cd /d "%~dp0"
-chcp 65001 >nul
+chcp 932 >nul
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "Run-Tests.ps1"
-if %errorlevel% neq 0 (
+powershell -NoProfile -ExecutionPolicy Bypass -File "Run-Tests.ps1" %*
+set TEST_EXIT=%errorlevel%
+
+if %TEST_EXIT% neq 0 (
     echo.
-    echo [ERROR] ãƒ†ã‚¹ãƒˆã§å¤±æ•—ãŒæ¤œå‡ºã•ã‚Œã¾ã—ãŸã€‚
-    pause
-    exit /b %errorlevel%
+    echo [ERROR] ©“®ƒeƒXƒg‚Å¸”s‚ªŒŸo‚³‚ê‚Ü‚µ‚½ (I—¹ƒR[ƒh: %TEST_EXIT%)B
+    if "%CI%"=="" if not "%~1"=="-NoPause" pause
+    exit /b %TEST_EXIT%
 )
 
 echo.
-echo [OK] ã™ã¹ã¦ã®ãƒ†ã‚¹ãƒˆã«åˆæ ¼ã—ã¾ã—ãŸã€‚
-pause
+echo [OK] ‚·‚×‚Ä‚Ì©“®ƒeƒXƒg‚É³í‡Ši‚µ‚Ü‚µ‚½B
+if "%CI%"=="" if not "%~1"=="-NoPause" pause
+exit /b 0

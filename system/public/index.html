@@ -29,6 +29,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Sticky Offline Warning Banner (Shown on connection loss) -->
+    <div id="network-offline-banner" class="network-offline-banner" style="display: none;" role="alert" aria-live="assertive">
+        <div class="offline-banner-content">
+            <span class="offline-banner-icon">⚠️</span>
+            <span class="offline-banner-text">サーバーとの接続が切断されました（再接続を試行しています...）</span>
+            <button id="btn-banner-reconnect" class="offline-banner-retry-btn" type="button">今すぐ再試行</button>
+        </div>
+    </div>
+
     <div class="app-background">
         <div class="blob blob-1"></div>
         <div class="blob blob-2"></div>
@@ -265,10 +274,10 @@
                     
                     <!-- Subtabs: Client Mode vs Server Mode -->
                     <div class="iperf-subtabs" style="display:flex; gap:10px; margin-bottom:16px; border-bottom:1px solid var(--glass-border); padding-bottom:10px;">
-                        <button id="iperf-subtab-client" class="btn active" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:var(--primary); color:#fff; border:none; border-radius:8px; cursor:pointer;">
+                        <button type="button" id="iperf-subtab-client" class="btn active" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:var(--primary); color:#fff; border:none; border-radius:8px; cursor:pointer;">
                             <span>📤 クライアント計測 (送信側)</span>
                         </button>
-                        <button id="iperf-subtab-server" class="btn" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.06); color:var(--text-muted); border:1px solid var(--glass-border); border-radius:8px; cursor:pointer;">
+                        <button type="button" id="iperf-subtab-server" class="btn" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.06); color:var(--text-muted); border:1px solid var(--glass-border); border-radius:8px; cursor:pointer;">
                             <span>📥 サーバー待機 (受信・ログ取得)</span>
                         </button>
                     </div>
@@ -280,7 +289,7 @@
                                 <div class="target-field">
                                     <div class="field-header">
                                         <label>計測対象デバイス</label>
-                                        <button id="iperf-toggle-custom-target" class="text-link">カスタム入力に切替</button>
+                                        <button type="button" id="iperf-toggle-custom-target" class="text-link">カスタム入力に切替</button>
                                     </div>
                                     <select id="iperf-target-device" class="form-select-lg">
                                         <option value="">デバイスを選択してください</option>
@@ -300,8 +309,8 @@
                                     <input type="number" id="iperf-view-bw-thresh" value="10" min="0.1" step="0.5" class="form-input-lg centered" title="この帯域以上の割合を集計します">
                                 </div>
                                 <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-                                    <button id="run-iperf-view-btn" class="btn primary-btn run-btn">計測開始</button>
-                                    <button id="stop-iperf-view-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:0 22px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.95rem;">⏹ 計測停止</button>
+                                    <button type="button" id="run-iperf-view-btn" class="btn primary-btn run-btn">計測開始</button>
+                                    <button type="button" id="stop-iperf-view-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:0 22px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.95rem;">⏹ 計測停止</button>
                                 </div>
                             </div>
                         </div>
@@ -356,15 +365,15 @@
                                     </div>
                                 </div>
                                 <div style="display:flex; gap:10px;">
-                                    <button id="iperf-server-start-btn" class="btn primary-btn" style="padding:8px 24px; font-size:0.9rem; font-weight:700;">▶️ サーバー起動</button>
-                                    <button id="iperf-server-stop-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:8px 24px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.9rem;">⏹ サーバー停止</button>
+                                    <button type="button" id="iperf-server-start-btn" class="btn primary-btn" style="padding:8px 24px; font-size:0.9rem; font-weight:700;">▶️ サーバー起動</button>
+                                    <button type="button" id="iperf-server-stop-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:8px 24px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.9rem;">⏹ サーバー停止</button>
                                 </div>
                             </div>
                             <div style="margin-top:14px; font-size:0.82rem; color:var(--text-muted); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">
                                 <div>💡 外部クライアントから計測する際は <code>iperf3 -c &lt;このPCのIPアドレス&gt; -p 5201</code> を実行してください。</div>
                                 <div style="display:flex; gap:8px;">
                                     <a id="iperf-server-download-log-btn" href="/api/iperf/server/log" target="_blank" class="btn secondary-btn small" style="text-decoration:none;">💾 サーバーログ保存</a>
-                                    <button id="iperf-server-clear-log-btn" class="btn secondary-btn small">🗑 ログ消去</button>
+                                    <button type="button" id="iperf-server-clear-log-btn" class="btn secondary-btn small">🗑 ログ消去</button>
                                 </div>
                             </div>
                         </div>
@@ -788,6 +797,82 @@
                                         <input type="password" id="dev-snmp-priv-pass" placeholder="privpassphrase" class="form-input-sm">
                                     </div>
                                 </div>
+                                <!-- Remote Management Settings Section (Milestone 2) -->
+                                <div class="remote-settings-container" style="margin: 1rem 0; padding: 12px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px;">
+                                    <div class="form-checkbox remote-toggle-header" style="margin-bottom: 0;">
+                                        <input type="checkbox" id="dev-remote-enabled">
+                                        <label for="dev-remote-enabled" style="font-weight: 700; color: var(--text-main); cursor: pointer;">🔧 リモート管理（再起動・コマンド実行）を有効にする</label>
+                                    </div>
+                                    <div id="remote-settings-collapsible" class="remote-settings-body hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 10px;">
+                                        <div class="form-group" style="margin-bottom: 0;">
+                                            <label for="dev-remote-protocol">接続プロトコル方式</label>
+                                            <select id="dev-remote-protocol" class="form-select-lg">
+                                                <option value="ssh">SSH (Linux / ルーター / スイッチ)</option>
+                                                <option value="winrm">WinRM (Windows リモート / PowerShell)</option>
+                                                <option value="custom">カスタムコマンド (ローカルスクリプト・外部CLI)</option>
+                                            </select>
+                                        </div>
+                                        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                                            <div class="form-group" style="margin-bottom: 0;">
+                                                <label for="dev-remote-host">ホスト名 / 接続IP <span class="label-hint">(空欄時は機器IP)</span></label>
+                                                <input type="text" id="dev-remote-host" class="form-input" placeholder="例: 192.168.1.1">
+                                            </div>
+                                            <div class="form-group" style="margin-bottom: 0;">
+                                                <label for="dev-remote-port">ポート番号</label>
+                                                <input type="number" id="dev-remote-port" class="form-input" placeholder="22" min="1" max="65535" value="22">
+                                            </div>
+                                        </div>
+                                        <div class="form-group" style="margin-bottom: 0;">
+                                            <label for="dev-remote-auth-type">認証方式</label>
+                                            <select id="dev-remote-auth-type" class="form-select-lg">
+                                                <option value="password">パスワード認証</option>
+                                                <option value="key">秘密鍵認証 (SSH Key)</option>
+                                                <option value="windows_current">現在のWindows資格情報 (Kerberos / Negotiate)</option>
+                                                <option value="none">認証なし (パスワード不要)</option>
+                                            </select>
+                                        </div>
+                                        <div id="remote-auth-fields" style="display: flex; flex-direction: column; gap: 10px;">
+                                            <div id="remote-user-group" class="form-group" style="margin-bottom: 0;">
+                                                <label for="dev-remote-user">ログインユーザー名</label>
+                                                <input type="text" id="dev-remote-user" class="form-input" placeholder="例: admin, root">
+                                            </div>
+                                            <div id="remote-pass-group" class="form-group" style="margin-bottom: 0;">
+                                                <label for="dev-remote-pass">パスワード / 秘密鍵パスフレーズ <span class="label-hint">(変更時のみ入力)</span></label>
+                                                <input type="password" id="dev-remote-pass" class="form-input" placeholder="••••••••">
+                                            </div>
+                                            <div id="remote-key-path-group" class="form-group hidden" style="margin-bottom: 0;">
+                                                <label for="dev-remote-key-path">SSH 秘密鍵ファイルパス (Private Key Path)</label>
+                                                <input type="text" id="dev-remote-key-path" class="form-input" placeholder="例: C:\Users\user\.ssh\id_rsa">
+                                            </div>
+                                        </div>
+                                        <div class="form-group" style="margin-bottom: 0;">
+                                            <label for="dev-remote-reboot-cmd">再起動コマンド (Reboot Command)</label>
+                                            <input type="text" id="dev-remote-reboot-cmd" class="form-input" placeholder="例: sudo reboot (空欄時はプロトコル標準を使用)">
+                                        </div>
+                                        
+                                        <!-- Custom Commands Manager -->
+                                        <div class="form-group" style="margin-bottom: 0; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.15);">
+                                            <label style="display: flex; justify-content: space-between; align-items: center;">
+                                                <span>⚡ 登録カスタムコマンド一覧</span>
+                                                <span class="label-hint" style="font-size: 0.72rem;">診断画面から選んで実行可能</span>
+                                            </label>
+                                            <div id="dev-remote-commands-list" style="margin-top: 6px; display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto;">
+                                                <!-- Dynamic commands list -->
+                                            </div>
+                                            <div style="margin-top: 8px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 6px;">
+                                                <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">➕ 新しいコマンドを追加</div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                                                    <input type="text" id="dev-cmd-name-input" class="form-input-sm" placeholder="表示名 (例: 稼働時間確認)">
+                                                    <input type="text" id="dev-cmd-desc-input" class="form-input-sm" placeholder="説明 (例: uptimeを表示)">
+                                                </div>
+                                                <div style="display: flex; gap: 6px;">
+                                                    <input type="text" id="dev-cmd-string-input" class="form-input-sm" placeholder="実行コマンド (例: uptime, show ip int brief)" style="flex: 1;">
+                                                    <button type="button" id="btn-add-remote-cmd" class="btn secondary-btn small" style="white-space: nowrap;">追加</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="form-checkbox">
                                     <input type="checkbox" id="dev-enabled" checked>
                                     <label for="dev-enabled">監視を有効にする</label>
@@ -818,6 +903,8 @@
                 <button class="snmp-tab-btn active" data-tab="snmp-tab-overview">概要</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-memo">📖 マニュアル・設置場所</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-backup">💾 コンフィグ管理</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-remote">🔧 リモート操作</button>
+                <button class="snmp-tab-btn" data-tab="snmp-tab-device-logs">📋 機器ログ</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-interfaces">インターフェース</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-network">ネットワーク</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-tcp">TCP ソケット</button>
@@ -920,6 +1007,260 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Remote Control Tab (Milestone 2) -->
+                    <div id="snmp-tab-remote" class="snmp-tab-content snmp-tab-pane">
+                        <!-- Remote Disabled Banner -->
+                        <div id="remote-disabled-banner" class="glass-card" style="display:none; padding:24px; text-align:center;">
+                            <span style="font-size:2.4rem;">🔒</span>
+                            <h3 style="margin:12px 0 8px 0; color:var(--text-main);">リモート管理が無効です</h3>
+                            <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6; max-width:480px; margin:0 auto 16px auto;">
+                                この機器では遠隔再起動およびコマンド実行（SSH / WinRM / カスタムコマンド）が有効化されていません。<br>
+                                「機器の追加 / 管理」メニューから該当機器の設定を編集し、「リモート管理を有効にする」にチェックを入れてください。
+                            </p>
+                            <button id="btn-goto-device-edit" class="btn secondary-btn small" type="button">⚙️ 機器設定を開く</button>
+                        </div>
+
+                        <!-- Remote Active Panel -->
+                        <div id="remote-active-panel" style="display:flex; flex-direction:column; gap:14px;">
+                            <!-- Target Device Summary Card -->
+                            <div class="glass-card remote-summary-card" style="padding:14px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <span style="font-size:1.8rem;" id="remote-protocol-icon">⚡</span>
+                                    <div>
+                                        <div style="font-weight:700; font-size:1rem; display:flex; align-items:center; gap:8px;">
+                                            <span id="remote-summary-name">コアルーター</span>
+                                            <span id="remote-summary-status" class="badge-success" style="font-size:0.7rem; padding:2px 8px; border-radius:12px;">有効</span>
+                                        </div>
+                                        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
+                                            IP: <code id="remote-summary-ip" style="color:#60a5fa; font-weight:700;">192.168.1.1</code> | 
+                                            方式: <strong id="remote-summary-protocol" style="color:var(--text-main);">SSH</strong> | 
+                                            ポート: <span id="remote-summary-port">22</span> | 
+                                            ユーザー: <span id="remote-summary-user">admin</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- One-click Reboot Button with warning badge -->
+                                <button id="btn-remote-reboot" class="btn btn-danger-glow" type="button" style="
+                                    background: linear-gradient(135deg, #ef4444, #dc2626);
+                                    color: #fff;
+                                    font-weight: 700;
+                                    padding: 10px 18px;
+                                    border-radius: 8px;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 8px;
+                                    cursor: pointer;
+                                    border: none;
+                                    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
+                                ">
+                                    <span style="font-size:1.1rem;">🔄</span>
+                                    <span>機器を再起動 (Reboot)</span>
+                                    <span style="font-size:0.68rem; background:rgba(0,0,0,0.25); padding:2px 6px; border-radius:4px; margin-left:2px;">⚠️ 要確認</span>
+                                </button>
+                            </div>
+
+                            <!-- Preset & Custom Command Execution Section -->
+                            <div class="glass-card" style="padding:16px;">
+                                <h4 style="margin:0 0 10px 0; font-size:0.9rem; font-weight:700; display:flex; align-items:center; gap:6px;">
+                                    <span>⚡</span> 登録コマンドの実行
+                                </h4>
+                                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                                    <select id="remote-cmd-select" class="form-select" style="flex:1; min-width:260px;">
+                                        <option value="">-- 実行するコマンドを選択してください --</option>
+                                    </select>
+                                    <button id="btn-remote-exec-cmd" class="btn primary-btn" type="button" style="padding:8px 18px; font-weight:700; display:inline-flex; align-items:center; gap:6px;">
+                                        <span>▶️</span> コマンド実行
+                                    </button>
+                                </div>
+                                <!-- Custom one-off command runner -->
+                                <div id="remote-custom-cmd-container" style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.1); display:flex; gap:10px; align-items:center;">
+                                    <input type="text" id="remote-custom-cmd-input" class="form-input" placeholder="任意のワンオフ実行コマンドを入力 (例: uptime, ping -c 4 8.8.8.8)..." style="flex:1;">
+                                    <button id="btn-remote-run-custom" class="btn secondary-btn" type="button" style="padding:8px 16px; white-space:nowrap; font-weight:600;">
+                                        <span>⚡</span> 任意実行
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Execution Output Console -->
+                            <div class="glass-card" style="padding:16px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <div style="font-size:0.85rem; font-weight:700; display:flex; align-items:center; gap:6px;">
+                                        <span id="remote-exec-status-dot" class="status-dot"></span>
+                                        <span>実行結果・標準出力コンソール</span>
+                                    </div>
+                                    <div style="display:flex; gap:8px;">
+                                        <button id="btn-remote-clear-console" class="btn secondary-btn small" type="button">🗑 ログ消去</button>
+                                        <button id="btn-remote-copy-console" class="btn secondary-btn small" type="button">📋 コピー</button>
+                                    </div>
+                                </div>
+                                <div id="remote-console-output" class="terminal-console" style="
+                                    min-height: 200px;
+                                    max-height: 320px;
+                                    overflow-y: auto;
+                                    background: rgba(0, 0, 0, 0.6);
+                                    border: 1px solid var(--glass-border);
+                                    border-radius: 8px;
+                                    padding: 12px;
+                                    font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+                                    font-size: 0.82rem;
+                                    line-height: 1.5;
+                                    white-space: pre-wrap;
+                                    word-break: break-all;
+                                ">待機中... コマンドを実行または再起動を行うと、ここに結果とログが表示されます。</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Device Logs Tab (Milestone 2) -->
+                    <div id="snmp-tab-device-logs" class="snmp-tab-content snmp-tab-pane">
+                        <!-- Remote Disabled Banner -->
+                        <div id="device-log-disabled-banner" class="glass-card" style="display:none; padding:24px; text-align:center;">
+                            <span style="font-size:2.4rem;">🔒</span>
+                            <h3 style="margin:12px 0 8px 0; color:var(--text-main);">リモート管理が無効です</h3>
+                            <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6; max-width:480px; margin:0 auto 16px auto;">
+                                この機器では遠隔ログ取得（SSH / WinRM / カスタムコマンド）が有効化されていません。<br>
+                                「機器の追加 / 管理」メニューから該当機器の設定を編集し、「リモート管理を有効にする」にチェックを入れてください。
+                            </p>
+                            <button id="btn-goto-device-edit-from-logs" class="btn secondary-btn small" type="button">⚙️ 機器設定を開く</button>
+                        </div>
+
+                        <!-- Device Log Active Panel -->
+                        <div id="device-log-active-panel" style="display:flex; flex-direction:column; gap:14px;">
+                            <!-- Target Device Summary Card -->
+                            <div class="glass-card device-log-summary-card" style="padding:14px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <span style="font-size:1.8rem;" id="device-log-protocol-icon">📋</span>
+                                    <div>
+                                        <div style="font-weight:700; font-size:1rem; display:flex; align-items:center; gap:8px;">
+                                            <span id="device-log-summary-name">対象機器名</span>
+                                            <span id="device-log-summary-status" class="badge-success" style="font-size:0.7rem; padding:2px 8px; border-radius:12px;">有効</span>
+                                        </div>
+                                        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
+                                            IP: <code id="device-log-summary-ip" style="color:#60a5fa; font-weight:700;">-</code> | 
+                                            方式: <strong id="device-log-summary-protocol" style="color:var(--text-main);">SSH</strong> | 
+                                            ポート: <span id="device-log-summary-port">-</span> | 
+                                            ユーザー: <span id="device-log-summary-user">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <button id="device-log-fetch-btn" class="btn primary-btn" type="button" style="
+                                        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+                                        color: #fff;
+                                        font-weight: 700;
+                                        padding: 10px 18px;
+                                        border-radius: 8px;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 8px;
+                                        cursor: pointer;
+                                        border: none;
+                                        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+                                    ">
+                                        <div id="device-log-fetch-spinner" class="loading-spinner small hidden" style="width:16px; height:16px; border-width:2px; border-color:rgba(255,255,255,0.3); border-top-color:#fff;"></div>
+                                        <span id="device-log-fetch-btn-icon">📄</span>
+                                        <span id="device-log-fetch-btn-text">今すぐログを取得</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Command & Preset Selector Card -->
+                            <div class="glass-card" style="padding:16px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                                    <h4 style="margin:0; font-size:0.9rem; font-weight:700; display:flex; align-items:center; gap:6px;">
+                                        <span>⚙️</span> ログ取得コマンド設定
+                                    </h4>
+                                    <div style="display:flex; align-items:center; gap:8px; font-size:0.8rem; color:var(--text-muted);">
+                                        <label for="device-log-timeout">タイムアウト:</label>
+                                        <input type="number" id="device-log-timeout" class="form-input" min="5" max="180" value="30" style="width:70px; padding:4px 8px; font-size:0.8rem; text-align:center;">
+                                        <span>秒</span>
+                                    </div>
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:10px;">
+                                    <div>
+                                        <label for="device-log-preset-select" style="display:block; font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;">ログプリセットの選択:</label>
+                                        <select id="device-log-preset-select" class="form-select" style="width:100%;">
+                                            <option value="cisco_show_logging">Cisco / ネットワーク機器: show logging</option>
+                                            <option value="yamaha_show_log">Yamaha ルーター: show log</option>
+                                            <option value="linux_journalctl">Linux: journalctl (直近200行) [journalctl -n 200 --no-pager]</option>
+                                            <option value="linux_dmesg">Linux: カーネルメッセージ (dmesg) [dmesg -T | tail -n 200]</option>
+                                            <option value="linux_syslog">Linux: システムログ [tail -n 200 /var/log/syslog]</option>
+                                            <option value="windows_winevent_sys">Windows: システムイベントログ (直近100件)</option>
+                                            <option value="windows_winevent_app">Windows: アプリケーションイベントログ (直近100件)</option>
+                                            <option value="custom">✏️ カスタムコマンド入力</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="device-log-custom-cmd" style="display:block; font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;">実行コマンド (直接編集可能):</label>
+                                        <input type="text" id="device-log-custom-cmd" class="form-input" style="width:100%; font-family:'Cascadia Code', Consolas, monospace; font-size:0.85rem;" placeholder="実行するコマンドを入力してください...">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Terminal Console & Toolbar Card -->
+                            <div class="glass-card" style="padding:16px;">
+                                <!-- Top Console Header -->
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                                    <div style="font-size:0.85rem; font-weight:700; display:flex; align-items:center; gap:6px;">
+                                        <span id="device-log-status-dot" class="status-dot"></span>
+                                        <span>機器ログ出力ビューワー</span>
+                                        <span id="device-log-meta-info" style="font-size:0.75rem; color:var(--text-muted); font-weight:normal; margin-left:8px;"></span>
+                                    </div>
+                                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                        <button id="device-log-clear-btn" class="btn secondary-btn small" type="button" title="コンソール表示を消去">🗑 クリア</button>
+                                        <button id="device-log-copy-btn" class="btn secondary-btn small" type="button" title="クリップボードにコピー">📋 コピー</button>
+                                        <button id="device-log-download-btn" class="btn secondary-btn small" type="button" title="現在のログをテキストファイルとして保存">💾 ログ保存 (.log)</button>
+                                    </div>
+                                </div>
+
+                                <!-- Filter & Search Toolbar -->
+                                <div class="device-log-toolbar" style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:6px; border:1px solid var(--glass-border);">
+                                    <div style="display:flex; align-items:center; gap:6px; flex:1; min-width:200px;">
+                                        <span style="font-size:0.9rem;">🔍</span>
+                                        <input type="text" id="device-log-search-input" class="form-input" placeholder="ログ内をキーワード検索 (リアルタイム強調)..." style="flex:1; padding:4px 8px; font-size:0.8rem;">
+                                        <span id="device-log-search-count" style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;"></span>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <label style="font-size:0.8rem; color:var(--text-muted); display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+                                            <input type="checkbox" id="device-log-filter-match-only" style="cursor:pointer;">
+                                            <span>一致行のみ抽出</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Monospace Terminal Output Box -->
+                                <div id="device-log-console" class="terminal-console device-log-terminal" style="
+                                    min-height: 240px;
+                                    max-height: 380px;
+                                    overflow-y: auto;
+                                    background: #090d16;
+                                    color: #f1f5f9;
+                                    border: 1px solid var(--glass-border);
+                                    border-radius: 8px;
+                                    padding: 12px;
+                                    font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+                                    font-size: 0.82rem;
+                                    line-height: 1.5;
+                                    white-space: pre-wrap;
+                                    word-break: break-all;
+                                ">待機中... 「今すぐログを取得」ボタンを押すと、対象機器から取得したログがここに表示されます。</div>
+                            </div>
+
+                            <!-- Historical Logs Section -->
+                            <div class="glass-card" style="padding:16px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                                    <h4 style="margin:0; font-size:0.9rem; font-weight:700; display:flex; align-items:center; gap:6px;">
+                                        <span>📜</span> 過去の取得ログ履歴 (Reports/device_logs/)
+                                    </h4>
+                                    <button id="device-log-history-refresh-btn" class="btn secondary-btn small" type="button">🔄 履歴を再読み込み</button>
+                                </div>
+                                <div id="device-log-history-list" style="max-height:180px; overflow-y:auto; background:rgba(0,0,0,0.2); border-radius:8px; padding:6px; display:flex; flex-direction:column; gap:4px; font-size:0.82rem;">
+                                    <div style="color:var(--text-muted); text-align:center; padding:12px;">履歴を読み込み中...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     
                     <div id="snmp-tab-interfaces" class="snmp-tab-content">
                         <div class="table-container glass-card">
@@ -991,8 +1332,6 @@
         </div>
     </div>
 
-    <script src="chart.js"></script>
-    <script src="vis-network.min.js"></script>
     <div id="bulk-action-bar" class="bulk-bar hidden">
         <span id="bulk-count-label" class="bulk-label">0 台選択中</span>
         <div class="divider"></div>
@@ -1745,6 +2084,77 @@
         </div>
     </div>
 
+    <!-- Remote Execution Double-Confirmation Modal (Milestone 2) -->
+    <div id="remote-confirm-modal" class="modal-overlay" style="display:none; z-index:9500;">
+        <div class="glass-modal config-modal-box" style="max-width:540px; width:92%; border-top:4px solid #ef4444;">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span style="font-size:1.6rem;" id="remote-confirm-icon">⚠️</span>
+                    <div>
+                        <h2 class="modal-title" style="margin:0; font-size:1.15rem; color:#f87171;">リモート操作の二重確認</h2>
+                        <span style="font-size:0.75rem; color:var(--text-muted);">実行前に対象機器と実行内容を必ずご確認ください</span>
+                    </div>
+                </div>
+                <button id="close-remote-confirm-btn" class="modal-close-btn">&times;</button>
+            </div>
+
+            <div class="modal-body-scroll config-modal-body" style="padding:18px 20px; font-size:0.88rem; line-height:1.6;">
+                <!-- Target Device Highlight Card -->
+                <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; padding:12px 16px; margin-bottom:14px;">
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="color:var(--text-muted); font-size:0.8rem;">対象機器名:</span>
+                            <strong style="color:var(--text-main); font-size:1rem;" id="remote-confirm-device-name">コアルーター</strong>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="color:var(--text-muted); font-size:0.8rem;">IPアドレス:</span>
+                            <code style="color:#60a5fa; font-weight:700; font-size:1rem;" id="remote-confirm-device-ip">192.168.1.1</code>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed rgba(255,255,255,0.15); padding-top:6px; margin-top:2px;">
+                            <span style="color:var(--text-muted); font-size:0.8rem;">実行動作 / コマンド:</span>
+                            <span style="font-weight:700; color:#fbbf24;" id="remote-confirm-action-text">再起動 (Reboot)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Clear Warning Message -->
+                <div style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px;">
+                    <p style="margin:0 0 6px 0; color:#f87171; font-weight:700;">⚠ 業務通信およびサービス停止へのご注意：</p>
+                    <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4px;">
+                        <li>再起動中は対象機器およびその配下の通信が一時的に切断され、業務に影響を与える可能性があります。</li>
+                        <li>コマンド実行による予期しない設定変更や通信断のリスクを理解した上で実行してください。</li>
+                    </ul>
+                </div>
+
+                <!-- Safety Confirmation Checkbox -->
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem; font-weight:600; padding:8px 12px; background:rgba(255,255,255,0.04); border-radius:8px;">
+                    <input type="checkbox" id="confirm-safety-checkbox" checked style="width:16px; height:16px; cursor:pointer;">
+                    <span>上記の対象機器および通信影響を確認しました</span>
+                </label>
+            </div>
+
+            <div class="modal-footer" style="justify-content:flex-end; gap:10px;">
+                <button class="btn secondary-btn" id="btn-remote-confirm-cancel">キャンセル</button>
+                <button class="btn" id="btn-remote-confirm-execute" style="
+                    background: #ef4444;
+                    color: #fff;
+                    font-weight: 700;
+                    border: none;
+                    padding: 8px 20px;
+                    border-radius: 8px;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    cursor: pointer;
+                    box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+                ">
+                    <span>⚡</span>
+                    <span id="remote-confirm-execute-label">実行する</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Shutdown Complete Fullscreen Overlay -->
     <div id="shutdown-complete-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.95); backdrop-filter:blur(10px); z-index:99999; flex-direction:column; align-items:center; justify-content:center; color:#fff; text-align:center; padding:20px;">
         <div style="width:72px; height:72px; border-radius:50%; background:rgba(16,185,129,0.15); border:2px solid #10b981; display:flex; align-items:center; justify-content:center; font-size:36px; margin-bottom:20px;">
@@ -1766,6 +2176,8 @@
     </div>
 
     <div id="toast-container"></div>
-    <script src="app.js?v=69"></script>
+    <script src="chart.js"></script>
+    <script src="vis-network.min.js"></script>
+    <script src="app.js?v=70"></script>
 </body>
 </html>

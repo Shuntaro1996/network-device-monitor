@@ -1,26 +1,127 @@
+﻿# ==============================================================================
+# Ensure-Utf8Bom.ps1 - UTF-8 BOM Verification & Enforcement Tool for PS 5.1
 # ==============================================================================
-# Ensure-Utf8Bom.ps1 - PowerShell 5.1 用 UTF-8 BOM 付与スクリプト
-# ==============================================================================
-$files = @(
-    "system\Server.ps1",
-    "system\Watchdog.ps1",
-    "system\Check-Prerequisites.ps1",
-    "tests\Monitor.Tests.ps1",
-    "tests\Run-Tests.ps1"
-) + (Get-ChildItem -Path "system\modules\*.psm1" | ForEach-Object { $_.FullName })
+param(
+    [switch]$Quiet
+)
 
-$utf8Bom = New-Object System.Text.UTF8Encoding($true)
+$ErrorActionPreference = "Stop"
 
-foreach ($f in $files) {
-    if (Test-Path $f) {
-        $resolved = (Resolve-Path $f).Path
-        $bytes = [System.IO.File]::ReadAllBytes($resolved)
-        if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
-            $text = [System.IO.File]::ReadAllText($resolved, [System.Text.Encoding]::UTF8)
-            [System.IO.File]::WriteAllText($resolved, $text, $utf8Bom)
-            Write-Host "[BOM FIXED] $f" -ForegroundColor Yellow
-        } else {
-            Write-Host "[BOM OK] $f" -ForegroundColor Green
+# Resolve project root directory automatically
+$projectRoot = if ($PSScriptRoot) {
+    if ([System.IO.File]::Exists((Join-Path $PSScriptRoot "Server.ps1"))) {
+        Split-Path -Parent $PSScriptRoot
+    } else {
+        $PSScriptRoot
+    }
+} else {
+    $PWD.Path
+}
+
+$scanDirs = @(
+    (Join-Path $projectRoot "system"),
+    (Join-Path $projectRoot "system\modules"),
+    (Join-Path $projectRoot "tests")
+)
+
+$targetFileInfos = [System.Collections.Generic.Dictionary[string, System.IO.FileInfo]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+# Fast non-recursive scan of script directories (.ps1 and .psm1) using DirectoryInfo.GetFiles
+# (Fetches FileInfo metadata including Length and LastWriteTimeUtc in bulk from OS directory table)
+foreach ($dir in $scanDirs) {
+    if ([System.IO.Directory]::Exists($dir)) {
+        $dirInfo = [System.IO.DirectoryInfo]::new($dir)
+        foreach ($ext in @("*.ps1", "*.psm1")) {
+            foreach ($fi in $dirInfo.GetFiles($ext)) {
+                if (-not $targetFileInfos.ContainsKey($fi.FullName)) {
+                    $targetFileInfos[$fi.FullName] = $fi
+                }
+            }
         }
     }
+}
+
+# Load BOM metadata cache for fast startup when -Quiet is used
+$cacheFile = Join-Path $projectRoot "system\.bom_cache"
+$bomCache = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$cacheDirty = $false
+
+if ($Quiet -and [System.IO.File]::Exists($cacheFile)) {
+    try {
+        foreach ($line in [System.IO.File]::ReadAllLines($cacheFile)) {
+            $parts = $line -split '\|', 2
+            if ($parts.Length -eq 2) {
+                $bomCache[$parts[0]] = $parts[1]
+            }
+        }
+    } catch {}
+}
+
+$utf8Bom = New-Object System.Text.UTF8Encoding($true)
+$fixedCount = 0
+$okCount = 0
+
+if (-not $Quiet) {
+    Write-Host "=== UTF-8 BOM Verification (Total: $($targetFileInfos.Count) files) ===" -ForegroundColor Cyan
+}
+
+foreach ($kv in $targetFileInfos.GetEnumerator()) {
+    $f = $kv.Key
+    $fi = $kv.Value
+    $sig = "$($fi.Length):$($fi.LastWriteTimeUtc.Ticks)"
+
+    $relName = if ($f.StartsWith($projectRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $f.Substring($projectRoot.Length).TrimStart('\', '/')
+    } else {
+        $f
+    }
+
+    if ($Quiet -and $bomCache.ContainsKey($relName) -and $bomCache[$relName] -eq $sig) {
+        $okCount++
+        continue
+    }
+
+    $hasBom = $false
+    $fs = [System.IO.File]::OpenRead($f)
+    try {
+        if ($fs.Length -ge 3) {
+            $b0 = $fs.ReadByte()
+            $b1 = $fs.ReadByte()
+            $b2 = $fs.ReadByte()
+            $hasBom = ($b0 -eq 0xEF -and $b1 -eq 0xBB -and $b2 -eq 0xBF)
+        }
+    } finally {
+        $fs.Close()
+    }
+
+    if (-not $hasBom) {
+        $text = [System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText($f, $text, $utf8Bom)
+        Write-Host "[BOM FIXED] $relName" -ForegroundColor Yellow
+        $fixedCount++
+        $fiUpdated = [System.IO.FileInfo]::new($f)
+        $sig = "$($fiUpdated.Length):$($fiUpdated.LastWriteTimeUtc.Ticks)"
+    } else {
+        if (-not $Quiet) {
+            Write-Host "[BOM OK]    $relName" -ForegroundColor Green
+        }
+        $okCount++
+    }
+
+    $bomCache[$relName] = $sig
+    $cacheDirty = $true
+}
+
+if ($cacheDirty -or (-not $Quiet)) {
+    try {
+        $cacheLines = [System.Collections.Generic.List[string]]::new()
+        foreach ($ck in $bomCache.Keys) {
+            $cacheLines.Add("$ck|$($bomCache[$ck])")
+        }
+        [System.IO.File]::WriteAllLines($cacheFile, $cacheLines)
+    } catch {}
+}
+
+if (-not $Quiet) {
+    Write-Host "`nResult: OK=$okCount, Fixed=$fixedCount" -ForegroundColor Cyan
 }

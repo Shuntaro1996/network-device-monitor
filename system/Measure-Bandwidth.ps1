@@ -62,12 +62,16 @@ function Measure-Ping {
     param([string]$IP, [int]$Count)
     $pinger = New-Object System.Net.NetworkInformation.Ping
     $results = @(); $lost = 0
-    for ($i = 0; $i -lt $Count; $i++) {
-        try {
-            $reply = $pinger.Send($IP, 1000)
-            if ($reply.Status -eq "Success") { $results += $reply.RoundtripTime } else { $lost++ }
-        } catch { $lost++ }
-        Start-Sleep -Milliseconds 100
+    try {
+        for ($i = 0; $i -lt $Count; $i++) {
+            try {
+                $reply = $pinger.Send($IP, 1000)
+                if ($reply.Status -eq "Success") { $results += $reply.RoundtripTime } else { $lost++ }
+            } catch { $lost++ }
+            Start-Sleep -Milliseconds 100
+        }
+    } finally {
+        try { $pinger.Dispose() } catch {}
     }
     if ($results.Count -eq 0) { return @{ Reachable=$false; Avg=0; Loss=100 } }
     return @{ Reachable=$true; Avg=[math]::Round(($results | Measure-Object -Average).Average, 2); Loss=[math]::Round(($lost/$Count)*100, 1) }
@@ -75,7 +79,7 @@ function Measure-Ping {
 
 $DevicesJson = Join-Path $SystemDir "devices.json"
 
-$Iperf3Exe = Find-Iperf3
+$Iperf3Exe = if ($UseIperf3) { Find-Iperf3 } else { $null }
 $targets = @()
 if ($IpList) { 
     $targets = $IpList 
@@ -113,7 +117,7 @@ foreach ($ip in $targets) {
     }
 
     if ($res.Reachable) {
-        if ($Iperf3Exe -and (Test-TcpPort $ip 5201)) {
+        if ($UseIperf3 -and $Iperf3Exe -and (Test-TcpPort $ip 5201)) {
             Write-Log "  Running iperf3..." -Color Gray
             $out = & $Iperf3Exe -c $ip -t $DurationSec -J 2>&1 | Out-String
             $json = $out | ConvertFrom-Json -ErrorAction SilentlyContinue

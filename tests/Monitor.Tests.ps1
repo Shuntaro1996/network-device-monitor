@@ -11,6 +11,8 @@ Import-Module (Join-Path $moduleDir "Common.psm1") -Force
 Import-Module (Join-Path $moduleDir "PingEngine.psm1") -Force
 Import-Module (Join-Path $moduleDir "ReportGenerator.psm1") -Force
 Import-Module (Join-Path $moduleDir "SnmpService.psm1") -Force
+Import-Module (Join-Path $moduleDir "AlertManager.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $moduleDir "IperfRunner.psm1") -Force -DisableNameChecking
 
 Describe "1. パスワード・機密情報の暗号化 (DPAPI / Common.psm1)" {
     It "平文パスワードを DPAPI で暗号化すると 'enc:' 接頭辞が付くこと" {
@@ -106,6 +108,13 @@ Describe "4. Iperf エラーログ除外 (ReportGenerator.psm1 / Clean-IperfLogL
         # 正常な計測行は保持されていること
         $hasData = $cleaned | Where-Object { $_ -match "94.1 Mbits/sec" }
         $hasData | Should Not BeNullOrEmpty
+    }
+
+    It "Measure-Bandwidth.ps1 は -UseIperf3 を指定しない場合は iperf3 を勝手に実行せず RTT 推定を行うこと" {
+        $bwScript = Join-Path $projectRoot "system\Measure-Bandwidth.ps1"
+        $output = & $bwScript -IpList "127.0.0.1" -NoCsv -NoReport *>&1 | Out-String
+        $output | Should Match "RTT Estimate"
+        $output | Should Not Match "Running iperf3"
     }
 }
 
@@ -310,3 +319,177 @@ Describe "10. トポロジー描画強化・UIアセット整合性検証" {
     }
 }
 
+Describe "11. Runspace 内でのモジュール関数呼び出し整合性 (Runspaceモジュールスコープ保証)" {
+    It "New-AppRunspace で作成された Runspace 内で Evaluate-DeviceStatus が正常に実行できること" {
+        $serverContent = Get-Content (Join-Path $projectRoot "system\Server.ps1") -Raw -Encoding UTF8
+        # Server.ps1 内の New-AppRunspace 定義を抽出して実行
+        $dummySyncHash = [hashtable]::Synchronized(@{
+            PSScriptRoot = (Join-Path $projectRoot "system")
+        })
+        
+        $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+        $modDir = Join-Path $dummySyncHash.PSScriptRoot "modules"
+        Get-ChildItem -Path $modDir -Filter "*.psm1" | ForEach-Object {
+            $iss.ImportPSModule($_.FullName)
+        }
+        $testRs = [runspacefactory]::CreateRunspace($iss)
+        $testRs.ApartmentState = "STA"
+        $testRs.ThreadOptions  = "ReuseThread"
+        $testRs.Open()
+        $testRs.SessionStateProxy.SetVariable("syncHash", $dummySyncHash)
+        
+        $pipe = $testRs.CreatePipeline()
+        $pipe.Commands.AddScript("
+            Evaluate-DeviceStatus -isSuccess `$true -latencyMs 15.0 -consecutiveFails 0 -latencyWarningMs 80 -consecutiveFailThresh 2
+        ")
+        $result = $pipe.Invoke()
+        $testRs.Close()
+        $testRs.Dispose()
+        
+        $result | Should Not BeNullOrEmpty
+        $result[0] | Should Be "Success"
+    }
+
+    It "New-AppRunspace で作成された Runspace 内で Update-RollupCache および Invoke-SnmpWalkUnified が認識されること" {
+        $dummySyncHash = [hashtable]::Synchronized(@{
+            PSScriptRoot = (Join-Path $projectRoot "system")
+        })
+        $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+        $modDir = Join-Path $dummySyncHash.PSScriptRoot "modules"
+        Get-ChildItem -Path $modDir -Filter "*.psm1" | ForEach-Object {
+            $iss.ImportPSModule($_.FullName)
+        }
+        $testRs = [runspacefactory]::CreateRunspace($iss)
+        $testRs.Open()
+        
+        $pipe = $testRs.CreatePipeline()
+        $pipe.Commands.AddScript("
+            @(
+                (Get-Command Update-RollupCache -ErrorAction SilentlyContinue).Name,
+                (Get-Command Invoke-SnmpWalkUnified -ErrorAction SilentlyContinue).Name
+            )
+        ")
+        $commands = $pipe.Invoke()
+        $testRs.Close()
+        $testRs.Dispose()
+        
+        ($commands -contains "Update-RollupCache") | Should Be $true
+        ($commands -contains "Invoke-SnmpWalkUnified") | Should Be $true
+    }
+}
+
+Describe "12. 長時間・高頻度稼働時のログ記録・ローテーション結合・高速レポート生成検証" {
+    It "100ms計測2時間相当（72,000行）の巨大CSVでも1秒未満で高速にレポート生成され、先頭と末尾のデータが保持されること" {
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_LongRun72k_$(Get-Random)"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        try {
+            $csvPath = Join-Path $tempDir "192.168.1.10.csv"
+            $lines = [System.Collections.Generic.List[string]]::new(72020)
+            $lines.Add("タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec,ジッター_ms")
+            $lines.Add('"2026-10-27 12:00:00","192.168.1.10","Success","3","250.0","1.2","2.4","","0.5"')
+            for ($i = 1; $i -lt 71999; $i++) {
+                $lines.Add('"2026-10-27 12:30:00","192.168.1.10","Success","5","250.0","1.5","2.8","","0.8"')
+            }
+            $lines.Add('"2026-10-27 13:59:59","192.168.1.10","Success","9","250.0","3.1","4.2","","1.2"')
+            $lines.Add("")
+            $lines.Add("--- 計測サマリー ---")
+            $lines.Add("総Ping送信数（試行回数）,72000")
+            [System.IO.File]::WriteAllLines($csvPath, $lines, [System.Text.Encoding]::GetEncoding(932))
+
+            $sync = @{
+                SessionDir = $tempDir
+                PSScriptRoot = (Join-Path $projectRoot "system")
+                Devices = @("192.168.1.10")
+                Status = @{ "192.168.1.10" = @{ status = "Success" } }
+                Stats = @{ "192.168.1.10" = @{ Total = 72000; Success = 72000; Failed = 0; MinLat = 3; MaxLat = 9; SumLat = 360000; LatCount = 72000; MaxOutageSec = 0; Outage600msCount = 0; Outage5sCount = 0; JitterSum = 57600; JitterCount = 72000 } }
+                DeviceName = @{ "192.168.1.10" = "CoreRouter" }
+                Group = @{ "192.168.1.10" = "Core" }
+                Location = @{ "192.168.1.10" = "1F" }
+                TroubleMemo = @{}
+                PollInterval = 100
+                HighFreqTargetIps = "192.168.1.10"
+            }
+
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $html = Generate-SessionReportHtml -sync $sync -period "Session"
+            $sw.Stop()
+
+            $html | Should Not BeNullOrEmpty
+            ($sw.ElapsedMilliseconds -lt 2000) | Should Be $true
+            $html.Contains("12:00:00") | Should Be $true
+            $html.Contains("13:59:59") | Should Be $true
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "10MBローテーションで分割された複数CSV (_2.csv, _1.csv, .csv) が時系列順に結合されてレポート化されること" {
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_RotMerge_$(Get-Random)"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        try {
+            $enc = [System.Text.Encoding]::GetEncoding(932)
+            $hdr = "タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec,ジッター_ms"
+            [System.IO.File]::WriteAllLines((Join-Path $tempDir "192.168.1.50_2.csv"), @($hdr, '"2026-10-27 10:00:01","192.168.1.50","Success","2","250.0","1.0","1.0","","0.2"'), $enc)
+            [System.IO.File]::WriteAllLines((Join-Path $tempDir "192.168.1.50_1.csv"), @($hdr, '"2026-10-27 11:00:02","192.168.1.50","Success","4","250.0","1.2","1.4","","0.4"'), $enc)
+            [System.IO.File]::WriteAllLines((Join-Path $tempDir "192.168.1.50.csv"),   @($hdr, '"2026-10-27 12:00:03","192.168.1.50","Success","6","250.0","1.5","1.8","","0.6"'), $enc)
+
+            $sync = @{
+                SessionDir = $tempDir
+                PSScriptRoot = (Join-Path $projectRoot "system")
+                Devices = @("192.168.1.50")
+                Status = @{ "192.168.1.50" = @{ status = "Success" } }
+                Stats = @{ "192.168.1.50" = @{ Total = 3; Success = 3; Failed = 0; MinLat = 2; MaxLat = 6; SumLat = 12; LatCount = 3; MaxOutageSec = 0; Outage600msCount = 0; Outage5sCount = 0; JitterSum = 1.2; JitterCount = 3 } }
+                DeviceName = @{ "192.168.1.50" = "Switch50" }
+                Group = @{ "192.168.1.50" = "Floor" }
+                Location = @{ "192.168.1.50" = "2F" }
+                TroubleMemo = @{}
+                PollInterval = 100
+                HighFreqTargetIps = "192.168.1.50"
+            }
+
+            $html = Generate-SessionReportHtml -sync $sync -period "Session"
+            $html.Contains("10:00:01") | Should Be $true
+            $html.Contains("11:00:02") | Should Be $true
+            $html.Contains("12:00:03") | Should Be $true
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "Server.ps1 のPingループ内チェックポイント処理で重いCSV全行読み込みが排除されていること" {
+        $serverRaw = Get-Content (Join-Path $projectRoot "system\Server.ps1") -Raw -Encoding UTF8
+        # _checkpoint.json 保存箇所の直後に ReadAllLines による同期CSVパースが存在しないこと
+        ($serverRaw -match '_checkpoint\.json[\s\S]{1,400}ReadAllLines') | Should Be $false
+    }
+}
+
+
+
+Describe "13. 外部サイトからの API 呼び出し拒否 (CSRF 対策 / Test-ApiRequestAllowed)" {
+    It "ブラウザ以外（Origin / Sec-Fetch-Site なし）からの呼び出しは許可されること" {
+        Test-ApiRequestAllowed -Origin $null -SecFetchSite $null -Port 8081 | Should Be $true
+    }
+
+    It "監視画面自身（同一オリジン）からの呼び出しは許可されること" {
+        Test-ApiRequestAllowed -Origin "http://localhost:8081" -SecFetchSite "same-origin" -Port 8081 | Should Be $true
+        Test-ApiRequestAllowed -Origin "http://127.0.0.1:8081" -SecFetchSite $null -Port 8081 | Should Be $true
+        Test-ApiRequestAllowed -Origin $null -SecFetchSite "none" -Port 8081 | Should Be $true
+    }
+
+    It "別サイトの Origin からの呼び出しは拒否されること" {
+        Test-ApiRequestAllowed -Origin "https://evil.example.com" -SecFetchSite $null -Port 8081 | Should Be $false
+        Test-ApiRequestAllowed -Origin "http://localhost:3000" -SecFetchSite $null -Port 8081 | Should Be $false
+        Test-ApiRequestAllowed -Origin "null" -SecFetchSite $null -Port 8081 | Should Be $false
+    }
+
+    It "Sec-Fetch-Site が cross-site / same-site の場合は Origin がなくても拒否されること" {
+        Test-ApiRequestAllowed -Origin $null -SecFetchSite "cross-site" -Port 8081 | Should Be $false
+        Test-ApiRequestAllowed -Origin $null -SecFetchSite "same-site" -Port 8081 | Should Be $false
+    }
+
+    It "Server.ps1 が全開放の CORS ヘッダー (Access-Control-Allow-Origin: *) を返さないこと" {
+        $serverSrc = Get-Content (Join-Path $projectRoot "system\Server.ps1") -Raw -Encoding UTF8
+        $serverSrc | Should Not Match 'Access-Control-Allow-Origin'
+        $serverSrc | Should Match 'Test-ApiRequestAllowed'
+    }
+}

@@ -2,6 +2,10 @@
 # ReportGenerator.psm1 - 点検報告書・CSVサマリー・ロールアップ高速化モジュール
 # ==============================================================================
 
+# 報告書HTMLの文字エスケープで使う [System.Web.HttpUtility] は PowerShell 5.1 では既定で読み込まれないため明示的に読み込む
+# (他の処理が偶然読み込んでいない環境では、報告書生成が「型が見つかりません」で失敗していた)
+Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
+
 # ── 1. Iperf3 コネクションエラーの自動除外・クリーンアップ ──────────────────
 
 function Clean-IperfLogLines {
@@ -19,7 +23,7 @@ function Clean-IperfLogLines {
     $hasBw = $false
 
     foreach ($line in $lines) {
-        if ($line -match '^=== iperf3 Execution at ') {
+        if ($line -match '^=== iperf3 Execution') {
             if ($currentBlock.Count -gt 0 -and $hasBw) {
                 $cleanBlocks += $currentBlock
             }
@@ -57,7 +61,7 @@ function Purge-OldReports {
 
     $cutoff = (Get-Date).AddDays(-$retentionDays)
     try {
-        Get-ChildItem -Path $reportsDirectory -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        Get-ChildItem -Path $reportsDirectory -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne "device_logs" } | ForEach-Object {
             if ($null -ne $activeSessionDir -and $_.FullName -eq $activeSessionDir) { return }
             if ($_.LastWriteTime -lt $cutoff) {
                 try {
@@ -89,7 +93,7 @@ function Invoke-PurgeOldReports {
     $cutoff = (Get-Date).AddDays(-$retentionDays)
     try {
         $dirs = Get-ChildItem -Path $reportsDirectory -Directory -ErrorAction SilentlyContinue | Where-Object {
-            $_.LastWriteTime -lt $cutoff
+            $_.Name -ne "device_logs" -and $_.LastWriteTime -lt $cutoff
         }
         foreach ($dir in $dirs) {
             if ($null -ne $activeSessionDir -and $dir.FullName -eq $activeSessionDir) { continue }
@@ -142,15 +146,15 @@ function Update-RollupCache {
             } catch {}
         }
 
-        # ダウンサンプリング (最大1200点)
+        # ダウンサンプリング (最大1200点) - O(N) Listを使用
         $total = $timeSeries.Count
         $step = if ($total -gt 1200) { [math]::Ceiling($total / 1200) } else { 1 }
-        $downsampled = @()
+        $downsampled = [System.Collections.Generic.List[object]]::new([int]([math]::Ceiling($total / $step) + 1))
         for ($i = 0; $i -lt $total; $i += $step) {
-            $downsampled += $timeSeries[$i]
+            $downsampled.Add($timeSeries[$i])
         }
 
-        $rollupObj.devices[$ip] = $downsampled
+        $rollupObj.devices[$ip] = $downsampled.ToArray()
         $jsonStr = $rollupObj | ConvertTo-Json -Depth 6 -Compress
         [System.IO.File]::WriteAllText($cacheFile, $jsonStr, [System.Text.Encoding]::UTF8)
         return $rollupObj
@@ -290,8 +294,10 @@ function Generate-SessionReportHtml {
                 $avgJit = "$([math]::Round($stats.JitterSum / $stats.JitterCount, 2)) ms"
             }
             if ($stats.LatCount -gt 0) {
-                if ($stats.MinLat -ne [double]::MaxValue -and $stats.MinLat -gt 0) { $minLat = "$($stats.MinLat) ms" }
-                if ($stats.MaxLat -gt 0) { $maxLat = "$($stats.MaxLat) ms" }
+                # LAN内の機器は応答が1ms未満で 0ms になることが多いため、0 も有効な値として表示する
+                # (以前は -gt 0 判定で、最小・最大遅延が「—」になっていた)
+                if ($stats.MinLat -ne [double]::MaxValue -and $stats.MinLat -ge 0) { $minLat = "$($stats.MinLat) ms" }
+                if ($stats.MaxLat -ge 0) { $maxLat = "$($stats.MaxLat) ms" }
                 $avgLatVal = [math]::Round($stats.SumLat / $stats.LatCount, 1)
                 $avgLat = "$avgLatVal ms"
                 $totalLatSum += $stats.SumLat
@@ -342,65 +348,103 @@ function Generate-SessionReportHtml {
 </tr>
 "@
 
-        # 時系列データの取得（ロールアップキャッシュ優先で超高速化）
+        # 時系列データの取得（ローテーション分割CSV結合 & 事前間引きパースにより長時間・数万行でも数ミリ秒で超高速処理）
         $timeSeries = @()
-        $cachedDev = if ($rollupCache -and $rollupCache.devices) { $rollupCache.devices.PSObject.Properties[$ip] } else { $null }
-        if ($cachedDev -and $cachedDev.Value) {
-            $timeSeries = @($cachedDev.Value)
-        } else {
-            # キャッシュがない場合はCSVからパース
-            $safeIp = $ip -replace '[\\/:*?"<>|]', '_'
-            $csvPath = if ($sessionDir) { Join-Path $sessionDir "${safeIp}.csv" } else { "" }
-            if ($csvPath -and -not (Test-Path $csvPath)) {
-                $altSafeIp = $ip -replace '[\.:_]', '_'
-                $altCsvPath = Join-Path $sessionDir "${altSafeIp}.csv"
-                if (Test-Path $altCsvPath) { $csvPath = $altCsvPath }
+        $safeIp = $ip -replace '[\\/:*?"<>|]', '_'
+        $basePrefix = $safeIp
+        $csvPath = if ($sessionDir) { Join-Path $sessionDir "${safeIp}.csv" } else { "" }
+        if ($csvPath -and -not (Test-Path $csvPath)) {
+            $altSafeIp = $ip -replace '[\.:_]', '_'
+            $altCsvPath = Join-Path $sessionDir "${altSafeIp}.csv"
+            if (Test-Path $altCsvPath) {
+                $csvPath = $altCsvPath
+                $basePrefix = $altSafeIp
             }
+        }
 
-            if ($csvPath -and (Test-Path $csvPath)) {
-                try {
-                    $rawLines = [System.IO.File]::ReadAllLines($csvPath, [System.Text.Encoding]::GetEncoding(932))
-                    $validLines = @()
+        if ($csvPath -and (Test-Path $csvPath)) {
+            try {
+                # 10MBローテーションされた過去CSV (_10.csv .. _1.csv) と最新CSVを時系列順（古い順）に収集
+                $csvSegmentPaths = [System.Collections.Generic.List[string]]::new()
+                if ($sessionDir) {
+                    for ($rotIdx = 10; $rotIdx -ge 1; $rotIdx--) {
+                        $rotFile = Join-Path $sessionDir "${basePrefix}_${rotIdx}.csv"
+                        if (Test-Path $rotFile) {
+                            $csvSegmentPaths.Add($rotFile)
+                        }
+                    }
+                }
+                $csvSegmentPaths.Add($csvPath)
+
+                $validLines = [System.Collections.Generic.List[string]]::new(8192)
+                foreach ($segPath in $csvSegmentPaths) {
+                    $rawLines = [System.IO.File]::ReadAllLines($segPath, [System.Text.Encoding]::GetEncoding(932))
+                    $isFirstNonEmptyInSeg = $true
                     foreach ($line in $rawLines) {
                         if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("---")) {
-                            if ($validLines.Count -gt 0) { break }
+                            if (-not $isFirstNonEmptyInSeg) { break }
                             continue
                         }
-                        $validLines += $line
-                    }
-                    if ($validLines.Count -gt 1) {
-                        $parsedCsv = $validLines | ConvertFrom-Csv
-                        $totalRecords = $parsedCsv.Count
-                        $step = if ($totalRecords -gt 1200) { [math]::Ceiling($totalRecords / 1200) } else { 1 }
-                        
-                        for ($i = 0; $i -lt $totalRecords; $i += $step) {
-                            $row = $parsedCsv[$i]
-                            $tStr = if ($row.タイムスタンプ) { $row.タイムスタンプ } elseif ($row.Timestamp) { $row.Timestamp } else { "" }
-                            $tShort = if ($tStr.Length -ge 19) { $tStr.Substring(11, 8) } else { $tStr }
-                            $latR = if ($row.遅延_ms) { $row.遅延_ms } elseif ($row.Latency_ms) { $row.Latency_ms } else { "" }
-                            $latV = if ($latR -match '^\d+(\.\d+)?$') { [double]$latR } else { $null }
-                            $jitR = if ($row.ジッター_ms) { $row.ジッター_ms } elseif ($row.Jitter_ms) { $row.Jitter_ms } else { "" }
-                            $jitV = if ($jitR -match '^\d+(\.\d+)?$') { [double]$jitR } else { $null }
-                            $txR = if ($row.送信_Mbps) { $row.送信_Mbps } elseif ($row.Tx_Mbps) { $row.Tx_Mbps } else { "" }
-                            $txV = if ($txR -match '^\d+(\.\d+)?$') { [double]$txR } else { $null }
-                            $rxR = if ($row.受信_Mbps) { $row.受信_Mbps } elseif ($row.Rx_Mbps) { $row.Rx_Mbps } else { "" }
-                            $rxV = if ($rxR -match '^\d+(\.\d+)?$') { [double]$rxR } else { $null }
-                            $outR = if ($row.瞬断継続_sec) { $row.瞬断継続_sec } else { "" }
-                            $outV = if ($outR -match '^\d+(\.\d+)?$') { [double]$outR } else { 0 }
-                            $stR = if ($row.ステータス) { $row.ステータス } elseif ($row.Status) { $row.Status } else { "" }
-
-                            $timeSeries += @{
-                                t   = $tShort
-                                lat = $latV
-                                jit = $jitV
-                                tx  = $txV
-                                rx  = $rxV
-                                out = $outV
-                                st  = $stR
+                        if ($isFirstNonEmptyInSeg) {
+                            $isFirstNonEmptyInSeg = $false
+                            # 2ファイル目以降のヘッダー行はスキップ
+                            if ($validLines.Count -gt 0 -and ($line -match 'タイムスタンプ|Timestamp')) {
+                                continue
                             }
                         }
+                        $validLines.Add($line)
                     }
-                } catch { }
+                }
+                if ($validLines.Count -gt 1) {
+                    # ConvertFrom-Csv の前に生テキスト行を最大1,200件へ間引くことで O(N^2) 遅延を完全に防止
+                    $dataCount = $validLines.Count - 1
+                    $step = if ($dataCount -gt 1200) { [math]::Ceiling($dataCount / 1200) } else { 1 }
+                    $sampledLines = [System.Collections.Generic.List[string]]::new(1205)
+                    $sampledLines.Add($validLines[0]) # CSVヘッダー行
+                    for ($i = 1; $i -lt $validLines.Count; $i += $step) {
+                        $sampledLines.Add($validLines[$i])
+                    }
+                    # 最終行（最新データ）が間引きで漏れないよう末尾を保証
+                    if ($validLines.Count -gt 2 -and (($validLines.Count - 1 - 1) % $step) -ne 0) {
+                        $sampledLines.Add($validLines[$validLines.Count - 1])
+                    }
+
+                    $parsedCsv = @($sampledLines | ConvertFrom-Csv)
+                    $tsList = [System.Collections.Generic.List[object]]::new($parsedCsv.Count)
+                    foreach ($row in $parsedCsv) {
+                        $tStr = if ($row.タイムスタンプ) { $row.タイムスタンプ } elseif ($row.Timestamp) { $row.Timestamp } else { "" }
+                        $tShort = if ($tStr.Length -ge 19) { $tStr.Substring(11, 8) } else { $tStr }
+                        $latR = if ($row.遅延_ms) { $row.遅延_ms } elseif ($row.Latency_ms) { $row.Latency_ms } else { "" }
+                        $latV = if ($latR -match '^\d+(\.\d+)?$') { [double]$latR } else { $null }
+                        $jitR = if ($row.ジッター_ms) { $row.ジッター_ms } elseif ($row.Jitter_ms) { $row.Jitter_ms } else { "" }
+                        $jitV = if ($jitR -match '^\d+(\.\d+)?$') { [double]$jitR } else { $null }
+                        $txR = if ($row.送信_Mbps) { $row.送信_Mbps } elseif ($row.Tx_Mbps) { $row.Tx_Mbps } else { "" }
+                        $txV = if ($txR -match '^\d+(\.\d+)?$') { [double]$txR } else { $null }
+                        $rxR = if ($row.受信_Mbps) { $row.受信_Mbps } elseif ($row.Rx_Mbps) { $row.Rx_Mbps } else { "" }
+                        $rxV = if ($rxR -match '^\d+(\.\d+)?$') { [double]$rxR } else { $null }
+                        $outR = if ($row.瞬断継続_sec) { $row.瞬断継続_sec } else { "" }
+                        $outV = if ($outR -match '^\d+(\.\d+)?$') { [double]$outR } else { 0 }
+                        $stR = if ($row.ステータス) { $row.ステータス } elseif ($row.Status) { $row.Status } else { "" }
+
+                        $tsList.Add(@{
+                            t   = $tShort
+                            lat = $latV
+                            jit = $jitV
+                            tx  = $txV
+                            rx  = $rxV
+                            out = $outV
+                            st  = $stR
+                        })
+                    }
+                    $timeSeries = $tsList.ToArray()
+                }
+            } catch { }
+        }
+
+        if ($timeSeries.Count -eq 0) {
+            $cachedDev = if ($rollupCache -and $rollupCache.devices) { $rollupCache.devices.PSObject.Properties[$ip] } else { $null }
+            if ($cachedDev -and $cachedDev.Value) {
+                $timeSeries = @($cachedDev.Value)
             }
         }
 
@@ -1132,20 +1176,145 @@ $chartDataJson
 # ── 5. CSVファイルへの安全なエクスポート ─────────────────────────────────────
 
 function Safe-ExportCsv {
+    <#
+    .SYNOPSIS
+        CSVファイルへの安全なエクスポート（名前付きMutex同期・リトライ・新規作成/追記両対応・文字コード指定）
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
     param(
-        [string]$filePath,
-        [array]$records,
-        [string]$encoding = "shift_jis"
+        [Parameter(Position = 0, Mandatory = $false, ValueFromPipeline = $true)]
+        [Alias("records", "InputObject")]
+        $Data,
+
+        [Parameter(Position = 1, Mandatory = $false)]
+        [Alias("filePath")]
+        [string]$Path,
+
+        [Parameter()]
+        [switch]$Append,
+
+        [Parameter()]
+        [string]$Encoding = "shift_jis",
+
+        [Parameter()]
+        [int]$MaxRetries = 5,
+
+        [Parameter()]
+        [int]$RetryIntervalMs = 100,
+
+        [Parameter()]
+        [int]$MutexTimeoutMs = 5000,
+
+        [Parameter()]
+        [string]$MutexName
     )
-    if ([string]::IsNullOrWhiteSpace($filePath) -or $null -eq $records -or $records.Count -eq 0) { return }
-    try {
-        $dir = Split-Path -Parent $filePath
-        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-        $enc = [System.Text.Encoding]::GetEncoding($encoding)
-        $csvText = $records | ConvertTo-Csv -NoTypeInformation | Out-String
-        [System.IO.File]::WriteAllText($filePath, $csvText, $enc)
-    } catch {
-        Write-Warning "Safe-ExportCsv failed for $($filePath): $($_.Exception.Message)"
+
+    begin {
+        $pipelineData = [System.Collections.ArrayList]::new()
+    }
+    process {
+        if ($null -ne $_) {
+            $null = $pipelineData.Add($_)
+        }
+    }
+    end {
+        if ($pipelineData.Count -gt 0) {
+            $Data = $pipelineData
+        }
+
+        # 引数の順序・型への柔軟対応: Safe-ExportCsv $Path $Data の逆順指定も自動検出
+        if ($Data -is [string] -and [string]::IsNullOrWhiteSpace($Path)) {
+            $Path = $Data
+            $Data = $null
+        }
+
+        if ([string]::IsNullOrWhiteSpace($Path) -or $null -eq $Data) {
+            return $false
+        }
+
+        # 親ディレクトリの存在保証
+        try {
+            $dir = Split-Path -Parent $Path
+            if ($dir -and -not (Test-Path $dir)) {
+                New-Item -ItemType Directory -Path $dir -Force -ErrorAction SilentlyContinue | Out-Null
+            }
+        } catch {}
+
+        # 文字エンコーディングの解決
+        $enc = switch -Regex ($Encoding.ToLowerInvariant()) {
+            '^(shift_jis|sjis|cp932|932)$' { [System.Text.Encoding]::GetEncoding(932) }
+            '^(utf-?8-?nobom|utf8)$'         { New-Object System.Text.UTF8Encoding($false) }
+            '^utf-?8-?bom$'                 { New-Object System.Text.UTF8Encoding($true) }
+            '^(utf-?16|unicode)$'           { [System.Text.Encoding]::Unicode }
+            '^ascii$'                       { [System.Text.Encoding]::ASCII }
+            default {
+                try { [System.Text.Encoding]::GetEncoding($Encoding) } catch { [System.Text.Encoding]::GetEncoding(932) }
+            }
+        }
+
+        # CSV文字列化 (ConvertTo-Csv)
+        $csvLines = @($Data | ConvertTo-Csv -NoTypeInformation)
+        if ($csvLines.Count -eq 0) { return $false }
+
+        $fileExistsAndHasContent = (Test-Path $Path) -and ((Get-Item $Path).Length -gt 0)
+
+        $csvText = if ($Append -and $fileExistsAndHasContent) {
+            # 追記モードで既存ファイルが存在する場合、ヘッダー行（1行目）を抑止
+            ($csvLines | Select-Object -Skip 1) -join [System.Environment]::NewLine
+        } else {
+            $csvLines -join [System.Environment]::NewLine
+        }
+
+        if ([string]::IsNullOrEmpty($csvText)) { return $true }
+        if (-not $csvText.EndsWith([System.Environment]::NewLine)) {
+            $csvText += [System.Environment]::NewLine
+        }
+
+        # 名前付き Mutex によるプロセス間・スレッド間排他制御
+        $cleanPath = try { [System.IO.Path]::GetFullPath($Path).ToLowerInvariant() } catch { $Path.ToLowerInvariant() }
+        $hashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($cleanPath))
+        $hashStr = ([System.BitConverter]::ToString($hashBytes) -replace '-').Substring(0, 16)
+        $mName = if ($MutexName) { $MutexName } else { "Local\NDM_CSV_" + $hashStr }
+
+        $mutex = $null
+        $hasMutex = $false
+        try {
+            $mutex = New-Object System.Threading.Mutex($false, $mName)
+            try {
+                $hasMutex = $mutex.WaitOne($MutexTimeoutMs)
+            } catch [System.Threading.AbandonedMutexException] {
+                $hasMutex = $true
+            }
+        } catch {
+            $hasMutex = $false
+        }
+
+        try {
+            $retry = 0
+            while ($retry -lt $MaxRetries) {
+                try {
+                    if ($Append -and $fileExistsAndHasContent) {
+                        [System.IO.File]::AppendAllText($Path, $csvText, $enc)
+                    } else {
+                        [System.IO.File]::WriteAllText($Path, $csvText, $enc)
+                    }
+                    return $true
+                } catch {
+                    $retry++
+                    Start-Sleep -Milliseconds ($RetryIntervalMs * $retry)
+                }
+            }
+            Write-Warning "Safe-ExportCsv failed to write to $Path after $MaxRetries retries."
+            return $false
+        } finally {
+            if ($hasMutex -and $null -ne $mutex) {
+                try { $mutex.ReleaseMutex() } catch {}
+            }
+            if ($null -ne $mutex) {
+                try { $mutex.Dispose() } catch {}
+            }
+        }
     }
 }
 

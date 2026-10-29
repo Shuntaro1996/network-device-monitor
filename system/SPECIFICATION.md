@@ -955,6 +955,13 @@ while ($syncHash.Running) {
 * **Path Traversal 防御**: 静的ファイル配信時、リクエストパスの正規化（`GetFullPath`）を行い、`publicDir` 外へのディレクトリトラバーサルアクセスを `403 Forbidden` で遮断。
 * **IPアドレス形式の厳格検証**: すべてのAPI入力において、正規表現 `^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$` によるIPv4形式検証を実施。
 * **SNMPv3 暗号化通信**: SHA / AES による USM 認証暗号化を完全サポートし、平文コミュニティ名漏洩リスクを排除。
+* **CSRF（外部サイトからの API 呼び出し）防御**: `/api/*` へのリクエストは、ルーティング前に `Test-ApiRequestAllowed`（`Common.psm1`）で検査。`Origin` ヘッダーが `http://localhost:<port>` / `http://127.0.0.1:<port>` / `http://[::1]:<port>` 以外、または `Sec-Fetch-Site` が `same-origin` / `none` 以外（`cross-site`, `same-site`）の場合は `403`（`status: FORBIDDEN_ORIGIN`）で遮断。`Access-Control-Allow-Origin: *` は返さない（UI は同一オリジンのため不要）。ヘッダーを付けないブラウザ以外のクライアント（PowerShell, テスト, Watchdog の `/api/health`）は従来どおり利用可能。
+* **リモート実行のコマンド注入防御**（`RemoteExec.psm1`）:
+  * SSH: 接続先・鍵パス・コマンドを `ConvertTo-ProcessArgument`（MSVC 引数解析規則に準拠したエスケープ）で 1 引数として渡し、`-` で始まる接続先/ユーザー名は `INVALID_TARGET` で拒否。パスワードは環境変数 `NDM_SSH_PASS` 経由で askpass（遅延展開 `!NDM_SSH_PASS!`）に渡し、ディスクへは書き込まない。
+  * WinRM: 実行スクリプトは固定文とし、接続先・認証情報・コマンドは環境変数（`NDM_REMOTE_HOST/USER/PASS/CMD`）で渡して `[ScriptBlock]::Create()` で生成。コマンド文字列が監視PC側の構文として解釈されることはない。
+  * Custom: 仕様として監視PC上で `cmd.exe` によりコマンドを実行するため、上記 CSRF 防御が前提となる。置換変数は `{ip}` / `{name}` / `{user}` / `{port}`（`{command}` は置換しない）。
+* **リモート実行の非同期化**: `/api/device/remote-exec` と `/api/device/fetch-log` の実行本体は `Start-BackgroundScript`（`$asyncWorkerPool`, 最大10並列）で行い、HTTP 受付ループ・`/api/health` を最大300秒のコマンド実行中もブロックしない（Watchdog による誤った強制再起動を防止）。
+* **WinRM 再起動**: `rebootCommand` 登録時はそれを `Invoke-Command` で実行。未登録かつパスワード認証設定時はその資格情報で `Restart-Computer -Force`。どちらもない場合のみ `shutdown.exe /m \\host` を監視PCのログインユーザー権限で実行。
 
 ---
 
