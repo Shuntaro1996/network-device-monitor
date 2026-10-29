@@ -79,8 +79,13 @@ function Invoke-ProcessWithTimeout {
     $exited = $proc.WaitForExit($timeoutMs)
 
     if (-not $exited) {
+        # cmd.exe / powershell.exe から起動された子プロセスも残さないよう、プロセスツリーごと終了する
+        # (.NET Framework には Kill($true) が無いため taskkill /T を使い、失敗時は本体だけでも終了)
         try {
-            $proc.Kill()
+            $null = Start-Process -FilePath "taskkill.exe" -ArgumentList "/T /F /PID $($proc.Id)" -WindowStyle Hidden -PassThru -Wait -ErrorAction Stop
+        } catch {}
+        try {
+            if (-not $proc.HasExited) { $proc.Kill() }
         } catch {}
 
         $sw.Stop()
@@ -177,6 +182,24 @@ function ConvertTo-ProcessArgument {
     return $sb.ToString()
 }
 
+function Get-SshAskPassScript {
+    <#
+    .SYNOPSIS
+        ssh のパスワード自動入力用 askpass (.cmd) の中身を返します。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        パスワード本体は環境変数 NDM_SSH_PASS で渡し、このスクリプトがそれを出力します。
+        cmd の echo は日本語などの非 ASCII 文字を Shift-JIS 等に変換して文字化けさせるため、
+        非 ASCII 文字を含むときだけ PowerShell で UTF-8 のまま出力します（少し遅いが確実）。
+    #>
+    param([string]$Password)
+
+    if ($null -ne $Password -and $Password -match '[^\x00-\x7F]') {
+        return "@echo off`r`npowershell.exe -NoProfile -NonInteractive -Command `"`$b=[Text.Encoding]::UTF8.GetBytes(`$env:NDM_SSH_PASS+[char]10);`$o=[Console]::OpenStandardOutput();`$o.Write(`$b,0,`$b.Length);`$o.Flush()`"`r`n"
+    }
+    return "@echo off`r`nsetlocal EnableDelayedExpansion`r`necho(!NDM_SSH_PASS!`r`n"
+}
+
 # ── 3. プロトコル別リモート実行実装 ───────────────────────────────────────────
 
 function Invoke-RemoteSsh {
@@ -230,7 +253,7 @@ function Invoke-RemoteSsh {
             # OpenSSH 8.4+ / Windows OpenSSH でのパスワード自動投入 (SSH_ASKPASS_REQUIRE=force)
             # パスワードはファイルに書かず環境変数で渡し、遅延展開 (!VAR!) で出力するため & | % などの記号も安全
             $tempAskPass = Join-Path $env:TEMP ("ndm_askpass_" + [System.Guid]::NewGuid().ToString("N") + ".cmd")
-            "@echo off`r`nsetlocal EnableDelayedExpansion`r`necho(!NDM_SSH_PASS!`r`n" | Out-File -FilePath $tempAskPass -Encoding ASCII -Force
+            (Get-SshAskPassScript -Password $password) | Out-File -FilePath $tempAskPass -Encoding ASCII -Force
             $envVars["NDM_SSH_PASS"] = $password
             $envVars["SSH_ASKPASS"] = $tempAskPass
             $envVars["SSH_ASKPASS_REQUIRE"] = "force"
@@ -803,4 +826,4 @@ function Save-DeviceLogFile {
     }
 }
 
-Export-ModuleMember -Function Invoke-RemoteDeviceCommand, Get-DeviceLogPresets, Save-DeviceLogFile, Get-ObjectProperty, ConvertTo-ProcessArgument
+Export-ModuleMember -Function Invoke-RemoteDeviceCommand, Get-DeviceLogPresets, Save-DeviceLogFile, Get-ObjectProperty, ConvertTo-ProcessArgument, Get-SshAskPassScript, Invoke-ProcessWithTimeout

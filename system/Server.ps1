@@ -2864,7 +2864,14 @@ try {
         if ($urlPath.StartsWith("/api/")) {
             $reqOrigin = $request.Headers["Origin"]
             $reqFetchSite = $request.Headers["Sec-Fetch-Site"]
-            if (-not (Test-ApiRequestAllowed -Origin $reqOrigin -SecFetchSite $reqFetchSite -Port $port)) {
+            try {
+                $apiAllowed = Test-ApiRequestAllowed -Origin $reqOrigin -SecFetchSite $reqFetchSite -Port $port
+            } catch {
+                # Common.psm1 failed to load: fail closed for browser requests, keep header-less clients (Watchdog) working
+                Write-Host "CSRF check unavailable: $($_.Exception.Message)" -ForegroundColor Red
+                $apiAllowed = [string]::IsNullOrEmpty($reqOrigin) -and [string]::IsNullOrEmpty($reqFetchSite)
+            }
+            if (-not $apiAllowed) {
                 Write-Host "Blocked cross-site API request: $method $urlPath (Origin: $reqOrigin, Sec-Fetch-Site: $reqFetchSite)" -ForegroundColor Red
                 try { Write-JsonResponse $response @{ error = "Cross-site request blocked"; success = $false; status = "FORBIDDEN_ORIGIN" } 403 } catch {}
                 try { $response.Close() } catch {}
@@ -3207,8 +3214,10 @@ try {
                     $action = if ($payload.action) { [string]$payload.action.Trim().ToLower() } else { "" }
                     $commandId = if ($payload.commandId) { [string]$payload.commandId.Trim() } else { $null }
                     $customCommand = if ($payload.customCommand) { [string]$payload.customCommand.Trim() } else { $null }
-                    $timeoutSec = if ($payload.timeoutSec) { [int]$payload.timeoutSec } else { 15 }
-                    if ($timeoutSec -le 0 -or $timeoutSec -gt 300) { $timeoutSec = 15 }
+                    # 数値でない値 ("abc" など) は [int] 変換で例外になるため TryParse で既定値に戻す
+                    $timeoutSec = 15
+                    $parsedTimeout = 0
+                    if ($null -ne $payload.timeoutSec -and [int]::TryParse([string]$payload.timeoutSec, [ref]$parsedTimeout) -and $parsedTimeout -gt 0 -and $parsedTimeout -le 300) { $timeoutSec = $parsedTimeout }
 
                     if ([string]::IsNullOrWhiteSpace($ip)) {
                         Write-JsonResponse $response @{ error = "Target IP address is required"; success = $false; status = "MISSING_IP" } 400
@@ -3330,8 +3339,10 @@ try {
                     if ([string]::IsNullOrWhiteSpace($customCommand) -and $payload.command) {
                         $customCommand = [string]$payload.command.Trim()
                     }
-                    $timeoutSec = if ($payload.timeoutSec) { [int]$payload.timeoutSec } else { 20 }
-                    if ($timeoutSec -le 0 -or $timeoutSec -gt 300) { $timeoutSec = 20 }
+                    # 数値でない値 ("abc" など) は [int] 変換で例外になるため TryParse で既定値に戻す
+                    $timeoutSec = 20
+                    $parsedTimeout = 0
+                    if ($null -ne $payload.timeoutSec -and [int]::TryParse([string]$payload.timeoutSec, [ref]$parsedTimeout) -and $parsedTimeout -gt 0 -and $parsedTimeout -le 300) { $timeoutSec = $parsedTimeout }
 
                     if ([string]::IsNullOrWhiteSpace($ip)) {
                         Write-JsonResponse $response @{ error = "Target IP address is required"; success = $false; status = "MISSING_IP" } 400

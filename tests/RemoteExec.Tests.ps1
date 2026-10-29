@@ -641,3 +641,69 @@ Describe "10. リモート実行の非同期化 (HTTP 受付ループを止め�
         [regex]::Matches($serverSrc, $pattern).Count | Should Be 2
     }
 }
+
+Describe "11. タイムアウト時の子プロセス終了・非 ASCII パスワード・入力値の堅牢化" {
+    It "タイムアウト時に cmd.exe から起動された子プロセス (ping) も終了されること" {
+        $marker = "-n 47 127.0.0.47"
+        $result = Invoke-ProcessWithTimeout -FileName "cmd.exe" -Arguments "/c ping $marker > nul" -TimeoutSec 1
+        $result.status | Should Be "TIMEOUT"
+        Start-Sleep -Milliseconds 500
+        $left = @(Get-CimInstance Win32_Process -Filter "Name='PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" })
+        $left | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
+        $left.Count | Should Be 0
+    }
+
+    function Invoke-AskPassForBytes([string]$pass) {
+        $tmp = Join-Path $env:TEMP ("ndm_askpass_test_" + [guid]::NewGuid().ToString("N") + ".cmd")
+        try {
+            (Get-SshAskPassScript -Password $pass) | Out-File -FilePath $tmp -Encoding ASCII -Force
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $tmp
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.CreateNoWindow = $true
+            $psi.EnvironmentVariables["NDM_SSH_PASS"] = $pass
+            $p = [System.Diagnostics.Process]::Start($psi)
+            $ms = New-Object System.IO.MemoryStream
+            $p.StandardOutput.BaseStream.CopyTo($ms)
+            $p.WaitForExit()
+            return ,$ms.ToArray()
+        } finally {
+            Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "非 ASCII を含むパスワードが UTF-8 のまま askpass から出力されること" {
+        $pass = "p@ss" + [char]0x30D1 + [char]0x30B9 + [char]0x00E9 + "&%!"
+        $bytes = Invoke-AskPassForBytes $pass
+        $expected = [Text.Encoding]::UTF8.GetBytes($pass + "`n")
+        [Convert]::ToBase64String($bytes) | Should Be ([Convert]::ToBase64String($expected))
+    }
+
+    It "ASCII のみのパスワードは従来の高速な cmd 版 askpass を使い、記号も崩れないこと" {
+        $pass = 'a&b|c%d^e<f>g'
+        (Get-SshAskPassScript -Password $pass) | Should Match '!NDM_SSH_PASS!'
+        $text = [Text.Encoding]::ASCII.GetString((Invoke-AskPassForBytes $pass)).TrimEnd("`r", "`n")
+        $text | Should Be $pass
+    }
+
+    It "timeoutSec が TryParse で検証され、数値以外でも 500 エラーにならないこと" {
+        $serverSrc = Get-Content (Join-Path $projectRoot "system\Server.ps1") -Raw -Encoding UTF8
+        [regex]::Matches($serverSrc, '\[int\]::TryParse\(\[string\]\$payload\.timeoutSec').Count | Should Be 2
+        $serverSrc | Should Not Match '\[int\]\$payload\.timeoutSec'
+    }
+
+    It "CSRF チェック関数が使えない場合でも例外で落ちず、ブラウザからの要求は遮断されること" {
+        $serverSrc = Get-Content (Join-Path $projectRoot "system\Server.ps1") -Raw -Encoding UTF8
+        $serverSrc | Should Match 'try \{\s*\$apiAllowed = Test-ApiRequestAllowed'
+        $serverSrc | Should Match '\$apiAllowed = \[string\]::IsNullOrEmpty\(\$reqOrigin\) -and \[string\]::IsNullOrEmpty\(\$reqFetchSite\)'
+    }
+
+    It "リモート実行の確認画面で安全チェックが最初は外れていること" {
+        $html = Get-Content (Join-Path $projectRoot "system\public\index.html") -Raw -Encoding UTF8
+        $html | Should Not Match 'id="confirm-safety-checkbox"[^>]*\bchecked\b'
+        $js = Get-Content (Join-Path $projectRoot "system\public\app.js") -Raw -Encoding UTF8
+        $js | Should Match 'confirmSafetyCheckbox\.checked = false;'
+        $js | Should Not Match 'confirmSafetyCheckbox\.checked = true;'
+    }
+}

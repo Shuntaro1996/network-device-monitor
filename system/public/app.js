@@ -7916,13 +7916,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (remoteConfirmDeviceName) remoteConfirmDeviceName.textContent = device.name || device.ip;
         if (remoteConfirmDeviceIp) remoteConfirmDeviceIp.textContent = device.ip;
         if (remoteConfirmActionText) remoteConfirmActionText.textContent = actionText;
+        // 毎回ユーザー自身にチェックしてもらう (誤クリックでの再起動を防ぐ)
         if (confirmSafetyCheckbox) {
-            confirmSafetyCheckbox.checked = true;
+            confirmSafetyCheckbox.checked = false;
         }
         if (btnRemoteConfirmExecute) {
-            btnRemoteConfirmExecute.disabled = false;
-            btnRemoteConfirmExecute.style.opacity = '1';
-            btnRemoteConfirmExecute.style.cursor = 'pointer';
+            btnRemoteConfirmExecute.disabled = !!confirmSafetyCheckbox;
+            btnRemoteConfirmExecute.style.opacity = confirmSafetyCheckbox ? '0.5' : '1';
+            btnRemoteConfirmExecute.style.cursor = confirmSafetyCheckbox ? 'not-allowed' : 'pointer';
         }
 
         pendingRemoteExecution = executionFn;
@@ -8442,10 +8443,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const safeQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const reg = new RegExp(`(${safeQuery})`, 'gi');
 
-        // Escaped query for matching against escaped HTML line
-        const escapedQuery = escapeHTML(searchQuery).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const escapedReg = new RegExp(`(${escapedQuery})`, 'gi');
-
         const filteredLines = [];
         for (let i = 0; i < rawLines.length; i++) {
             const line = rawLines[i];
@@ -8453,10 +8450,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (lineMatches && lineMatches.length > 0) {
                 matchedLinesCount++;
                 totalMatches += lineMatches.length;
-                // Escape line content FIRST to prevent XSS
-                const safeLine = escapeHTML(line);
-                // Inject <mark> highlights into escaped content
-                filteredLines.push(safeLine.replace(escapedReg, '<mark class="log-search-match">$1</mark>'));
+                // Split the RAW line (capturing group keeps matches at odd indexes), then escape each part.
+                // Matching on escaped HTML would hit inside entities like &amp; and break the markup.
+                filteredLines.push(line.split(reg).map((part, idx) =>
+                    idx % 2 === 1 ? `<mark class="log-search-match">${escapeHTML(part)}</mark>` : escapeHTML(part)
+                ).join(''));
             } else if (!filterMatchOnly) {
                 filteredLines.push(escapeHTML(line));
             }
