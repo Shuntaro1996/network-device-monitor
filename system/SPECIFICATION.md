@@ -117,7 +117,6 @@ flowchart TB
 
         subgraph BackgroundRunspaces ["バックグラウンド Runspaces (常駐監視スレッド)"]
             RS_Ping["Runspace 1: Ping監視エンジン\n(通常 1s~60s / 超高頻度 0.1s)"]
-            RS_BW["Runspace 2: 帯域計測エンジン\n(Measure-Bandwidth.ps1)"]
             RS_SNMP["Runspace 3: SNMP基本トラフィック\n(Octets / Errors / Backoff)"]
             RS_SNMP_Det["Runspace 4: SNMPトポロジー収集\n(CDP / LLDP / Speed / Band)"]
             RS_Syslog["Runspace 5: Syslog UDP Listener\n(Port 514 / 1514)"]
@@ -146,13 +145,11 @@ flowchart TB
     RS_Ping <-->|ICMP Echo / Async Ping| Devices
     RS_SNMP <-->|SNMP v1/v2c/v3 Get/Walk| Devices
     RS_SNMP_Det <-->|SNMP Topology Walk| Devices
-    RS_BW <-->|Bandwidth Query| Devices
     Devices -->|UDP 514/1514| RS_Syslog
 
     RS_Ping --> SharedMemory
     RS_SNMP --> SharedMemory
     RS_SNMP_Det --> SharedMemory
-    RS_BW --> SharedMemory
     RS_Syslog --> SharedMemory
     RS_Watchdog --> SharedMemory
 
@@ -168,7 +165,6 @@ flowchart TB
 | :--- | :--- | :--- | :--- |
 | **Main Thread** | `HttpListener` による HTTP リクエスト受付、静的ファイル配信、APIルーティング | 常時リッスン (同期ループ) | メインプロセス |
 | **Runspace 1: Ping** | 監視対象機器へのPing送信、RTT計測、瞬断検知、パケットロス/ジッター計算（記録はメモリ上のキューへ） | 設定間隔（100ms 〜 60,000ms） | バックグラウンド Runspace |
-| **Runspace 2: Bandwidth** | `Measure-Bandwidth.ps1` によるスクリプト帯域計測 | 10秒固定周期 | バックグラウンド Runspace |
 | **Runspace 3: SNMP Basic** | SNMPトラフィック（In/Out Octets）およびエラー（Errors/Discards）収集、バックオフ制御 | 設定間隔（5秒 〜 30秒） | バックグラウンド Runspace |
 | **Runspace 4: SNMP Detail** | インターフェースリンク速度、Wi-Fi周波数帯、CDP/LLDP隣接機器収集、トポロジー自動親子付け | 30秒固定周期 | バックグラウンド Runspace |
 | **Runspace 5: Syslog** | UDP 514 / 1514 ポートでの Syslog パケット受信、パース、キュー格納 | UDPパケット受信時（即時） | バックグラウンド Runspace |
@@ -406,10 +402,12 @@ classDiagram
 起動ごとのセッションフォルダに機器別CSVとして出力されます。Excel等での直接閲覧の利便性からデフォルトは Shift_JIS (CP932) で日本語ヘッダーにて保存されます。フロントエンドおよび `/api/history` では日本語・英語の両ヘッダーを自動識別する二重互換設計が実装されています。
 ```csv
 タイムスタンプ,IPアドレス,ステータス,遅延_ms,帯域_Mbps,送信_Mbps,受信_Mbps,瞬断継続_sec,ジッター_ms
-2026-08-30 06:00:01,192.168.1.1,Success,1.24,45.2,45.2,12.8,0,0.12
-2026-08-30 06:00:02,192.168.1.1,Success,1.31,46.1,46.1,13.2,0,0.07
-2026-08-30 06:00:03,192.168.1.1,Failed,,0,0,0,1.0,0.00
+2026-08-30 06:00:01,192.168.1.1,Success,1.24,-,45.2,12.8,,0.12
+2026-08-30 06:00:02,192.168.1.1,Success,1.31,-,46.1,13.2,,0.07
+2026-08-30 06:00:03,192.168.1.1,Failed,,-,45.9,13.0,1.0,
 ```
+※`帯域_Mbps` 列は過去の CSV と列の並びをそろえるために残しており、常に `-` です。以前は Ping の応答時間からの推定値が入っていましたが、実際の通信量とは無関係なため廃止しました。通信量は SNMP で取得できる機器の `送信_Mbps` / `受信_Mbps` を参照してください（取得できない機器は `-`）。
+
 ※REST API（`/api/history`）返却時およびフロントエンドグラフ描画時は、英語キー（`Timestamp, Latency_ms, Tx_Mbps, Rx_Mbps`）と日本語キーの双方が自動で正規化・マッピングされます。
 
 #### 2. 監査ログ (`reports/audit.log`)

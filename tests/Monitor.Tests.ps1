@@ -116,6 +116,13 @@ Describe "4. Iperf エラーログ除外 (ReportGenerator.psm1 / Clean-IperfLogL
         $output | Should Match "RTT Estimate"
         $output | Should Not Match "Running iperf3"
     }
+
+    It "Ping の応答時間から計算した帯域を監視画面に出さないこと" {
+        $server = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\Server.ps1"), [System.Text.Encoding]::UTF8)
+        $app = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\public\app.js"), [System.Text.Encoding]::UTF8)
+        $server | Should Not Match 'syncHash\.Bandwidth'
+        $app | Should Not Match '(data|statusData|fromStatus)\.bandwidth'
+    }
 }
 
 Describe "5. 長期稼働ロールアップ事前集約 (ReportGenerator.psm1 / Update-RollupCache)" {

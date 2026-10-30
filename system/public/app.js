@@ -3840,9 +3840,6 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                     if (data.tx && data.tx !== '-') {
                         txEl.textContent = `↑ TX: ${data.tx} Mbps`;
                         txEl.style.color = '#60a5fa';
-                    } else if (data.bandwidth && data.bandwidth !== '-' && data.bandwidth !== 'Waiting...' && data.bandwidth !== 'Failed' && data.bandwidth !== 'Error') {
-                        txEl.textContent = `BW: ${data.bandwidth} Mbps`;
-                        txEl.style.color = 'var(--text-muted)';
                     } else {
                         txEl.textContent = '↑ TX: -';
                         txEl.style.color = '#60a5fa';
@@ -4801,9 +4798,6 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
         if (fromStatus) {
             if (fromStatus.tx && !isNaN(parseFloat(fromStatus.tx))) tx = parseFloat(fromStatus.tx);
             if (fromStatus.rx && !isNaN(parseFloat(fromStatus.rx))) rx = parseFloat(fromStatus.rx);
-            if (tx === 0 && rx === 0 && fromStatus.bandwidth && !isNaN(parseFloat(fromStatus.bandwidth))) {
-                tx = parseFloat(fromStatus.bandwidth);
-            }
         }
         if (toStatus) {
             if (rx === 0 && toStatus.tx && !isNaN(parseFloat(toStatus.tx))) rx = parseFloat(toStatus.tx);
@@ -4933,9 +4927,6 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 txSvgText = `${statusData.tx} Mbps`;
                 rxSvgText = `${statusData.rx && statusData.rx !== '-' ? statusData.rx : '0'} Mbps`;
                 bandwidthText = `\n通信量: ↑TX ${statusData.tx} / ↓RX ${statusData.rx} Mbps`;
-            } else if (statusData && statusData.bandwidth && statusData.bandwidth !== "-" && statusData.bandwidth !== "Failed" && statusData.bandwidth !== "Error") {
-                txSvgText = `${statusData.bandwidth} Mbps`;
-                bandwidthText = `\nBandwidth: ${statusData.bandwidth} Mbps`;
             }
 
             let latencySvgText = '';
@@ -5980,9 +5971,6 @@ const activeDevices = devices.filter(d => d.enabled !== false);
                 txSvgText = `${statusData.tx} Mbps`;
                 rxSvgText = `${statusData.rx && statusData.rx !== '-' ? statusData.rx : '0'} Mbps`;
                 bandwidthText = `\n通信量: ↑TX ${statusData.tx} / ↓RX ${statusData.rx} Mbps`;
-            } else if (statusData && statusData.bandwidth && statusData.bandwidth !== "-" && statusData.bandwidth !== "Failed" && statusData.bandwidth !== "Error") {
-                txSvgText = `${statusData.bandwidth} Mbps`;
-                bandwidthText = `\nBandwidth: ${statusData.bandwidth} Mbps`;
             }
 
             let latencySvgText = '';

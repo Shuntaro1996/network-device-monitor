@@ -104,7 +104,6 @@ $devicesFileTxt = Join-Path $PSScriptRoot "devices.txt"
 # Shared memory for background runspaces
 $syncHash = [hashtable]::Synchronized(@{})
 $syncHash.Status = [hashtable]::Synchronized(@{})
-$syncHash.Bandwidth = [hashtable]::Synchronized(@{})
 $syncHash.Traffic = [hashtable]::Synchronized(@{})
 $syncHash.Community = [hashtable]::Synchronized(@{})
 $syncHash.DeviceName = [hashtable]::Synchronized(@{})
@@ -1446,7 +1445,8 @@ $pingScript = {
             $ts = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
             $st = if ($syncHash.Status[$ip].status) { [string]$syncHash.Status[$ip].status } else { 'Unknown' }
             $lat = if ($syncHash.Status[$ip].latency -ne $null) { [string]$syncHash.Status[$ip].latency } else { '' }
-            $bw = if ($syncHash.Bandwidth[$ip]) { [string]$syncHash.Bandwidth[$ip] } else { '-' }
+            # 帯域_Mbps 列は常時の計測手段がないので「-」のまま残す (過去の CSV と列の並びをそろえるため)
+            $bw = '-'
 
             # Outage duration for this record: 0 when online, current elapsed seconds when offline
             $outageSec = ''
@@ -1912,59 +1912,6 @@ try {
 $diskWriterPipeline = $diskWriterRunspace.CreatePipeline()
 $null = $diskWriterPipeline.Commands.AddScript($diskWriterScript)
 $diskWriterAsyncResult = $diskWriterPipeline.InvokeAsync()
-
-# ─────────────────────────────────────────
-# 2. Start background BANDWIDTH runspace (10s loop)
-# ─────────────────────────────────────────
-$bwRunspace = [runspacefactory]::CreateRunspace()
-$bwRunspace.ApartmentState = "STA"
-$bwRunspace.ThreadOptions = "ReuseThread"
-$bwRunspace.Open()
-$bwRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
-$bwRunspace.SessionStateProxy.SetVariable("AppDir", $PSScriptRoot)
-
-$bwScriptBlock = {
-    $bwScriptPath = Join-Path $AppDir "Measure-Bandwidth.ps1"
-    while ($syncHash.Running) {
-        try {
-            $devices = $syncHash.Devices
-            if ($null -ne $devices) {
-                foreach ($ip in $devices) {
-                    if ($syncHash.IsMonitored.ContainsKey($ip) -and -not $syncHash.IsMonitored[$ip]) {
-                        $syncHash.Bandwidth[$ip] = "-"
-                        continue
-                    }
-                    try {
-                        $stInfo = $syncHash.Status[$ip]
-                        if ($null -ne $stInfo -and ($stInfo.status -eq "Success" -or $stInfo.status -eq "Warning")) {
-                            $latVal = if ($null -ne $stInfo.latency -and [double]$stInfo.latency -gt 0) { [double]$stInfo.latency } else { 1.0 }
-                            $effectivePing = [math]::Max(0.1, $latVal)
-                            $syncHash.Bandwidth[$ip] = [string]([math]::Round(1000.0 / $effectivePing * 0.5, 2))
-                        }
-                        else {
-                            $syncHash.Bandwidth[$ip] = "-"
-                        }
-                    }
-                    catch {
-                        $syncHash.Bandwidth[$ip] = "Error"
-                        try {
-                            $errMsg = "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] Bandwidth measure error for ${ip}: $($_.Exception.Message)`r`n"
-                            [System.IO.File]::AppendAllText((Join-Path $AppDir "debug.log"), $errMsg, [System.Text.Encoding]::UTF8)
-                        }
-                        catch {}
-                    }
-                }
-            }
-            Start-Sleep -Seconds 10
-        }
-        catch {
-            Start-Sleep -Seconds 5
-        }
-    }
-}
-$bwPipeline = $bwRunspace.CreatePipeline()
-$null = $bwPipeline.Commands.AddScript($bwScriptBlock)
-$bwAsyncResult = $bwPipeline.InvokeAsync()
 
 # ─────────────────────────────────────────
 # 2.5 Start background SNMP runspace (5s loop)
@@ -3355,7 +3302,6 @@ try {
                             port      = if ($syncHash.Status[$key].ContainsKey('port')) { $syncHash.Status[$key].port } else { 0 }
                             timestamp = $syncHash.Status[$key].timestamp
                         }
-                        $st.bandwidth = if ($syncHash.Bandwidth.ContainsKey($key)) { $syncHash.Bandwidth[$key] } else { "Waiting..." }
                         
                         if ($syncHash.Traffic.ContainsKey($key) -and $null -ne $syncHash.Traffic[$key]) {
                             $st.tx = $syncHash.Traffic[$key].tx
@@ -4739,7 +4685,6 @@ $isNew = $true
                                     }
 
                                     if ($syncHash.Status.ContainsKey($oldIp)) { $syncHash.Status.Remove($oldIp) }
-                                    if ($syncHash.Bandwidth.ContainsKey($oldIp)) { $syncHash.Bandwidth.Remove($oldIp) }
                                     if ($syncHash.Traffic.ContainsKey($oldIp)) { $syncHash.Traffic.Remove($oldIp) }
                                     
                                     if ($syncHash.Community.ContainsKey($oldIp)) { $syncHash.Community.Remove($oldIp) }
@@ -5004,7 +4949,6 @@ $isNew = $true
                                 $syncHash.ObrEnabled.Clear(); $syncHash.ObrPassword.Clear(); $syncHash.ObrStatus.Clear()
                                 if ($syncHash.Remote) { $syncHash.Remote.Clear() }
                                 $syncHash.Status.Clear()
-                                $syncHash.Bandwidth.Clear()
                                 $syncHash.Traffic.Clear()
                                 $syncHash.SnmpDetail.Clear()
                                 $syncHash.History.Clear()
@@ -5426,7 +5370,7 @@ sslWarnDays              = $syncHash.SslWarnDays
                                     $syncHash.SnmpVersion.Clear(); $syncHash.SnmpUser.Clear(); $syncHash.SnmpAuthProto.Clear()
                                     $syncHash.SnmpAuthPass.Clear(); $syncHash.SnmpPrivProto.Clear(); $syncHash.SnmpPrivPass.Clear()
                                     $syncHash.ObrEnabled.Clear(); $syncHash.ObrPassword.Clear(); $syncHash.ObrStatus.Clear()
-                                    $syncHash.Status.Clear(); $syncHash.Stats.Clear(); $syncHash.Bandwidth.Clear()
+                                    $syncHash.Status.Clear(); $syncHash.Stats.Clear()
                                     $syncHash.Traffic.Clear(); $syncHash.SnmpDetail.Clear(); $syncHash.History.Clear()
 
                                     $newArr = [System.Collections.Generic.List[string]]::new()
@@ -7066,7 +7010,6 @@ finally {
     if ($null -ne $diskWriterRunspace) { try { $diskWriterRunspace.Close(); $diskWriterRunspace.Dispose() } catch {} }
     if ($null -ne $trapRunspace) { try { $trapRunspace.Close(); $trapRunspace.Dispose() } catch {} }
     if ($null -ne $obrRunspace) { try { $obrRunspace.Close(); $obrRunspace.Dispose() } catch {} }
-if ($null -ne $bwRunspace) { try { $bwRunspace.Close(); $bwRunspace.Dispose() } catch {} }
     if ($null -ne $snmpRunspace) { try { $snmpRunspace.Close(); $snmpRunspace.Dispose() } catch {} }
     if ($null -ne $macRunspace) { try { $macRunspace.Close(); $macRunspace.Dispose() } catch {} }
     if ($null -ne $snmpDetailRunspace) { try { $snmpDetailRunspace.Close(); $snmpDetailRunspace.Dispose() } catch {} }
