@@ -265,8 +265,10 @@ function Generate-SessionReportHtml {
         # マニュアルのリンクは http / https / file とファイルパスだけを許可する (javascript: 等はリンクにしない)
         $memoUrl = if ($sync.TroubleMemo.ContainsKey($ip)) { ([string]$sync.TroubleMemo[$ip]).Trim() } else { "" }
         if ($memoUrl -match '^[a-zA-Z]:[\\/]' -or $memoUrl.StartsWith('\\')) { $memoUrl = 'file:' + $(if ($memoUrl.StartsWith('\\')) { '' } else { '///' }) + $memoUrl.Replace('\', '/') }
-        elseif ($memoUrl -and $memoUrl -notmatch '^(https?|file):') { $memoUrl = "" }
-        $dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($memoUrl))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
+        elseif ($memoUrl -match '^[a-zA-Z0-9.\-]+:\d+(?:[/?#]|$)') { $memoUrl = "http://$memoUrl" }
+        elseif ($memoUrl -match '^[a-zA-Z][a-zA-Z0-9+.\-]*:' -and $memoUrl -notmatch '^(https?|file):') { $memoUrl = "" }
+        elseif ($memoUrl -and $memoUrl -notmatch '^(https?|file):') { $memoUrl = "http://$memoUrl" }
+$dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($memoUrl))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
         $color   = $palette[$devIdx % $palette.Count]
 
         $totalPings = 0

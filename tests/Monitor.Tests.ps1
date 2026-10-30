@@ -375,6 +375,28 @@ ContentsStart("Connecting Wireless LAN Access Point Information");
         $r.Bssid | Should Be "AA:BB:CC:DD:EE:FF"
     }
 
+    It "無線状態の履歴を CSV に追記でき、SSID の数式は実行されない形で保存されること" {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_ObrHistory_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $rows = @(@{ ip = '10.0.0.1'; name = '車両1'; state = 'Connected'; ssid = '=cmd|calc'; bssid = 'AA:BB'; channel = '6 (2.4GHz), 20MHz'; signalDbm = -47; txBitrate = '144 Mbit/s'; checkedAt = '2026-10-30 20:00:00' })
+            Write-ObrHistoryRows -SessionDir $dir -Rows $rows | Should Be $true
+            $rows2 = @(@{ ip = '10.0.0.1'; name = '車両1'; state = 'Disconnected'; checkedAt = '2026-10-30 20:00:30' })
+            Write-ObrHistoryRows -SessionDir $dir -Rows $rows2 | Should Be $true
+            $path = Join-Path $dir "obr_wireless_10.0.0.1.csv"
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            $bytes[0] | Should Be 0xEF
+            $parsed = @(Get-Content $path -Encoding UTF8 | ConvertFrom-Csv)
+            $parsed.Count | Should Be 2
+            $parsed[0].SSID | Should Be "'=cmd|calc"
+            $parsed[0].チャンネル | Should Be "6 (2.4GHz), 20MHz"
+            $parsed[0]."電波強度_dBm" | Should Be "-47"
+            $parsed[1].状態 | Should Be "Disconnected"
+        } finally {
+            Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It "OBR に接続できないときは Unreachable を返すこと" {
         (Get-ObrWirelessStatus -HostName '127.0.0.9' -Password 'x' -TimeoutMs 1000).State | Should Be 'Unreachable'
     }

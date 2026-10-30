@@ -126,4 +126,49 @@ function Get-ObrWirelessStatus {
     }
 }
 
-Export-ModuleMember -Function ConvertFrom-ObrStatusHtml, Get-ObrWirelessStatus
+function ConvertTo-ObrCsvCell {
+    # CSV の 1 項目にする。SSID は機器の外から決められる文字なので、Excel が数式として実行しないよう先頭に ' を付けて防ぐ
+    param($Value)
+    $text = if ($null -eq $Value) { "" } else { [string]$Value }
+    if ($text -match '^[=+\-@\t\r]' -and $text -notmatch '^-?\d+(\.\d+)?$') { $text = "'" + $text }
+    return '"' + $text.Replace('"', '""') + '"'
+}
+
+function Write-ObrHistoryRows {
+    <#
+    .SYNOPSIS
+        無線状態の履歴を機器ごとの CSV (obr_wireless_IPアドレス.csv) に追記します。
+        Excel で開いても文字化けしないよう UTF-8 (BOM 付き) で保存し、10MB を超えたら _1 に切り替えます。
+    .OUTPUTS
+        すべて書き込めたら $true、失敗したら $false (呼び出し側で次回書き直します)。
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$SessionDir,
+        [Parameter(Mandatory = $true)][object[]]$Rows
+    )
+    $header = "確認日時,IPアドレス,機器名,状態,SSID,アクセスポイント,チャンネル,電波強度_dBm,通信速度`r`n"
+    $withBom = New-Object System.Text.UTF8Encoding($true)
+    $noBom = New-Object System.Text.UTF8Encoding($false)
+    try {
+        foreach ($group in ($Rows | Group-Object { $_.ip })) {
+            $safeIp = $group.Name -replace '[\\/:*?"<>|]', '_'
+            $csvPath = Join-Path $SessionDir "obr_wireless_${safeIp}.csv"
+            if ((Test-Path -LiteralPath $csvPath) -and (Get-Item -LiteralPath $csvPath).Length -gt 10MB) {
+                Move-Item -LiteralPath $csvPath -Destination (Join-Path $SessionDir "obr_wireless_${safeIp}_1.csv") -Force
+            }
+            if (-not (Test-Path -LiteralPath $csvPath)) {
+                [System.IO.File]::WriteAllText($csvPath, $header, $withBom)
+            }
+            $lines = foreach ($row in $group.Group) {
+                (@($row.checkedAt, $row.ip, $row.name, $row.state, $row.ssid, $row.bssid, $row.channel, $row.signalDbm, $row.txBitrate) | ForEach-Object { ConvertTo-ObrCsvCell $_ }) -join ","
+            }
+            [System.IO.File]::AppendAllText($csvPath, (($lines -join "`r`n") + "`r`n"), $noBom)
+        }
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+Export-ModuleMember -Function ConvertFrom-ObrStatusHtml, Get-ObrWirelessStatus, Write-ObrHistoryRows

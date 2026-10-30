@@ -43,6 +43,7 @@ if (Test-Path $modulesDir) {
     Import-Module (Join-Path $modulesDir "PingEngine.psm1") -Force -DisableNameChecking -ErrorAction SilentlyContinue
     Import-Module (Join-Path $modulesDir "IperfRunner.psm1") -Force -DisableNameChecking -ErrorAction SilentlyContinue
     Import-Module (Join-Path $modulesDir "RemoteExec.psm1") -Force -DisableNameChecking -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $modulesDir "ObrStatus.psm1") -Force -DisableNameChecking -ErrorAction SilentlyContinue
 }
 
 # TCPポート監視用: 接続が終わった瞬間の所要時間を測る小さな補助クラス (メモリ内でコンパイルし、exe は作らない)
@@ -142,6 +143,7 @@ $syncHash.SnmpPrivPass = [hashtable]::Synchronized(@{})
 $syncHash.ObrEnabled = [hashtable]::Synchronized(@{})    # OBR の無線接続状況を確認するか (機器ごと)
 $syncHash.ObrPassword = [hashtable]::Synchronized(@{})   # OBR の管理者パスワード (暗号化した形で持つ)
 $syncHash.ObrStatus = [hashtable]::Synchronized(@{})     # OBR の最新の無線接続状況
+$syncHash.ObrHistoryQueue = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())   # CSV へ書き込む前の無線状態の履歴
 
 # Remote execution settings (SSH/WinRM/Custom)
 $syncHash.Remote = [hashtable]::Synchronized(@{})
@@ -244,7 +246,11 @@ if ($null -ne $savedConfig.sslWarnDays) { $syncHash.SslWarnDays = [int]$savedCon
     if ($null -ne $savedConfig.uiMode) { $syncHash.UiMode = [string]$savedConfig.uiMode }
     if ($null -ne $savedConfig.bwThreshMbps) { $syncHash.BwThreshMbps = [double]$savedConfig.bwThreshMbps }
     if ($null -ne $savedConfig.enableParentSuppression) { $syncHash.EnableParentSuppression = [bool]$savedConfig.enableParentSuppression }
-    if ($null -ne $savedConfig.autoShutdownOnDisconnect) { $syncHash.AutoShutdownOnDisconnect = [bool]$savedConfig.autoShutdownOnDisconnect }
+    if ($null -ne $savedConfig.autoShutdownOnDisconnect) {
+        $syncHash.AutoShutdownOnDisconnect = [bool]$savedConfig.autoShutdownOnDisconnect
+        # ファイルに書かれていた値を覚えておく (保存のたびに消えないように。環境変数で一時的に変えた値は保存しない)
+        $syncHash.AutoShutdownInConfig = [bool]$savedConfig.autoShutdownOnDisconnect
+    }
 }
 
 # ─────────────────────────────────────────
@@ -253,16 +259,27 @@ if ($null -ne $savedConfig.sslWarnDays) { $syncHash.SslWarnDays = [int]$savedCon
 # (以前は読めないと空の状態で起動し、次に何かを保存した時点で空の内容で上書きされ、登録済みの機器や設定がすべて消えていた)
 # ─────────────────────────────────────────
 function Read-JsonWithSnapshotFallback([string]$path, [string]$snapshotPrefix) {
+    # 同期ソフトなどが一時的に開いているだけのことがあるので、少し待って読み直す
     $raw = $null
-    try { $raw = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8) } catch { }
-    if ($null -ne $raw) {
-        if ([string]::IsNullOrWhiteSpace($raw)) { return @{ ok = $true; empty = $true; data = $null } }
+    for ($attempt = 0; $attempt -lt 5 -and $null -eq $raw; $attempt++) {
+        try { $raw = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8) }
+        catch { Start-Sleep -Milliseconds 500 }
+    }
+    # 読めないだけならファイルは正しいかもしれない。その場合は監視を続けるが、上書きしないよう readFailed を返して保存を止める
+    $readFailed = ($null -eq $raw)
+    if (-not $readFailed -and -not [string]::IsNullOrWhiteSpace($raw)) {
         try { return @{ ok = $true; data = ($raw | ConvertFrom-Json -ErrorAction Stop) } } catch { }
     }
-    $brokenCopy = "$path.broken_$((Get-Date).ToString('yyyyMMdd_HHmmss'))"
-    try { Copy-Item -LiteralPath $path -Destination $brokenCopy -Force -ErrorAction Stop } catch { $brokenCopy = "" }
-    Write-Host "[WARNING] $([System.IO.Path]::GetFileName($path)) is broken and cannot be read. Saved a copy: $brokenCopy" -ForegroundColor Red
-    if (Test-Path -LiteralPath $syncHash.BackupDir) {
+    if ($readFailed) {
+        Write-Host "[WARNING] $([System.IO.Path]::GetFileName($path)) cannot be opened. Saving is disabled to protect the file." -ForegroundColor Red
+    }
+    else {
+        # 中身が壊れている、または空 (書き込み途中で止まったときなど)
+        $brokenCopy = "$path.broken_$((Get-Date).ToString('yyyyMMdd_HHmmss'))"
+        try { Copy-Item -LiteralPath $path -Destination $brokenCopy -Force -ErrorAction Stop } catch { $brokenCopy = "" }
+        Write-Host "[WARNING] $([System.IO.Path]::GetFileName($path)) is broken and cannot be read. Saved a copy: $brokenCopy" -ForegroundColor Red
+    }
+if (Test-Path -LiteralPath $syncHash.BackupDir) {
         # 新しい順 = ファイル名 (日時) の降順 (更新日時はコピー元のものが引き継がれるため使わない)
         $snaps = Get-ChildItem -LiteralPath $syncHash.BackupDir -Filter "${snapshotPrefix}_*.json" -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending
         foreach ($s in $snaps) {
@@ -270,23 +287,29 @@ function Read-JsonWithSnapshotFallback([string]$path, [string]$snapshotPrefix) {
                 $snapData = [System.IO.File]::ReadAllText($s.FullName, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop
                 if ($null -ne $snapData) {
                     Write-Host "[RECOVERED] Loaded the latest readable snapshot instead: $($s.Name)" -ForegroundColor Yellow
-                    return @{ ok = $true; data = $snapData; recoveredFrom = $s.Name }
-                }
+                    return @{ ok = $true; data = $snapData; recoveredFrom = $s.Name; readFailed = $readFailed }
+}
             }
             catch { }
         }
     }
-    return @{ ok = $false; data = $null }
+    return @{ ok = $false; data = $null; readFailed = $readFailed }
 }
 
 # config.json を安全に保存する: 変更前の内容をスナップショットに退避し、一時ファイルに書いてから置き換える
 # (直接上書きすると、書き込み途中で止まったとき (ドライブの同期遅延・PCの電源断など) にファイルが壊れ、
 #  一括復元時はスナップショットも取っていなかったため、元の設定に戻せなかった)
-function Save-ConfigJsonSafely($configData) {
-    if (Test-Path -LiteralPath $configFileJson) {
-        $null = Backup-ConfigSnapshot -targetFilePath $configFileJson -backupDir $syncHash.BackupDir -minIntervalSec 60
+function Save-ConfigJsonSafely($configData, [switch]$AlwaysSnapshot) {
+    # 起動時に config.json を読めなかったときは、読めなかっただけの正しいファイルを上書きしないよう保存しない
+    if ($syncHash.ConfigLoadFailed) {
+        try { [System.IO.File]::AppendAllText((Join-Path $PSScriptRoot "debug.log"), "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] config.json save skipped: the file could not be read at startup`r`n", [System.Text.Encoding]::UTF8) } catch {}
+        return
     }
-    $tmpFile = "$configFileJson.$([Guid]::NewGuid().ToString('N')).tmp"
+    if (Test-Path -LiteralPath $configFileJson) {
+        # 画面の操作ごとの保存は 1 分に 1 回に間引く。一括復元の前は必ず取る
+        $null = Backup-ConfigSnapshot -targetFilePath $configFileJson -backupDir $syncHash.BackupDir -minIntervalSec $(if ($AlwaysSnapshot) { 0 } else { 60 })
+    }
+$tmpFile = "$configFileJson.$([Guid]::NewGuid().ToString('N')).tmp"
     try {
         $configData | ConvertTo-Json -Depth 5 | Out-File -FilePath $tmpFile -Encoding UTF8
         Move-Item -LiteralPath $tmpFile -Destination $configFileJson -Force
@@ -299,7 +322,8 @@ function Save-ConfigJsonSafely($configData) {
 # Load Config from file if exists
 if (Test-Path $configFileJson) {
     $cfgRead = Read-JsonWithSnapshotFallback $configFileJson "config"
-    if ($cfgRead.ok -and $null -ne $cfgRead.data) {
+    if ($cfgRead.readFailed) { $syncHash.ConfigLoadFailed = $true }
+if ($cfgRead.ok -and $null -ne $cfgRead.data) {
         Import-ConfigToSyncHash $cfgRead.data
         Write-Host "Config loaded from $configFileJson" -ForegroundColor Green
     }
@@ -585,10 +609,11 @@ $cleanLines = [System.Collections.Generic.List[string]]::new()
 if (Test-Path $devicesFileJson) {
     try {
         $devRead = Read-JsonWithSnapshotFallback $devicesFileJson "devices"
+        if ($devRead.readFailed) { $syncHash.DevicesLoadFailed = $true }
         if (-not $devRead.ok) {
             # 復元もできないときは、空の一覧で上書きして全機器が消えないよう、保存を止めて起動する
             $syncHash.DevicesLoadFailed = $true
-            Write-Host "[ERROR] devices.json and all snapshots are unreadable. Device saving is disabled to protect the file." -ForegroundColor Red
+Write-Host "[ERROR] devices.json and all snapshots are unreadable. Device saving is disabled to protect the file." -ForegroundColor Red
         }
         $jsonContent = $devRead.data
         if ($null -ne $jsonContent) {
@@ -687,7 +712,10 @@ $syncHash.Devices = $cleanLines.ToArray()
 
 $saveDevicesJsonScript = {
     function Save-DevicesJson {
-        # 起動時に devices.json もスナップショットも読めなかった場合は、空の一覧で上書きして機器が全部消えないよう保存しない
+        # -Routine: 機器のドラッグや自動検出のような頻繁な保存。スナップショットは 1 分に 1 回に間引く
+        # それ以外 (追加・編集・削除・インポートなど) は、元に戻せるよう必ずスナップショットを取る
+        param([switch]$Routine)
+# 起動時に devices.json もスナップショットも読めなかった場合は、空の一覧で上書きして機器が全部消えないよう保存しない
         if ($syncHash.DevicesLoadFailed) {
             try { [System.IO.File]::AppendAllText((Join-Path $syncHash.PSScriptRoot "debug.log"), "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] Save-DevicesJson skipped: devices.json could not be loaded at startup`r`n", [System.Text.Encoding]::UTF8) } catch {}
             return
@@ -755,8 +783,8 @@ $saveDevicesJsonScript = {
                         $jsonStr | Out-File -FilePath $tmpFile -Encoding UTF8
                         # 変更前の devices.json を自動スナップショット退避
                         if (Test-Path $devicesFileJson) {
-                            $null = Backup-ConfigSnapshot -targetFilePath $devicesFileJson -backupDir $syncHash.BackupDir -minIntervalSec 60
-                        }
+                            $null = Backup-ConfigSnapshot -targetFilePath $devicesFileJson -backupDir $syncHash.BackupDir -minIntervalSec $(if ($Routine) { 60 } else { 0 })
+}
                         Move-Item -Path $tmpFile -Destination $devicesFileJson -Force
                         break
                     }
@@ -1105,7 +1133,8 @@ function Initialize-DeviceLog {
                 JitterCount      = 0      # セッション累計ジッター計測回数
                 PreviousStatus   = "Initial"
                 OfflineNotified  = $false  # 障害通知 (Webhook/メール) を実際に送ったか。送った機器にだけ復旧通知を送る
-            })
+                PendingOfflineAlert = $false  # 親機器の障害で通知を抑止中。親が復旧しても止まったままなら、その時点で通知する
+})
     }
     
     if ($syncHash.LoggingEnabled -eq $false) {
@@ -1451,7 +1480,14 @@ $pingScript = {
 
             $csvLine = "`"$ts`",`"$ip`",`"$st`",`"$lat`",`"$bw`",`"$txStr`",`"$rxStr`",`"$outageSec`",`"$jitterVal`""
             if ($syncHash.History.ContainsKey($ip)) {
-                $null = $syncHash.History[$ip].Add($csvLine)
+                $historyQueue = $syncHash.History[$ip]
+                $null = $historyQueue.Add($csvLine)
+                # ドライブへの書き込みが止まったままだと保存処理側の上限が働かないので、ここでも古い記録を捨てて増えすぎを防ぐ
+                if ($historyQueue.Count -gt 5500) {
+                    [System.Threading.Monitor]::Enter($historyQueue.SyncRoot)
+                    try { $historyQueue.RemoveRange(0, $historyQueue.Count - 5000) }
+                    finally { [System.Threading.Monitor]::Exit($historyQueue.SyncRoot) }
+                }
             }
 
             # Update stats
@@ -1539,6 +1575,7 @@ $pingScript = {
                         }
                         $stats.PreviousStatus = "Success"
                         $stats.OfflineNotified = $false
+                        $stats.PendingOfflineAlert = $false
 
                         # Device recovered from offline: finalize outage duration & check thresholds
                         if ($null -ne $stats.OutageStartTime -or $stats.CurrentOutageSec -gt 0) {
@@ -1621,10 +1658,11 @@ $pingScript = {
                     }
                     elseif ($syncHash.Status[$ip].rawStatus -ne "Success") {
                         # Webhook & Email on failure (Online -> Offline) only if not suppressed by parent offline
-                        if (($st -eq "Failed" -or $st -eq "Error") -and $stats.PreviousStatus -eq "Success") {
+                        if (($st -eq "Failed" -or $st -eq "Error") -and ($stats.PreviousStatus -eq "Success" -or $stats.PendingOfflineAlert)) {
                             if (-not $isSuppressed) {
                                 $stats.OfflineNotified = $true
-                                if ($syncHash.WebhookEnabled) {
+                                $stats.PendingOfflineAlert = $false
+if ($syncHash.WebhookEnabled) {
                                     $webhookUrl = $syncHash.WebhookUrl
                                     $capturedName = $devName; $capturedIp = $ip
                                     $psWh = [powershell]::Create().AddScript({
@@ -1654,10 +1692,11 @@ $pingScript = {
                                     $null = $alertJobs.Add(@{ PS = $psEm; Handle = $psEm.BeginInvoke() })
                                 }
                             }
-                            else {
+                            elseif (-not $stats.PendingOfflineAlert) {
+                                $stats.PendingOfflineAlert = $true
                                 Write-Host "Alert suppressed for $ip (Parent device is down)" -ForegroundColor Yellow
                             }
-                        }
+}
                         if ($st -eq "Failed" -or $st -eq "Error") { $stats.PreviousStatus = "Failed" }
 
                         $stats.Failed = $stats.Failed + 1
@@ -1709,8 +1748,10 @@ $diskWriterRunspace.ThreadOptions = "ReuseThread"
 $diskWriterRunspace.Open()
 $diskWriterRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
 $diskWriterScript = {
+    Import-Module (Join-Path $syncHash.PSScriptRoot "modules\ObrStatus.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
+    $lastObrFlushTime = [DateTime]::Now
     $lastFlushTime = [DateTime]::Now
-    $lastCheckpointTime = [DateTime]::Now   # 60秒ごとに Stats を _checkpoint.json へ保存
+$lastCheckpointTime = [DateTime]::Now   # 60秒ごとに Stats を _checkpoint.json へ保存
     while ($syncHash.Running) {
         # Real-time 10-second log flush to disk (reduces disk I/O significantly for up to 50 devices)
         if (([DateTime]::Now - $lastFlushTime).TotalSeconds -ge 10.0) {
@@ -1780,12 +1821,20 @@ $diskWriterScript = {
                         }
 
                         if ($writeSuccess) {
+                            $syncHash.LastDiskWriteUtc = [DateTime]::UtcNow
                             [System.Threading.Monitor]::Enter($historyList.SyncRoot)
-                            try {
-                                if ($historyList.Count -ge $linesToSave.Count) {
-                                    $historyList.RemoveRange(0, $linesToSave.Count)
+try {
+                                # 保存した分だけ取り除く。書き込み中に古い記録が捨てられていても、未保存の新しい記録を消さないよう
+                                # 保存した最後の行の位置を探して、そこまでを取り除く
+                                $lastSaved = $linesToSave[$linesToSave.Count - 1]
+                                $searchEnd = [math]::Min($historyList.Count, $linesToSave.Count) - 1
+                                for ($idx = $searchEnd; $idx -ge 0; $idx--) {
+                                    if ([object]::ReferenceEquals($historyList[$idx], $lastSaved)) {
+                                        $historyList.RemoveRange(0, $idx + 1)
+                                        break
+                                    }
                                 }
-                            }
+}
                             finally {
                                 [System.Threading.Monitor]::Exit($historyList.SyncRoot)
                             }
@@ -1844,6 +1893,19 @@ $diskWriterScript = {
         }
 
 
+        # OBR の無線状態の履歴 (10 秒ごと)。書き込めなかった分は待ち行列に戻して次回書き直す
+        if (([DateTime]::Now - $lastObrFlushTime).TotalSeconds -ge 10.0 -and $syncHash.ObrHistoryQueue.Count -gt 0) {
+            $lastObrFlushTime = [DateTime]::Now
+            $obrQueue = $syncHash.ObrHistoryQueue
+            [System.Threading.Monitor]::Enter($obrQueue.SyncRoot)
+            try { $obrRows = $obrQueue.ToArray(); $obrQueue.Clear() }
+            finally { [System.Threading.Monitor]::Exit($obrQueue.SyncRoot) }
+            if (-not (Write-ObrHistoryRows -SessionDir $syncHash.SessionDir -Rows $obrRows)) {
+                [System.Threading.Monitor]::Enter($obrQueue.SyncRoot)
+                try { $obrQueue.InsertRange(0, $obrRows) }
+                finally { [System.Threading.Monitor]::Exit($obrQueue.SyncRoot) }
+            }
+        }
         Start-Sleep -Milliseconds 500
     }
 }
@@ -2273,8 +2335,8 @@ $macScriptBlock = {
                     $changed = $true
                 }
             }
-            if ($changed) { Save-DevicesJson }
-        }
+            if ($changed) { Save-DevicesJson -Routine }
+}
         Start-Sleep -Seconds 2
     }
 }
@@ -2585,7 +2647,7 @@ $snmpDetailScriptBlock = {
         }
 
         if ($changed) {
-            Save-DevicesJson
+            Save-DevicesJson -Routine
         }
     }
 
@@ -2878,6 +2940,28 @@ $obrScriptBlock = {
 
     $nextCheck = @{}      # 機器ごとの次の確認時刻
     $lastPassword = @{}   # パスワードが変わったらすぐ確認し直すために覚えておく
+    # 確認結果を履歴の待ち行列に入れる (ファイルへの書き込みは記録専用スレッドが行うので、ドライブが止まっても確認は止まらない)
+    $addObrHistory = {
+        param($deviceIp, $entry)
+        if ($syncHash.LoggingEnabled -eq $false) { return }
+        $queue = $syncHash.ObrHistoryQueue
+        $null = $queue.Add(@{
+                ip        = $deviceIp
+                name      = if ($syncHash.DeviceName.ContainsKey($deviceIp)) { $syncHash.DeviceName[$deviceIp] } else { $deviceIp }
+                state     = $entry.state
+                ssid      = $entry.ssid
+                bssid     = $entry.bssid
+                channel   = $entry.channel
+                signalDbm = $entry.signalDbm
+                txBitrate = $entry.txBitrate
+                checkedAt = $entry.checkedAt
+            })
+        if ($queue.Count -gt 5500) {
+            [System.Threading.Monitor]::Enter($queue.SyncRoot)
+            try { $queue.RemoveRange(0, $queue.Count - 5000) }
+            finally { [System.Threading.Monitor]::Exit($queue.SyncRoot) }
+        }
+    }
 
     while ($syncHash.Running) {
         $now = [DateTime]::UtcNow
@@ -2913,7 +2997,8 @@ $obrScriptBlock = {
             $pingEntry = if ($syncHash.Status.ContainsKey($ip)) { $syncHash.Status[$ip] } else { $null }
             if ($null -ne $pingEntry -and $pingEntry.status -in @("Failed", "Error")) {
                 $syncHash.ObrStatus[$ip] = @{ state = "Unreachable"; checkedAt = $checkedAt }
-                continue
+                & $addObrHistory $ip $syncHash.ObrStatus[$ip]
+continue
             }
             try {
                 $obr = Get-ObrWirelessStatus -HostName $ip -Password $password
@@ -2926,12 +3011,14 @@ $obrScriptBlock = {
                     txBitrate = $obr.TxBitrate
                     checkedAt = $checkedAt
                 }
+                & $addObrHistory $ip $syncHash.ObrStatus[$ip]
                 # パスワードが違うときは 5 分おきにする (短い間隔で失敗を繰り返すと機器側で拒否される恐れがあるため)
-                if ($obr.State -eq "LoginFailed") { $nextCheck[$ip] = $now.AddMinutes(5) }
+if ($obr.State -eq "LoginFailed") { $nextCheck[$ip] = $now.AddMinutes(5) }
             }
             catch {
                 $syncHash.ObrStatus[$ip] = @{ state = "Unreachable"; checkedAt = $checkedAt }
-            }
+                & $addObrHistory $ip $syncHash.ObrStatus[$ip]
+}
         }
         Start-Sleep -Seconds 1
     }
@@ -4144,7 +4231,6 @@ $isNew = $true
                                     }
                                 }
                             }
-                            Save-DevicesJson
                         }
                         finally {
                             [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
@@ -4841,7 +4927,7 @@ $isNew = $true
                                     $syncHash.Y[$ip] = $item.y
                                 }
                             }
-                            Save-DevicesJson
+                            Save-DevicesJson -Routine
                         }
                         finally {
                             [System.Threading.Monitor]::Exit($syncHash.DevicesLock)
@@ -5266,9 +5352,12 @@ sslWarnDays              = $syncHash.SslWarnDays
                             bwThreshMbps             = $syncHash.BwThreshMbps
                             enableParentSuppression  = $syncHash.EnableParentSuppression
                         }
+                        # 画面に項目がない無人運用の設定は、config.json に書かれていた値をそのまま保つ
+                        # (以前は保存のたびに消え、次の再起動で「ブラウザを閉じたら終了」に戻っていた)
+                        if ($null -ne $syncHash.AutoShutdownInConfig) { $configObj.autoShutdownOnDisconnect = $syncHash.AutoShutdownInConfig }
                         # 変更前の config.json をスナップショットに退避してから、一時ファイル経由で安全に置き換える
                         Save-ConfigJsonSafely $configObj
-                    }
+}
                     catch {
                         Write-Host "Failed to save config.json: $_" -ForegroundColor Red
                     }
@@ -5310,8 +5399,8 @@ sslWarnDays              = $syncHash.SslWarnDays
                             # ファイルにだけ書かれて次の設定保存で失われていた)
                             Import-ConfigToSyncHash $cfg
 
-                            Save-ConfigJsonSafely $cfg
-                        }
+                            Save-ConfigJsonSafely $cfg -AlwaysSnapshot
+}
                         
                         # 2. Restore devices.json if present
                         # 以前のバージョンで書き出したバックアップは機器一覧が {"value":[...]} で包まれているので取り出す
@@ -6827,7 +6916,9 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                         monitoredDevices = if ($syncHash.Devices) { $syncHash.Devices.Count } else { 0 }
                         lastPingLoopUtc  = $lastPing.ToString("o")
                         pingAgeSec       = $pingAgeSec
-                        sessionDir       = $syncHash.SessionDir
+                        # 最後にログを保存できてからの秒数 (ドライブの書き込みが止まっていないかの目安)
+                        diskWriteAgeSec  = if ($syncHash.LastDiskWriteUtc) { [math]::Round(($nowUtc - $syncHash.LastDiskWriteUtc).TotalSeconds, 1) } else { $null }
+sessionDir       = $syncHash.SessionDir
                         sessionTimestamp = $syncHash.SessionTimestamp
                     }
                     $statusCode = if ($isHealthy) { 200 } else { 503 }
@@ -6981,8 +7072,13 @@ if ($null -ne $bwRunspace) { try { $bwRunspace.Close(); $bwRunspace.Dispose() } 
     if ($null -ne $snmpDetailRunspace) { try { $snmpDetailRunspace.Close(); $snmpDetailRunspace.Dispose() } catch {} }
     if ($null -ne $asyncWorkerPool) { try { $asyncWorkerPool.Close(); $asyncWorkerPool.Dispose() } catch {} }
 
+    # 終了時に、まだ書き込んでいない OBR の無線状態の履歴を保存する
+    if ($syncHash.ObrHistoryQueue.Count -gt 0) {
+        try { $null = Write-ObrHistoryRows -SessionDir $syncHash.SessionDir -Rows $syncHash.ObrHistoryQueue.ToArray() } catch {}
+    }
+
     # Save remaining history and append summary block for each device
-    $devices = $syncHash.Devices
+$devices = $syncHash.Devices
     if ($syncHash.LoggingEnabled -ne $false -and $null -ne $devices) {
         foreach ($ip in $devices) {
             $safeIp = $ip -replace '[\\/:*?"<>|]', '_'

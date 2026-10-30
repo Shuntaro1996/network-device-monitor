@@ -247,6 +247,8 @@ flowchart LR
   {
     "ip": "192.168.1.1",
     "name": "Core-RT01",
+    "obrEnabled": false,
+    "obrPassword": "enc:...",
     "community": "public",
     "group": "Core Network",
     "enabled": true,
@@ -326,7 +328,11 @@ flowchart LR
   "smtpTo": "admin@example.com",
   "emailEnabled": false,
   "soundEnabled": true,
-  "soundVolume": 0.8
+  "soundVolume": 0.8,
+  "syslogEnabled": true,
+  "syslogPort": 514,
+  "trapPort": 162,
+  "autoShutdownOnDisconnect": true
 }
 ```
 
@@ -563,6 +569,7 @@ sequenceDiagram
 機器ごとの設定 `obrEnabled` / `obrPassword`（DPAPI で暗号化して `devices.json` に保存）が有効な機器について、無線の接続状況を確認します。
 * **結果**: `/api/status` の各機器の `obr` に `state`（`Connected` / `Disconnected` / `LoginFailed` / `Unreachable` / `NoPassword` / `DecryptFailed`）、`ssid`、`bssid`、`channel`、`signalDbm`、`txBitrate`、`checkedAt` を返す。
 * **表示**: 機器カードと構成図のノード。構成図のノードでは通信量の表示位置に無線状況を出し、通信量はツールチップに残す。`Disconnected` は画面のアラートと音で通知する（Webhook・メールは送らない）。
+* **履歴**: 確認結果を記録専用スレッドがセッションフォルダの `obr_wireless_<IP>.csv`（UTF-8 BOM 付き、10MB で `_1` へ切り替え）に追記する。`loggingEnabled` が false のときは記録しない。パスワード未設定・復号不可の状態は確認していないので記録しない。
 * **注意**: OBR との通信は平文の HTTP。ログイン回数を減らすため、状態ページを読めるあいだは再ログインしない。
 
 ### 3.6.1 SNMP Trap 受信エンジン

@@ -141,8 +141,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (/^(https?|file):/i.test(u)) return u;
         if (/^\\\\/.test(u)) return 'file:' + u.replace(/\\/g, '/');            // \\server\share → file://server/share
         if (/^[a-zA-Z]:[\\/]/.test(u)) return 'file:///' + u.replace(/\\/g, '/'); // C:\docs → file:///C:/docs
+        if (/^[a-zA-Z0-9.\-]+:\d+(?:[/?#]|$)/.test(u)) return 'http://' + u;      // printer.local:8080 のような「名前:ポート番号」
         if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(u)) return '';
-        return 'http://' + u;
+return 'http://' + u;
     }
 
     // Utility function to escape XML/SVG special characters
@@ -170,12 +171,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const parents = dev.connectedTo.split(',').map(p => p.trim()).filter(p => p);
         if (parents.length === 0) return false;
 
-        // If ALL parents are offline/paused/failed/unreachable, suppress this alert
+        // 親機器がすべて障害中のときだけ抑止する (サーバー側の判定と同じ)
+        // 親を一時停止しただけ・状態がまだ分からないときは、子機器の異常を隠さない
         return parents.every(parentIp => {
             const pStatus = window.lastStatusData ? window.lastStatusData[parentIp] : null;
-            return !pStatus || pStatus.status === 'Failed' || pStatus.status === 'Paused' || pStatus.status === 'Error' || pStatus.status === 'Offline' || pStatus.isSuppressed;
+            return !!pStatus && ['Failed', 'Error', 'Offline'].includes(pStatus.status);
         });
-    }
+}
 
     // =========================================================
     // Toast Notification System
@@ -4751,6 +4753,10 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
             }
             return '#ef4444'; // 単独障害（赤）
         }
+        // 警告 (遅延・揺らぎ・パケットロス) は応答がある状態なので、一時停止と同じ灰色にせず黄色で表示する
+        if (data.status === "Warning") {
+            return (data.latency !== null && data.latency >= threshLatency) ? '#ef4444' : '#f59e0b';
+        }
         if (data.status === "Success" && data.latency !== null) {
             if (data.latency >= threshLatency) return '#ef4444';
             if (data.latency >= threshLatency * 0.7) return '#f59e0b';
@@ -5956,9 +5962,14 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
     const topoNodeRenderCache = {};
     const topoEdgeRenderCache = {};
 
+    let lastTopologyUpdateMs = 0;
     function updateTopologyStatus() {
         if (!networkInstance || !nodesDataSet || !viewTopology.classList.contains('active')) return;
-        const activeDevices = devices.filter(d => d.enabled !== false);
+        // 全機器の図を作り直す重い処理なので 1 秒に 1 回までにする (超高頻度モードの 0.2 秒更新で画面が重くならないように)
+        const nowMs = Date.now();
+        if (nowMs - lastTopologyUpdateMs < 1000) return;
+        lastTopologyUpdateMs = nowMs;
+const activeDevices = devices.filter(d => d.enabled !== false);
         activeDevices.forEach(d => {
             let statusData = window.lastStatusData ? window.lastStatusData[d.ip] : null;
 
@@ -7371,8 +7382,9 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
 
             if (item.enabled !== undefined) {
                 const flag = item.enabled.toLowerCase();
-                if (['有効', 'on', 'true', '1', ''].includes(flag)) item.enabled = true;
-                else if (['無効', 'off', 'false', '0'].includes(flag)) item.enabled = false;
+                if (flag === '') delete item.enabled;   // 空欄は「変更しない」(一時停止中の機器が勝手に再開しないように)
+                else if (['有効', 'on', 'true', '1'].includes(flag)) item.enabled = true;
+else if (['無効', 'off', 'false', '0'].includes(flag)) item.enabled = false;
                 else { errors.push(`${lineNo}行目: 「監視」は 有効 / 無効 で指定してください (${item.enabled})`); return; }
             }
             if (item.obrEnabled !== undefined) {
