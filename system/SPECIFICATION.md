@@ -168,7 +168,7 @@ flowchart TB
 | **Runspace 3: SNMP Basic** | SNMPトラフィック（In/Out Octets）およびエラー（Errors/Discards）収集、バックオフ制御 | 設定間隔（5秒 〜 30秒） | バックグラウンド Runspace |
 | **Runspace 4: SNMP Detail** | インターフェースリンク速度、Wi-Fi周波数帯、CDP/LLDP隣接機器収集、トポロジー自動親子付け | 30秒固定周期 | バックグラウンド Runspace |
 | **Runspace 5: Syslog** | UDP 514 / 1514 ポートでの Syslog パケット受信、パース、キュー格納 | UDPパケット受信時（即時） | バックグラウンド Runspace |
-| **OBR Status** | OBR の無線接続状況の取得（`ObrStatus.psm1`）。状態ページを読めないときだけ `POST /index.htm`（`LOGIN_PASSWORD`）でログインし、`GET /public/stat/wlstast_main.htm?lang=en` の `stainfo` を読む。プロキシは使わない。パスワード誤り時は 5 分間隔に落とす | 機器ごとに 30 秒 | バックグラウンド Runspace |
+| **OBR Status** | OBR の無線接続状況の取得（`ObrStatus.psm1`）。状態ページを読めないときだけ `POST /index.htm`（`LOGIN_PASSWORD`）でログインし、`GET /public/stat/wlstast_main.htm?lang=en` の `stainfo` を読む。プロキシは使わない。パスワード誤り時は 5 分間隔に落とす | 機器ごとに 10 秒 | バックグラウンド Runspace |
 | **Runspace 1b: Disk Writer** | メモリ上のキューから CSV ログへの追記（10MB で世代交代）、統計チェックポイント `_checkpoint.json` の保存。ドライブの書き込みが止まっても Ping 監視を止めないよう分離 | CSV: 10秒 / チェックポイント: 60秒 | バックグラウンド Runspace |
 | **Runspace 6: Watchdog** | コンソールキー入力検知（Enterキー停止）、ブラウザハートビート監視（60秒無通信で自動保存＆終了） | 200ms 周期 | バックグラウンド Runspace |
 | **ThreadPool Workers** | IPレンジスキャン、Traceroute、SNMP詳細クエリ、Webhook送信、メール送信 | APIリクエスト時に動的生成 | .NET ThreadPool |

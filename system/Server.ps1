@@ -2866,7 +2866,7 @@ $null = $trapPipeline.Commands.AddScript($trapScriptBlock)
 $trapAsyncResult = $trapPipeline.InvokeAsync()
 
 # ─────────────────────────────────────────
-# 2.12 OBR の無線接続状況を確認するスレッド (機器ごとに 30 秒間隔)
+# 2.12 OBR の無線接続状況を確認するスレッド (機器ごとに 10 秒間隔)
 # 確認に時間がかかっても監視や画面を止めないよう、別スレッドで動かす
 # ─────────────────────────────────────────
 $obrRunspace = [runspacefactory]::CreateRunspace()
@@ -2922,7 +2922,7 @@ $obrScriptBlock = {
                 $nextCheck.Remove($ip)
             }
             if ($nextCheck.ContainsKey($ip) -and $now -lt $nextCheck[$ip]) { continue }
-            $nextCheck[$ip] = $now.AddSeconds(30)
+            $nextCheck[$ip] = $now.AddSeconds(10)
 
             $checkedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
             if ([string]::IsNullOrEmpty($cipher)) {
