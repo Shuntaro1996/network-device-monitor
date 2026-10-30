@@ -183,11 +183,24 @@ $syncHash.SmtpTo = ""
 # Syslog settings
 $syncHash.SyslogEnabled = $true
 $syncHash.SyslogPort = 514
+$syncHash.TrapPort = 162   # SNMP Trap の受信ポート (使えないときは 1162 で代わりに受信)
 $syncHash.SslWarnDays = 30
 $syncHash.UiMode = "detail"
 $syncHash.BwThreshMbps = 10.0
 $syncHash.EnableParentSuppression = $true
     
+# 暗号化パスワードを復号する。別の Windows ユーザー (SYSTEM など) で起動して復号できないときは、暗号化された形のまま残す
+# (空にすると、次の保存でパスワードが消えてしまい、正しいユーザーで起動し直しても戻せなくなるため)
+function Unprotect-SecretOrKeep([string]$cipherText) {
+    $plain = Unprotect-SecretString $cipherText
+    if ($cipherText.StartsWith("enc:") -and [string]::IsNullOrEmpty($plain)) {
+        Write-Host "[WARNING] 保存済みのパスワードを復号できません。パスワードを保存した Windows ユーザーで起動してください (現在: $([Environment]::UserName))" -ForegroundColor Red
+        try { [System.IO.File]::AppendAllText((Join-Path $PSScriptRoot "debug.log"), "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] Could not decrypt a saved password as user '$([Environment]::UserName)'. Start the monitor as the Windows user who saved it. The encrypted value is kept unchanged.`r`n", [System.Text.Encoding]::UTF8) } catch {}
+        return $cipherText
+    }
+    return $plain
+}
+
 # config.json の内容を $syncHash へ反映する (起動時とスナップショット復元時の共通処理)
 # ※ 以前は復元時に config.json を書き戻すだけで実行中の設定へ反映されず、次の設定保存で復元前の値に戻っていた
 function Import-ConfigToSyncHash($savedConfig) {
@@ -218,12 +231,13 @@ function Import-ConfigToSyncHash($savedConfig) {
     if ($null -ne $savedConfig.smtpUser) { $syncHash.SmtpUser = [string]$savedConfig.smtpUser }
     if ($null -ne $savedConfig.smtpPass) {
         # DPAPI復号（平文であればそのまま読み込まれ、保存時に暗号化）
-        $syncHash.SmtpPass = Unprotect-SecretString ([string]$savedConfig.smtpPass)
-    }
+        $syncHash.SmtpPass = Unprotect-SecretOrKeep ([string]$savedConfig.smtpPass)
+}
     if ($null -ne $savedConfig.smtpFrom) { $syncHash.SmtpFrom = [string]$savedConfig.smtpFrom }
     if ($null -ne $savedConfig.smtpTo) { $syncHash.SmtpTo = [string]$savedConfig.smtpTo }            if ($null -ne $savedConfig.syslogEnabled) { $syncHash.SyslogEnabled = [bool]$savedConfig.syslogEnabled }
     if ($null -ne $savedConfig.syslogPort) { $syncHash.SyslogPort = [int]$savedConfig.syslogPort }
-    if ($null -ne $savedConfig.sslWarnDays) { $syncHash.SslWarnDays = [int]$savedConfig.sslWarnDays }
+    if ($null -ne $savedConfig.trapPort) { $syncHash.TrapPort = [int]$savedConfig.trapPort }
+if ($null -ne $savedConfig.sslWarnDays) { $syncHash.SslWarnDays = [int]$savedConfig.sslWarnDays }
     if ($null -ne $savedConfig.uiMode) { $syncHash.UiMode = [string]$savedConfig.uiMode }
     if ($null -ne $savedConfig.bwThreshMbps) { $syncHash.BwThreshMbps = [double]$savedConfig.bwThreshMbps }
     if ($null -ne $savedConfig.enableParentSuppression) { $syncHash.EnableParentSuppression = [bool]$savedConfig.enableParentSuppression }
@@ -601,9 +615,9 @@ if (Test-Path $devicesFileJson) {
                     $syncHash.SnmpVersion[$ip] = if ($null -ne $d.snmpVersion) { [string]$d.snmpVersion } else { "v2c" }
                     $syncHash.SnmpUser[$ip] = if ($null -ne $d.snmpUser) { [string]$d.snmpUser } else { "" }
                     $syncHash.SnmpAuthProto[$ip] = if ($null -ne $d.snmpAuthProto) { [string]$d.snmpAuthProto } else { "none" }
-                    $syncHash.SnmpAuthPass[$ip] = if ($null -ne $d.snmpAuthPass) { Unprotect-SecretString ([string]$d.snmpAuthPass) } else { "" }
-                    $syncHash.SnmpPrivProto[$ip] = if ($null -ne $d.snmpPrivProto) { [string]$d.snmpPrivProto } else { "none" }
-                    $syncHash.SnmpPrivPass[$ip] = if ($null -ne $d.snmpPrivPass) { Unprotect-SecretString ([string]$d.snmpPrivPass) } else { "" }
+                    $syncHash.SnmpAuthPass[$ip] = if ($null -ne $d.snmpAuthPass) { Unprotect-SecretOrKeep ([string]$d.snmpAuthPass) } else { "" }
+$syncHash.SnmpPrivProto[$ip] = if ($null -ne $d.snmpPrivProto) { [string]$d.snmpPrivProto } else { "none" }
+                    $syncHash.SnmpPrivPass[$ip] = if ($null -ne $d.snmpPrivPass) { Unprotect-SecretOrKeep ([string]$d.snmpPrivPass) } else { "" }
 
                     # Load Remote execution configuration
                     if ($null -ne $d.remote) {
@@ -2692,6 +2706,7 @@ $syslogScriptBlock = {
                     SourceIP  = $srcIp
                     Severity  = $severity
                     Message   = $cleanMsg
+                    Kind      = "Syslog"
                 }
 
                 [System.Threading.Monitor]::Enter($syncHash.SyslogQueue.SyncRoot)
@@ -2724,6 +2739,123 @@ $null = $syslogPipeline.Commands.AddScript($syslogScriptBlock)
 $syslogAsyncResult = $syslogPipeline.InvokeAsync()
 
 # ─────────────────────────────────────────
+# 2.11 SNMP Trap 受信スレッド (UDP 162 / 開けないときは 1162)
+# 機器が自分から送ってくる異常の知らせ (Trap) を受け取り、Syslog と同じ一覧に入れて画面に表示する。
+# v1 / v2c に対応。v3 は暗号化されていて読めないため、届いたことだけを表示する。
+# ─────────────────────────────────────────
+$trapRunspace = [runspacefactory]::CreateRunspace()
+$trapRunspace.ApartmentState = "STA"
+$trapRunspace.ThreadOptions = "ReuseThread"
+$trapRunspace.Open()
+$trapRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
+
+$trapScriptBlock = {
+    Import-Module (Join-Path $syncHash.PSScriptRoot "modules\SnmpService.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
+
+    $openTrapPort = {
+        param($wantPort)
+        $client = $null
+        $syncHash.TrapListenPort = 0
+        $syncHash.TrapListenError = ""
+        try {
+            $client = New-Object System.Net.Sockets.UdpClient($wantPort)
+            $syncHash.TrapListenPort = $wantPort
+        }
+        catch {
+            $firstErr = $_.Exception.InnerException.Message
+            if (-not $firstErr) { $firstErr = $_.Exception.Message }
+            try {
+                $client = New-Object System.Net.Sockets.UdpClient(1162)
+                $syncHash.TrapListenPort = 1162
+                $syncHash.TrapListenError = "UDP $wantPort を開けなかったため 1162 で受信しています。Windows の SNMP Trap サービスなどが使っている可能性があります ($firstErr)"
+            }
+            catch {
+                $syncHash.TrapListenError = "UDP $wantPort / 1162 のどちらも開けません ($firstErr)"
+            }
+        }
+        if ($null -ne $client) { $client.Client.ReceiveTimeout = 1000 }
+        return $client
+    }
+
+    $addTrapEntry = {
+        param($srcIp, $severity, $message)
+        $entry = @{
+            Timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            SourceIP  = $srcIp
+            Severity  = $severity
+            Message   = $message
+            Kind      = "Trap"
+        }
+        [System.Threading.Monitor]::Enter($syncHash.SyslogQueue.SyncRoot)
+        try {
+            $syncHash.SyslogQueue.Insert(0, $entry)
+            while ($syncHash.SyslogQueue.Count -gt 500) { $syncHash.SyslogQueue.RemoveAt($syncHash.SyslogQueue.Count - 1) }
+        }
+        finally {
+            [System.Threading.Monitor]::Exit($syncHash.SyslogQueue.SyncRoot)
+        }
+    }
+
+    $wantedPort = if ($syncHash.TrapPort) { [int]$syncHash.TrapPort } else { 162 }
+    $udpClient = & $openTrapPort $wantedPort
+    $remoteEP = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+    $v3NoticeTimes = @{}   # 同じ機器からの v3 の案内は 1 分に 1 回までにする
+
+    while ($syncHash.Running) {
+        $newWanted = if ($syncHash.TrapPort) { [int]$syncHash.TrapPort } else { 162 }
+        if ($newWanted -ne $wantedPort) {
+            if ($null -ne $udpClient) { try { $udpClient.Close() } catch {} }
+            $wantedPort = $newWanted
+            $udpClient = & $openTrapPort $wantedPort
+        }
+        if (-not $syncHash.SyslogEnabled -or $null -eq $udpClient) {
+            Start-Sleep -Milliseconds 500
+            continue
+        }
+
+        try {
+            $bytes = $udpClient.Receive([ref]$remoteEP)
+        }
+        catch {
+            # 受信待ちの時間切れは正常 (1秒ごとに終了の確認をするため)
+            continue
+        }
+        if ($null -eq $bytes -or $bytes.Length -eq 0) { continue }
+
+        try {
+            $srcIp = $remoteEP.Address.ToString()
+            $trap = ConvertFrom-SnmpTrapPacket -Packet $bytes
+            if ($trap.Version -eq "v3") {
+                $lastNotice = $v3NoticeTimes[$srcIp]
+                if ($null -eq $lastNotice -or ((Get-Date) - $lastNotice).TotalSeconds -ge 60) {
+                    $v3NoticeTimes[$srcIp] = Get-Date
+                    & $addTrapEntry $srcIp "Notice" "[SNMP Trap v3] SNMPv3 の Trap が届きましたが、暗号化されているため内容は表示できません。機器側で v1 / v2c の Trap を送る設定にしてください。"
+                }
+                continue
+            }
+            # Inform は「受け取りました」の返事を待っているので、種類だけ Response に変えて送り返す
+            if ($trap.Pdu -eq "Inform") {
+                $reply = [byte[]]$bytes.Clone()
+                $reply[$trap.PduTagOffset] = 0xA2
+                $null = $udpClient.Send($reply, $reply.Length, $remoteEP)
+            }
+            $display = Get-SnmpTrapDisplay -Trap $trap
+            & $addTrapEntry $srcIp $display.Severity $display.Message
+        }
+        catch {
+            # SNMP として読めないデータは無視する (ネットワーク上の無関係なデータで一覧を埋めないため)
+            continue
+        }
+    }
+
+    if ($null -ne $udpClient) { try { $udpClient.Close(); $udpClient.Dispose() } catch {} }
+}
+
+$trapPipeline = $trapRunspace.CreatePipeline()
+$null = $trapPipeline.Commands.AddScript($trapScriptBlock)
+$trapAsyncResult = $trapPipeline.InvokeAsync()
+
+# ─────────────────────────────────────────
 # Helper: devices.json の1機器分を $syncHash の全項目へ読み込む
 # (起動時と同じ項目を復元・インポートでも読み込むための共通処理。以前の復元・インポートは
 #  名前・グループ等の一部しか読み込まず、次の保存でトラブルメモ・TCP監視・リモート設定等が消えていた)
@@ -2750,10 +2882,10 @@ function Set-DeviceRecordInSyncHash($d) {
     $syncHash.SnmpVersion[$ip] = if ($d.snmpVersion) { [string]$d.snmpVersion } else { "v2c" }
     $syncHash.SnmpUser[$ip] = if ($null -ne $d.snmpUser) { [string]$d.snmpUser } else { "" }
     $syncHash.SnmpAuthProto[$ip] = if ($d.snmpAuthProto) { [string]$d.snmpAuthProto } else { "none" }
-    $syncHash.SnmpAuthPass[$ip] = if ($null -ne $d.snmpAuthPass) { Unprotect-SecretString ([string]$d.snmpAuthPass) } else { "" }
-    $syncHash.SnmpPrivProto[$ip] = if ($d.snmpPrivProto) { [string]$d.snmpPrivProto } else { "none" }
-    $syncHash.SnmpPrivPass[$ip] = if ($null -ne $d.snmpPrivPass) { Unprotect-SecretString ([string]$d.snmpPrivPass) } else { "" }
-    if (-not $syncHash.Remote) { $syncHash.Remote = [hashtable]::Synchronized(@{}) }
+    $syncHash.SnmpAuthPass[$ip] = if ($null -ne $d.snmpAuthPass) { Unprotect-SecretOrKeep ([string]$d.snmpAuthPass) } else { "" }
+$syncHash.SnmpPrivProto[$ip] = if ($d.snmpPrivProto) { [string]$d.snmpPrivProto } else { "none" }
+    $syncHash.SnmpPrivPass[$ip] = if ($null -ne $d.snmpPrivPass) { Unprotect-SecretOrKeep ([string]$d.snmpPrivPass) } else { "" }
+if (-not $syncHash.Remote) { $syncHash.Remote = [hashtable]::Synchronized(@{}) }
     if ($null -ne $d.remote) {
         $rHash = @{}
         if ($d.remote -is [System.Collections.IDictionary]) {
@@ -3822,22 +3954,43 @@ try {
                                     $ip = $item.ip.Trim()
                                     if ($ip -notmatch $ipRegex) { continue }
                                     
-                                    $comm = if ($item.community) { $item.community.Trim() } else { "public" }
-                                    $name = if ($item.name) { $item.name.Trim() } else { $ip }
-                                    $group = if ($null -ne $item.group) { $item.group.Trim() } else { "" }
-                                    $enabled = if ($null -ne $item.enabled) { [bool]$item.enabled } else { $true }
-                                    $image = if ($item.image) { $item.image.Trim() } else { "" }
-                                    $connectedTo = if ($item.connectedTo) { $item.connectedTo.Trim() } else { "" }
-                                    
+                                    # 送られてきた項目だけ更新する。項目がなければ、登録済みの機器は今の値のまま、新しい機器は標準値にする
+                                    # (以前は省略した項目が標準値で上書きされ、CSV インポートなどで SNMPv3 のパスワード等が消えてしまう形だった)
+                                    $bulkItem = $item
+                                    $bulkIp = $ip
+                                    $bulkField = {
+                                        param($fieldName, $table, $default)
+                                        if ($null -ne $bulkItem.PSObject.Properties[$fieldName] -and $null -ne $bulkItem.$fieldName) { return ([string]$bulkItem.$fieldName).Trim() }
+                                        if ($null -ne $table -and $table.ContainsKey($bulkIp)) { return $table[$bulkIp] }
+                                        return $default
+                                    }
+                                    $comm = & $bulkField 'community' $syncHash.Community "public"
+                                    if ([string]::IsNullOrWhiteSpace($comm)) { $comm = "public" }
+                                    $name = & $bulkField 'name' $syncHash.DeviceName $ip
+                                    if ([string]::IsNullOrWhiteSpace($name)) { $name = $ip }
+                                    $group = & $bulkField 'group' $syncHash.Group ""
+                                    $enabled = if ($null -ne $item.enabled) { [bool]$item.enabled } elseif ($syncHash.IsMonitored.ContainsKey($ip)) { $syncHash.IsMonitored[$ip] } else { $true }
+                                    $image = & $bulkField 'image' $syncHash.Image ""
+                                    $connectedTo = & $bulkField 'connectedTo' $syncHash.ConnectedTo ""
+
                                     # SNMPv3 parameters
-                                    $snmpVersion = if ($item.snmpVersion) { $item.snmpVersion.Trim() } else { "v2c" }
-                                    $snmpUser = if ($item.snmpUser) { $item.snmpUser.Trim() } else { "" }
-                                    $snmpAuthProto = if ($item.snmpAuthProto) { $item.snmpAuthProto.Trim() } else { "none" }
-                                    $snmpAuthPass = if ($item.snmpAuthPass) { Unprotect-SecretString ([string]$item.snmpAuthPass) } else { "" }
-                                    $privProto = if ($item.snmpPrivProto) { $item.snmpPrivProto.Trim() } else { "none" }
-                                    $privPass = if ($item.snmpPrivPass) { Unprotect-SecretString ([string]$item.snmpPrivPass) } else { "" }
-                                    
-                                    $isNew = $true
+                                    $snmpVersion = & $bulkField 'snmpVersion' $syncHash.SnmpVersion "v2c"
+                                    if ([string]::IsNullOrWhiteSpace($snmpVersion)) { $snmpVersion = "v2c" }
+                                    $snmpUser = & $bulkField 'snmpUser' $syncHash.SnmpUser ""
+                                    $snmpAuthProto = & $bulkField 'snmpAuthProto' $syncHash.SnmpAuthProto "none"
+                                    if ([string]::IsNullOrWhiteSpace($snmpAuthProto)) { $snmpAuthProto = "none" }
+                                    $snmpAuthPass = if ($null -ne $item.PSObject.Properties['snmpAuthPass']) { Unprotect-SecretString ([string]$item.snmpAuthPass) } elseif ($syncHash.SnmpAuthPass.ContainsKey($ip)) { $syncHash.SnmpAuthPass[$ip] } else { "" }
+                                    $privProto = & $bulkField 'snmpPrivProto' $syncHash.SnmpPrivProto "none"
+                                    if ([string]::IsNullOrWhiteSpace($privProto)) { $privProto = "none" }
+                                    $privPass = if ($null -ne $item.PSObject.Properties['snmpPrivPass']) { Unprotect-SecretString ([string]$item.snmpPrivPass) } elseif ($syncHash.SnmpPrivPass.ContainsKey($ip)) { $syncHash.SnmpPrivPass[$ip] } else { "" }
+                                    # 以前はこの API で設置場所・メモ等が保存されず、機器の新規登録画面で入力しても消えていた
+                                    $syncHash.Location[$ip] = & $bulkField 'location' $syncHash.Location ""
+                                    $syncHash.VendorContact[$ip] = & $bulkField 'vendorContact' $syncHash.VendorContact ""
+                                    $syncHash.TroubleMemo[$ip] = & $bulkField 'troubleMemo' $syncHash.TroubleMemo ""
+                                    $syncHash.DeviceType[$ip] = & $bulkField 'deviceType' $syncHash.DeviceType "network"
+                                    $syncHash.WebUrl[$ip] = & $bulkField 'webUrl' $syncHash.WebUrl ""
+
+$isNew = $true
                                     foreach ($d in $syncHash.Devices) {
                                         if ($d -eq $ip) { $isNew = $false; break }
                                     }
@@ -4824,6 +4977,7 @@ try {
                         smtpTo                   = $syncHash.SmtpTo
                         syslogEnabled            = $syncHash.SyslogEnabled
                         syslogPort               = $syncHash.SyslogPort
+                        trapPort                 = $syncHash.TrapPort
                         sslWarnDays              = $syncHash.SslWarnDays
                         uiMode                   = $syncHash.UiMode
                         bwThreshMbps             = $syncHash.BwThreshMbps
@@ -4930,7 +5084,11 @@ try {
                         $v = [int]$payload.syslogPort
                         if ($v -ge 1 -and $v -le 65535) { $syncHash.SyslogPort = $v }
                     }
-                    if ($null -ne $payload.sslWarnDays) {
+                    if ($null -ne $payload.trapPort) {
+                        $v = [int]$payload.trapPort
+                        if ($v -ge 1 -and $v -le 65535) { $syncHash.TrapPort = $v }
+                    }
+if ($null -ne $payload.sslWarnDays) {
                         $v = [int]$payload.sslWarnDays
                         if ($v -ge 1 -and $v -le 3650) { $syncHash.SslWarnDays = $v }
                     }
@@ -5000,7 +5158,8 @@ try {
                             smtpTo                   = $syncHash.SmtpTo
                             syslogEnabled            = $syncHash.SyslogEnabled
                             syslogPort               = $syncHash.SyslogPort
-                            sslWarnDays              = $syncHash.SslWarnDays
+                            trapPort                 = $syncHash.TrapPort
+sslWarnDays              = $syncHash.SslWarnDays
                             uiMode                   = $syncHash.UiMode
                             bwThreshMbps             = $syncHash.BwThreshMbps
                             enableParentSuppression  = $syncHash.EnableParentSuppression
@@ -6244,28 +6403,34 @@ try {
                         Start-BackgroundScript -ArgumentList @($respRef, $targetRef) -ScriptBlock {
                             param($respRef, $targetRef)
                             try {
-                                # Run tracert. limit hops to 10 and timeout to 300ms to avoid long delays
-                                $traceOutput = tracert -d -h 10 -w 300 $targetRef
-                                $hops = @()
+                                # 最大 20 区間まで調べる (応答しない区間が続いても 30 秒ほどで終わる長さ)
+                                $traceOutput = tracert -d -h 20 -w 400 $targetRef
+                                $hops = [System.Collections.Generic.List[hashtable]]::new()
                                 foreach ($line in $traceOutput) {
                                     # 先頭がホップ番号の行だけを対象にする
                                     # (英語版Windowsでは1行目 "Tracing route to 8.8.8.8 ..." の宛先IPが最初のホップとして誤って記録されていた)
-                                    if ($line -match '^\s*\d+\s+.*?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})') {
-                                        $hopIp = $matches[1]
-                                        $hops += $hopIp
-                                    }
+                                    if ($line -notmatch '^\s*\d+\s') { continue }
+                                    $hopIp = if ($line -match '(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})') { $matches[1] } else { $null }
+                                    # 3 回の計測のうち最後に得られた時間を代表値にする ("<1 ms" は 1 ms 未満)
+                                    $times = [regex]::Matches($line, '(<?\d+)\s*ms')
+                                    $latency = if ($times.Count -gt 0) { $times[$times.Count - 1].Groups[1].Value + " ms" } else { "" }
+                                    $hops.Add(@{ ip = $hopIp; latency = $latency })
                                 }
-                                
-                                # Ensure target is appended if trace did not reach but target is valid
-                                if ($hops.Count -gt 0 -and $hops[-1] -ne $targetRef) {
+                                # 末尾の「応答なし」は表示しても意味がないので取り除く
+                                while ($hops.Count -gt 0 -and $null -eq $hops[$hops.Count - 1].ip) { $hops.RemoveAt($hops.Count - 1) }
+
+                                $reached = ($hops.Count -gt 0 -and $hops[$hops.Count - 1].ip -eq $targetRef)
+                                # tracert では届かなくても Ping が通るなら、宛先まで到達できているものとして末尾に加える
+                                if (-not $reached) {
                                     $pingRes = Test-Connection -ComputerName $targetRef -Count 1 -Quiet -ErrorAction SilentlyContinue
                                     if ($pingRes) {
-                                        $hops += $targetRef
+                                        $hops.Add(@{ ip = $targetRef; latency = "" })
+                                        $reached = $true
                                     }
                                 }
 
-                                Write-JsonResponse $respRef @{ hops = $hops }
-                            }
+                                Write-JsonResponse $respRef @{ hops = $hops.ToArray(); reached = $reached }
+}
                             catch {
                                 Write-JsonResponse $respRef @{ error = "Traceroute failed: $($_.Exception.Message)" } 500
                             }
@@ -6328,7 +6493,9 @@ try {
                         enabled     = [bool]$syncHash.SyslogEnabled
                         listenPort  = [int]$syncHash.SyslogListenPort
                         listenError = [string]$syncHash.SyslogListenError
-                    }
+                        trapListenPort  = [int]$syncHash.TrapListenPort
+                        trapListenError = [string]$syncHash.TrapListenError
+}
                 }
                 elseif ($urlPath -eq "/api/syslog/clear" -and $method -eq "POST") {
                     [System.Threading.Monitor]::Enter($syncHash.SyslogQueue.SyncRoot)
@@ -6703,7 +6870,8 @@ finally {
     # Stop and close the background runspaces first to ensure no concurrent writes
     if ($null -ne $runspace) { try { $runspace.Close(); $runspace.Dispose() } catch {} }
     if ($null -ne $diskWriterRunspace) { try { $diskWriterRunspace.Close(); $diskWriterRunspace.Dispose() } catch {} }
-    if ($null -ne $bwRunspace) { try { $bwRunspace.Close(); $bwRunspace.Dispose() } catch {} }
+    if ($null -ne $trapRunspace) { try { $trapRunspace.Close(); $trapRunspace.Dispose() } catch {} }
+if ($null -ne $bwRunspace) { try { $bwRunspace.Close(); $bwRunspace.Dispose() } catch {} }
     if ($null -ne $snmpRunspace) { try { $snmpRunspace.Close(); $snmpRunspace.Dispose() } catch {} }
     if ($null -ne $macRunspace) { try { $macRunspace.Close(); $macRunspace.Dispose() } catch {} }
     if ($null -ne $snmpDetailRunspace) { try { $snmpDetailRunspace.Close(); $snmpDetailRunspace.Dispose() } catch {} }

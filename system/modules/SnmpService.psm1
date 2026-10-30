@@ -277,4 +277,197 @@ function Invoke-SnmpWalkUnified {
     }
 }
 
-Export-ModuleMember -Function Initialize-SnmpLibrary, Check-WebAndSslEndpoint, Invoke-SnmpGetUnified, Invoke-SnmpWalkUnified
+# ── SNMP Trap の解析 ─────────────────────────────────────────────────────────
+# 【初心者向けの簡単な解説】
+# SNMP Trap は、機器が「ポートが切れた」「再起動した」などを自分から知らせてくる通知です。
+# データは BER という「種類・長さ・中身」を繰り返す形式の 2 進データで届くので、ここで読み解きます。
+# SNMP モジュールが入っていない PC でも受信できるよう、外部ライブラリは使いません。
+
+function Read-BerElement {
+    # $offset の位置にある 1 要素の「種類 (tag)・中身の開始位置・中身の長さ」を返す
+    param([byte[]]$buffer, [int]$offset, [int]$limit)
+    if ($offset + 2 -gt $limit) { throw "BER: データが途中で切れています" }
+    $tag = [int]$buffer[$offset]
+    $lengthByte = [int]$buffer[$offset + 1]
+    $valueStart = $offset + 2
+    $length = $lengthByte
+    if ($lengthByte -ge 0x80) {
+        $lengthBytes = $lengthByte -band 0x7F
+        if ($lengthBytes -lt 1 -or $lengthBytes -gt 4 -or ($valueStart + $lengthBytes) -gt $limit) { throw "BER: 長さの形式が不正です" }
+        $length = [long]0
+        for ($i = 0; $i -lt $lengthBytes; $i++) { $length = ($length * 256) + $buffer[$valueStart + $i] }
+        $valueStart += $lengthBytes
+    }
+    if ($valueStart + $length -gt $limit) { throw "BER: 長さがデータの範囲を超えています" }
+    return @{ Tag = $tag; ValueStart = $valueStart; Length = [int]$length; End = $valueStart + [int]$length }
+}
+
+function ConvertFrom-BerOid {
+    param([byte[]]$buffer, [int]$start, [int]$length)
+    if ($length -lt 1) { return "" }
+    $first = [int]$buffer[$start]
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $parts.Add([string][math]::Min(2, [math]::Floor($first / 40)))
+    $parts.Add([string]($first - (40 * [math]::Min(2, [math]::Floor($first / 40)))))
+    [uint64]$value = 0
+    for ($i = $start + 1; $i -lt $start + $length; $i++) {
+        $value = ($value * 128) + ($buffer[$i] -band 0x7F)
+        if (($buffer[$i] -band 0x80) -eq 0) {
+            $parts.Add([string]$value)
+            $value = 0
+        }
+    }
+    return ($parts -join ".")
+}
+
+function ConvertFrom-BerValue {
+    # 変数の中身を、画面に出せる文字に直す
+    param([byte[]]$buffer, [hashtable]$element)
+    $start = $element.ValueStart
+    $length = $element.Length
+    switch ($element.Tag) {
+        0x02 {
+            # INTEGER (符号付き整数)
+            if ($length -eq 0) { return "0" }
+            [long]$number = if ($buffer[$start] -ge 0x80) { -1 } else { 0 }
+            for ($i = 0; $i -lt [math]::Min($length, 8); $i++) { $number = ($number * 256) + $buffer[$start + $i] }
+            return [string]$number
+        }
+        0x04 {
+            # OCTET STRING: 文字として読めれば文字で、読めなければ 16 進で表す
+            $isText = $true
+            for ($i = $start; $i -lt $start + $length; $i++) {
+                $b = $buffer[$i]
+                if ($b -lt 0x20 -and $b -ne 0x09 -and $b -ne 0x0A -and $b -ne 0x0D) { $isText = $false; break }
+            }
+            if ($isText) { return [System.Text.Encoding]::UTF8.GetString($buffer, $start, $length) }
+            return ([System.BitConverter]::ToString($buffer, $start, $length) -replace '-', ':')
+        }
+        0x05 { return "" }
+        0x06 { return (ConvertFrom-BerOid $buffer $start $length) }
+        0x40 {
+            # IpAddress
+            if ($length -eq 4) { return "$($buffer[$start]).$($buffer[$start + 1]).$($buffer[$start + 2]).$($buffer[$start + 3])" }
+            return ""
+        }
+        { $_ -in @(0x41, 0x42, 0x43, 0x46) } {
+            # Counter32 / Gauge32 / TimeTicks / Counter64 (符号なし整数)
+            [uint64]$number = 0
+            for ($i = 0; $i -lt [math]::Min($length, 8); $i++) { $number = ($number * 256) + $buffer[$start + $i] }
+            return [string]$number
+        }
+        default { return ([System.BitConverter]::ToString($buffer, $start, $length) -replace '-', ':') }
+    }
+}
+
+function ConvertFrom-SnmpTrapPacket {
+    <#
+    .SYNOPSIS
+        受信した UDP データを SNMP Trap (v1 / v2c Trap / v2c Inform) として解析します。
+        SNMPv3 は暗号化されていて読めないため Version = "v3" だけを返します。形式が不正なときは例外を投げます。
+    #>
+    param([Parameter(Mandatory = $true)][byte[]]$Packet)
+
+    $message = Read-BerElement $Packet 0 $Packet.Length
+    if ($message.Tag -ne 0x30) { throw "SNMP のデータではありません" }
+    $limit = $message.End
+
+    $versionEl = Read-BerElement $Packet $message.ValueStart $limit
+    if ($versionEl.Tag -ne 0x02) { throw "SNMP のバージョンを読み取れません" }
+    $versionCode = [int](ConvertFrom-BerValue $Packet $versionEl)
+    if ($versionCode -eq 3) { return @{ Version = "v3"; Pdu = "Trap"; VarBinds = @() } }
+    if ($versionCode -ne 0 -and $versionCode -ne 1) { throw "未対応の SNMP バージョンです: $versionCode" }
+
+    $communityEl = Read-BerElement $Packet $versionEl.End $limit
+    if ($communityEl.Tag -ne 0x04) { throw "コミュニティ名を読み取れません" }
+    $pduEl = Read-BerElement $Packet $communityEl.End $limit
+
+    $result = @{
+        Version     = if ($versionCode -eq 0) { "v1" } else { "v2c" }
+        Pdu         = "Trap"
+        PduTagOffset = $communityEl.End
+        TrapOid     = ""
+        TrapName    = ""
+        Enterprise  = ""
+        AgentAddress = ""
+        UptimeTicks = ""
+        VarBinds    = @()
+    }
+
+    $pos = $pduEl.ValueStart
+    if ($pduEl.Tag -eq 0xA4) {
+        # SNMPv1 Trap: 送信元の種類・アドレス・Trap 番号が決まった順で並ぶ
+        if ($versionCode -ne 0) { throw "バージョンと Trap の形式が一致しません" }
+        $enterpriseEl = Read-BerElement $Packet $pos $pduEl.End
+        $result.Enterprise = ConvertFrom-BerValue $Packet $enterpriseEl
+        $agentEl = Read-BerElement $Packet $enterpriseEl.End $pduEl.End
+        $result.AgentAddress = ConvertFrom-BerValue $Packet $agentEl
+        $genericEl = Read-BerElement $Packet $agentEl.End $pduEl.End
+        $generic = [int](ConvertFrom-BerValue $Packet $genericEl)
+        $specificEl = Read-BerElement $Packet $genericEl.End $pduEl.End
+        $specific = [int](ConvertFrom-BerValue $Packet $specificEl)
+        $timeEl = Read-BerElement $Packet $specificEl.End $pduEl.End
+        $result.UptimeTicks = ConvertFrom-BerValue $Packet $timeEl
+        # v2c と同じ形の番号にそろえる (RFC 3584 の対応表)
+        $result.TrapOid = if ($generic -ge 0 -and $generic -le 5) { "1.3.6.1.6.3.1.1.5.$($generic + 1)" } else { "$($result.Enterprise).0.$specific" }
+        $pos = $timeEl.End
+    }
+    elseif ($pduEl.Tag -eq 0xA7 -or $pduEl.Tag -eq 0xA6) {
+        # SNMPv2c Trap / Inform: 番号類は変数の一覧の中に入っている
+        if ($versionCode -ne 1) { throw "バージョンと Trap の形式が一致しません" }
+        if ($pduEl.Tag -eq 0xA6) { $result.Pdu = "Inform" }
+        $requestIdEl = Read-BerElement $Packet $pos $pduEl.End
+        $errorEl = Read-BerElement $Packet $requestIdEl.End $pduEl.End
+        $errorIndexEl = Read-BerElement $Packet $errorEl.End $pduEl.End
+        $pos = $errorIndexEl.End
+    }
+    else {
+        throw ("Trap ではない SNMP データです (種類: 0x{0:X2})" -f $pduEl.Tag)
+    }
+
+    # 変数の一覧 (上限 50 個。悪意あるデータで処理が重くならないようにする)
+    $listEl = Read-BerElement $Packet $pos $pduEl.End
+    if ($listEl.Tag -ne 0x30) { throw "変数の一覧を読み取れません" }
+    $binds = [System.Collections.Generic.List[hashtable]]::new()
+    $pos = $listEl.ValueStart
+    while ($pos -lt $listEl.End -and $binds.Count -lt 50) {
+        $bindEl = Read-BerElement $Packet $pos $listEl.End
+        if ($bindEl.Tag -ne 0x30) { throw "変数の形式が不正です" }
+        $oidEl = Read-BerElement $Packet $bindEl.ValueStart $bindEl.End
+        $valueEl = Read-BerElement $Packet $oidEl.End $bindEl.End
+        $oid = ConvertFrom-BerValue $Packet $oidEl
+        $value = ConvertFrom-BerValue $Packet $valueEl
+        if ($oid -eq "1.3.6.1.2.1.1.3.0") { $result.UptimeTicks = $value }
+        elseif ($oid -eq "1.3.6.1.6.3.1.1.4.1.0") { $result.TrapOid = $value }
+        else { $binds.Add(@{ Oid = $oid; Value = $value }) }
+        $pos = $bindEl.End
+    }
+    $result.VarBinds = $binds.ToArray()
+    return $result
+}
+
+function Get-SnmpTrapDisplay {
+    <#
+    .SYNOPSIS
+        解析済みの Trap を、画面に出す重要度と説明文に直します。
+    #>
+    param([Parameter(Mandatory = $true)][hashtable]$Trap)
+
+    $known = @{
+        "1.3.6.1.6.3.1.1.5.1" = @{ Name = "coldStart"; Text = "機器が起動しました（電源投入など）"; Severity = "Notice" }
+        "1.3.6.1.6.3.1.1.5.2" = @{ Name = "warmStart"; Text = "機器が再起動しました"; Severity = "Notice" }
+        "1.3.6.1.6.3.1.1.5.3" = @{ Name = "linkDown"; Text = "ポートの接続が切れました"; Severity = "Warning" }
+        "1.3.6.1.6.3.1.1.5.4" = @{ Name = "linkUp"; Text = "ポートの接続が回復しました"; Severity = "Informational" }
+        "1.3.6.1.6.3.1.1.5.5" = @{ Name = "authenticationFailure"; Text = "SNMP の認証に失敗しました（コミュニティ名の誤りなど）"; Severity = "Warning" }
+        "1.3.6.1.6.3.1.1.5.6" = @{ Name = "egpNeighborLoss"; Text = "隣接するルーターとの接続が失われました"; Severity = "Warning" }
+    }
+    $info = if ($known.ContainsKey([string]$Trap.TrapOid)) { $known[[string]$Trap.TrapOid] } else { @{ Name = [string]$Trap.TrapOid; Text = "機器固有の通知"; Severity = "Notice" } }
+
+    $bindText = @($Trap.VarBinds | ForEach-Object { "$($_.Oid)=$($_.Value)" }) -join ", "
+    $message = "[SNMP Trap $($Trap.Version)] $($info.Name): $($info.Text)"
+    if ($bindText) { $message += " | $bindText" }
+    if ($message.Length -gt 2000) { $message = $message.Substring(0, 2000) + "...(省略)" }
+    return @{ Severity = $info.Severity; Message = $message }
+}
+
+Export-ModuleMember -Function Initialize-SnmpLibrary, Check-WebAndSslEndpoint, Invoke-SnmpGetUnified, Invoke-SnmpWalkUnified, ConvertFrom-SnmpTrapPacket, Get-SnmpTrapDisplay

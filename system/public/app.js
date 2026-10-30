@@ -404,7 +404,49 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // SNMP の入力欄に機器の値を入れる (device が null なら新規登録用に初期値へ戻す)
+    // ※ 保存済みのパスワードは画面に出さない。空欄のまま保存すると、今のパスワードをそのまま使い続ける
+    function fillSnmpFields(device) {
+        const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+        setVal('dev-snmp-version', (device && device.snmpVersion) || 'v2c');
+        setVal('dev-snmp-user', (device && device.snmpUser) || '');
+        setVal('dev-snmp-auth-proto', (device && device.snmpAuthProto) || 'none');
+        setVal('dev-snmp-priv-proto', (device && device.snmpPrivProto) || 'none');
+        setVal('dev-snmp-auth-pass', '');
+        setVal('dev-snmp-priv-pass', '');
+        const authPassEl = document.getElementById('dev-snmp-auth-pass');
+        if (authPassEl) authPassEl.placeholder = (device && device.snmpAuthPass) ? '保存済み（変更するときだけ入力）' : 'authpassphrase';
+        const privPassEl = document.getElementById('dev-snmp-priv-pass');
+        if (privPassEl) privPassEl.placeholder = (device && device.snmpPrivPass) ? '保存済み（変更するときだけ入力）' : 'privpassphrase';
+        const fieldsEl = document.getElementById('snmpv3-fields');
+        if (fieldsEl) fieldsEl.classList.toggle('hidden', ((device && device.snmpVersion) || 'v2c') !== 'v3');
+        const privGroupEl = document.getElementById('snmpv3-priv-pass-group');
+        if (privGroupEl) privGroupEl.style.display = ((device && device.snmpPrivProto) || 'none') === 'none' ? 'none' : 'block';
+    }
+
+    // 入力欄から、保存する SNMP の設定を作る
+    function readSnmpFields() {
+        const val = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+        const authProto = val('dev-snmp-auth-proto') || 'none';
+        const privProto = val('dev-snmp-priv-proto') || 'none';
+        const fields = {
+            snmpVersion: val('dev-snmp-version') || 'v2c',
+            snmpUser: val('dev-snmp-user'),
+            snmpAuthProto: authProto,
+            snmpPrivProto: privProto
+        };
+        // パスワードは入力されたときだけ送る (送らなければサーバー側で今の値を保つ)。「なし」にしたら消す
+        const authPass = document.getElementById('dev-snmp-auth-pass');
+        const privPass = document.getElementById('dev-snmp-priv-pass');
+        if (authProto === 'none') fields.snmpAuthPass = '';
+        else if (authPass && authPass.value) fields.snmpAuthPass = authPass.value;
+        if (privProto === 'none') fields.snmpPrivPass = '';
+        else if (privPass && privPass.value) fields.snmpPrivPass = privPass.value;
+        return fields;
+    }
+
     function openDeviceModal(device = null) {
+        if (!device) fillSnmpFields(null);
         if (device) {
             // Edit mode: populate existing device info
             if (editOldIpInput) editOldIpInput.value = device.ip;
@@ -436,6 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             if (devPortEl) devPortEl.value = device.port || 80;
+            fillSnmpFields(device);
 
             if (typeof populateConnectionsDropdown === 'function') {
                 populateConnectionsDropdown(device.ip);
@@ -1926,6 +1969,22 @@ document.addEventListener('DOMContentLoaded', () => {
             statusEl.style.color = '#4ade80';
         }
 
+        if (status === 'error') {
+            if (statusEl) {
+                statusEl.textContent = '失敗';
+                statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+                statusEl.style.color = '#f87171';
+            }
+            list.innerHTML = '<div style="color: var(--error); padding: 10px; text-align: center; font-size: 0.8rem;">経路を調べられませんでした</div>';
+            return;
+        }
+
+        if (status === 'unreached' && statusEl) {
+            statusEl.textContent = '未到達';
+            statusEl.style.background = 'rgba(245, 158, 11, 0.2)';
+            statusEl.style.color = '#f59e0b';
+        }
+
         if (activeTraceHops.length === 0) {
             list.innerHTML = '<div style="color: var(--error); padding: 10px; text-align: center; font-size: 0.8rem;">ルートが見つかりませんでした</div>';
             return;
@@ -1935,12 +1994,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const ip = typeof hop === 'string' ? hop : hop.ip;
             const latency = typeof hop === 'object' ? hop.latency : '';
             
-            const dev = devices.find(d => d.ip === ip);
-            const name = dev ? (dev.name || ip) : ip;
+            const dev = ip ? devices.find(d => d.ip === ip) : null;
+            const name = dev ? (dev.name || ip) : (ip || '応答なし');
             const isLocal = ip === 'local';
 
-            const safeIp = escapeHTML(ip);
-            const safeName = escapeHTML(isLocal ? '監視サーバー' : name);
+            const safeIp = escapeHTML(ip || '* * *');
+            const safeName = escapeHTML(isLocal ? 'このPC（監視サーバー）' : name);
             const safeLatency = escapeHTML(latency);
 
             const item = document.createElement('div');
@@ -1965,6 +2024,49 @@ document.addEventListener('DOMContentLoaded', () => {
             list.appendChild(item);
         });
     }
+
+    // 機器までの経路を調べて、一覧と構成図に表示する
+    let traceRequestSeq = 0;
+    async function startRouteTrace(targetIp) {
+        const seq = ++traceRequestSeq;
+        activeTraceHops = [];
+        computeFullTracePath();
+        renderTracePanel('loading');
+        const titleEl = document.getElementById('topo-trace-target');
+        if (titleEl) {
+            const dev = devices.find(d => d.ip === targetIp);
+            titleEl.textContent = dev ? `${dev.name || targetIp} (${targetIp})` : targetIp;
+        }
+        if (networkInstance) networkInstance.redraw();
+        try {
+            const res = await fetch(`/api/traceroute?target=${encodeURIComponent(targetIp)}`);
+            const data = await res.json();
+            if (seq !== traceRequestSeq) return;   // 途中で別の機器のトレースを始めたら、古い結果は使わない
+            if (!res.ok) throw new Error(data.error || 'traceroute failed');
+            activeTraceHops = [{ ip: 'local', latency: '' }, ...(Array.isArray(data.hops) ? data.hops : [])];
+            computeFullTracePath();
+            renderTracePanel(data.reached ? 'done' : 'unreached');
+            focusOnTracePath();
+            if (networkInstance) networkInstance.redraw();
+        } catch (err) {
+            if (seq !== traceRequestSeq) return;
+            console.warn('Route trace failed:', err);
+            activeTraceHops = [];
+            renderTracePanel('error');
+        }
+    }
+
+    function clearRouteTrace() {
+        traceRequestSeq++;
+        activeTraceHops = [];
+        computeFullTracePath();
+        const panel = document.getElementById('topo-trace-panel');
+        if (panel) panel.style.display = 'none';
+        if (networkInstance) networkInstance.redraw();
+    }
+
+    const traceCloseBtn = document.getElementById('topo-trace-close');
+    if (traceCloseBtn) traceCloseBtn.addEventListener('click', clearRouteTrace);
 
     function focusOnTracePath() {
         if (!networkInstance || traceHighlightedNodes.size === 0) return;
@@ -2378,6 +2480,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (activeTraceHops.length < 2) return;
 
+        // ホップの一覧から IP だけを取り出す (応答がなかった区間は IP なし)
+        const hopIps = activeTraceHops.map(hop => (typeof hop === 'string' ? hop : hop.ip)).filter(Boolean);
         const activeDevices = devices.filter(d => d.enabled !== false);
         const deviceIpMap = new Map();
         activeDevices.forEach(d => deviceIpMap.set(d.ip, d));
@@ -2430,7 +2534,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return null;
         }
 
-        const localHops = activeTraceHops.filter(hopIp => deviceIpMap.has(hopIp));
+        const localHops = hopIps.filter(hopIp => deviceIpMap.has(hopIp));
+        // 構成図にある機器は、線でつながっていなくても光らせる
+        localHops.forEach(hopIp => traceHighlightedNodes.add(hopIp));
 
         for (let i = 0; i < localHops.length - 1; i++) {
             const start = localHops[i];
@@ -2745,7 +2851,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 enabled: devEnabledInput.checked,
                 image: imageVal,
                 connectedTo: connectedToVal,
-                remote: remoteConfig
+                remote: remoteConfig,
+                ...readSnmpFields()
             };
             
             try {
@@ -2790,7 +2897,8 @@ document.addEventListener('DOMContentLoaded', () => {
             enabled: devEnabledInput.checked,
             image: imageVal,
             connectedTo: connectedToVal,
-            remote: remoteConfig
+            remote: remoteConfig,
+            ...readSnmpFields()
         }];
         
         try {
@@ -5633,19 +5741,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctxMenu.dataset.edgeId = '';
                 document.getElementById('ctx-unlink').style.display = (dev && dev.connectedTo && dev.connectedTo.trim() !== '') ? 'block' : 'none';
                 document.getElementById('ctx-edit').style.display = 'block';
+                document.getElementById('ctx-trace').style.display = 'block';
             } else if (edgeId) {
                 ctxMenu.dataset.edgeId = edgeId;
                 ctxMenu.dataset.nodeId = '';
                 document.getElementById('ctx-unlink').style.display = 'block';
                 document.getElementById('ctx-edit').style.display = 'none';
+                document.getElementById('ctx-trace').style.display = 'none';
             } else {
                 ctxMenu.style.display = 'none';
                 return;
             }
 
             ctxMenu.style.display = 'block';
-            ctxMenu.style.left = params.event.clientX + 'px';
-            ctxMenu.style.top = params.event.clientY + 'px';
+            // メニューの位置は親要素が基準なので、画面上の座標から親要素の位置を引く (そのままだと右下にずれて表示される)
+            const ctxParentRect = ctxMenu.offsetParent ? ctxMenu.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
+            ctxMenu.style.left = (params.event.clientX - ctxParentRect.left) + 'px';
+            ctxMenu.style.top = (params.event.clientY - ctxParentRect.top) + 'px';
         });
 
         // Setup visual topology controls
@@ -5991,6 +6103,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             }
+        });
+    }
+
+    const ctxTraceBtn = document.getElementById('ctx-trace');
+    if (ctxTraceBtn) {
+        ctxTraceBtn.addEventListener('click', () => {
+            const ctxMenu = document.getElementById('topo-context-menu');
+            const nodeId = ctxMenu ? ctxMenu.dataset.nodeId : '';
+            if (ctxMenu) ctxMenu.style.display = 'none';
+            if (nodeId) startRouteTrace(nodeId);
         });
     }
 
@@ -7088,6 +7210,183 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // =========================================================
+    // Export / Import Devices (CSV)
+    // Excel で編集できる形式。パスワードは含めない
+    // =========================================================
+    const CSV_COLUMNS = [
+        { key: 'ip', label: 'IPアドレス' },
+        { key: 'name', label: '機器名' },
+        { key: 'group', label: 'グループ' },
+        { key: 'enabled', label: '監視' },
+        { key: 'checkType', label: '監視方式' },
+        { key: 'port', label: 'ポート' },
+        { key: 'community', label: 'コミュニティ名' },
+        { key: 'connectedTo', label: '接続先' },
+        { key: 'location', label: '設置場所' },
+        { key: 'vendorContact', label: '保守連絡先' },
+        { key: 'troubleMemo', label: 'マニュアル' },
+        { key: 'webUrl', label: '管理画面URL' },
+        { key: 'deviceType', label: '機器種別' },
+        { key: 'snmpVersion', label: 'SNMPバージョン' },
+        { key: 'snmpUser', label: 'SNMPユーザー' },
+        { key: 'snmpAuthProto', label: 'SNMP認証方式' },
+        { key: 'snmpPrivProto', label: 'SNMP暗号化方式' }
+    ];
+
+    // 1 項目を CSV の形にする。=,+,-,@ で始まる文字は Excel が数式として実行するので、先頭に ' を付けて防ぐ
+    function toCsvCell(value) {
+        let text = (value === null || value === undefined) ? '' : String(value);
+        if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+        return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+    }
+
+    // CSV の文字列を行と項目に分ける (""で囲まれた中のカンマ・改行も正しく扱う)
+    function parseCsvText(text) {
+        const rows = [];
+        let row = [], cell = '', inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (inQuotes) {
+                if (ch === '"') {
+                    if (text[i + 1] === '"') { cell += '"'; i++; }
+                    else inQuotes = false;
+                } else {
+                    cell += ch;
+                }
+            } else if (ch === '"' && cell === '') {
+                inQuotes = true;
+            } else if (ch === ',') {
+                row.push(cell); cell = '';
+            } else if (ch === '\n' || ch === '\r') {
+                if (ch === '\r' && text[i + 1] === '\n') i++;
+                row.push(cell); cell = '';
+                rows.push(row); row = [];
+            } else {
+                cell += ch;
+            }
+        }
+        if (cell !== '' || row.length > 0) { row.push(cell); rows.push(row); }
+        return rows.filter(r => r.some(c => c.trim() !== ''));
+    }
+
+    // CSV の行を機器データにする。問題のある行は errors に理由を入れる
+    function csvRowsToDevices(rows) {
+        const errors = [];
+        if (rows.length < 2) return { items: [], errors: ['データ行がありません'] };
+        const keyOf = {};
+        CSV_COLUMNS.forEach(c => { keyOf[c.label] = c.key; keyOf[c.key.toLowerCase()] = c.key; });
+        const headers = rows[0].map(h => keyOf[h.replace(/^﻿/, '').trim()] || keyOf[h.replace(/^﻿/, '').trim().toLowerCase()] || null);
+        if (!headers.includes('ip')) return { items: [], errors: ['1行目に「IPアドレス」の列が見つかりません'] };
+
+        const ipRegex = /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+        const items = [], seen = new Set();
+        rows.slice(1).forEach((cells, index) => {
+            const lineNo = index + 2;
+            const item = {};
+            headers.forEach((key, col) => {
+                if (!key || cells[col] === undefined) return;
+                // エクスポート時に付けた先頭の ' を取り除く
+                item[key] = cells[col].trim().replace(/^'(?=[=+\-@])/, '');
+            });
+            if (!ipRegex.test(item.ip || '')) { errors.push(`${lineNo}行目: IPアドレスが正しくありません (${item.ip || '空欄'})`); return; }
+            if (seen.has(item.ip)) { errors.push(`${lineNo}行目: IPアドレス ${item.ip} が重複しています`); return; }
+
+            if (item.enabled !== undefined) {
+                const flag = item.enabled.toLowerCase();
+                if (['有効', 'on', 'true', '1', ''].includes(flag)) item.enabled = true;
+                else if (['無効', 'off', 'false', '0'].includes(flag)) item.enabled = false;
+                else { errors.push(`${lineNo}行目: 「監視」は 有効 / 無効 で指定してください (${item.enabled})`); return; }
+            }
+            if (item.checkType !== undefined) {
+                item.checkType = item.checkType.toLowerCase() || 'icmp';
+                if (!['icmp', 'tcp'].includes(item.checkType)) { errors.push(`${lineNo}行目: 「監視方式」は icmp / tcp で指定してください`); return; }
+            }
+            if (item.port !== undefined) {
+                const port = item.port === '' ? 0 : Number(item.port);
+                if (!Number.isInteger(port) || port < 0 || port > 65535) { errors.push(`${lineNo}行目: ポート番号が正しくありません (${item.port})`); return; }
+                item.port = port;
+            }
+            if (item.checkType === 'tcp' && !item.port) {
+                const current = devices.find(d => d.ip === item.ip);
+                if (!current || !current.port) { errors.push(`${lineNo}行目: TCP 監視にはポート番号が必要です`); return; }
+            }
+            seen.add(item.ip);
+            items.push(item);
+        });
+        return { items, errors };
+    }
+
+    // Excel で保存した CSV は Shift_JIS のことがあるので、UTF-8 として読めなければ Shift_JIS で読む
+    async function readCsvFileText(file) {
+        const buffer = await file.arrayBuffer();
+        try {
+            return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+        } catch (e) {
+            return new TextDecoder('shift_jis').decode(buffer);
+        }
+    }
+
+    const exportCsvBtn = document.getElementById('export-devices-csv-btn');
+    if (exportCsvBtn) {
+        exportCsvBtn.addEventListener('click', () => {
+            const lines = [CSV_COLUMNS.map(c => c.label).join(',')];
+            devices.forEach(d => {
+                lines.push(CSV_COLUMNS.map(c => {
+                    if (c.key === 'enabled') return d.enabled === false ? '無効' : '有効';
+                    return toCsvCell(d[c.key]);
+                }).join(','));
+            });
+            // 先頭の BOM は、Excel が日本語を文字化けさせずに開くための印
+            const blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `devices_export_${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+    }
+
+    const importCsvFile = document.getElementById('import-devices-csv-file');
+    if (importCsvFile) {
+        importCsvFile.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                const { items, errors } = csvRowsToDevices(parseCsvText(await readCsvFileText(file)));
+                const errorText = errors.length > 0
+                    ? `\n\n⚠ 次の ${errors.length} 行は取り込みません:\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? '\n…ほか' : ''}`
+                    : '';
+                if (items.length === 0) {
+                    alert(`取り込める機器がありません。${errorText}`);
+                    return;
+                }
+                const updateCount = items.filter(item => devices.some(d => d.ip === item.ip)).length;
+                const message = `CSV を取り込みます。\n\n・新しく追加: ${items.length - updateCount} 台\n・登録済みを更新: ${updateCount} 台\n\nCSV にない機器はそのまま残ります。パスワードなど CSV にない項目も変わりません。${errorText}\n\nよろしいですか？`;
+                if (!confirm(message)) return;
+
+                const res = await fetch('/api/devices/bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(items)
+                });
+                if (res.ok) {
+                    await fetchDevices();
+                    renderManageList();
+                    showToast('success', 'CSV インポート', `${items.length} 台を取り込みました。`);
+                } else {
+                    const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+                    alert(`インポート失敗: ${err.error}`);
+                }
+            } catch (err) {
+                alert(`ファイルの読み込みに失敗しました: ${err.message}`);
+            } finally {
+                importCsvFile.value = '';
+            }
+        });
+    }
+
+    // =========================================================
     // SNMPv3 Form Fields Toggle
     // =========================================================
     const devSnmpVersion = document.getElementById('dev-snmp-version');
@@ -7097,7 +7396,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (devSnmpVersion && snmpv3Fields) {
         devSnmpVersion.addEventListener('change', () => {
-            snmpv3Fields.style.display = devSnmpVersion.value === 'v3' ? 'flex' : 'none';
+            snmpv3Fields.classList.toggle('hidden', devSnmpVersion.value !== 'v3');
         });
     }
 
@@ -7661,7 +7960,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const filtered = cachedSyslogs.filter(log => {
             if (sevFilter !== 'ALL' && log.Severity !== sevFilter) return false;
             if (q) {
-                const combined = `${log.Timestamp} ${log.SourceIP} ${log.Severity} ${log.Message}`.toLowerCase();
+                const combined = `${log.Timestamp} ${log.SourceIP} ${log.Severity} ${log.Kind || ''} ${log.Message}`.toLowerCase();
                 if (!combined.includes(q)) return false;
             }
             return true;
@@ -7678,6 +7977,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="syslog-line">
                     <span style="color:var(--text-muted); font-size:0.75rem; white-space:nowrap;">${escapeHTML(log.Timestamp)}</span>
                     <span class="syslog-tag ${sevClass}">${escapeHTML(log.Severity || 'INFO')}</span>
+                    ${log.Kind === 'Trap' ? '<span class="syslog-tag" style="background:rgba(139,92,246,0.2); color:#a78bfa;">Trap</span>' : ''}
                     <span style="color:var(--primary); font-weight:600; font-size:0.8rem; min-width:95px;">${escapeHTML(log.SourceIP)}</span>
                     <span style="color:var(--text-main); font-size:0.82rem; flex:1;">${escapeHTML(log.Message)}</span>
                 </div>
@@ -7701,8 +8001,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else if (data.listenError) {
                         listenStatusEl.textContent = '⚠ 受信状態: ' + data.listenError;
                         listenStatusEl.style.color = '#f59e0b';
+                    } else if (data.trapListenError) {
+                        listenStatusEl.textContent = '⚠ 受信状態: ' + data.trapListenError;
+                        listenStatusEl.style.color = '#f59e0b';
                     } else if (data.listenPort) {
-                        listenStatusEl.textContent = `受信状態: UDP ${data.listenPort} 番で受信中`;
+                        listenStatusEl.textContent = `受信状態: Syslog は UDP ${data.listenPort} 番、SNMP Trap は UDP ${data.trapListenPort || '-'} 番で受信中`;
                         listenStatusEl.style.color = '#10b981';
                     }
                 }

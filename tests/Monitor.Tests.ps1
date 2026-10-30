@@ -278,6 +278,54 @@ Describe "8. 設定・機器定義の自動スナップショット＆ロール�
     }
 }
 
+Describe "8b. SNMP Trap の解析 (SnmpService.psm1)" {
+    # テスト用の Trap データを組み立てる (種類・長さ・中身の繰り返し)
+    function New-Ber([int]$tag, [byte[]]$value) { return [byte[]](@($tag, $value.Length) + $value) }
+    function New-BerText([string]$text) { return New-Ber 0x04 ([System.Text.Encoding]::UTF8.GetBytes($text)) }
+    function New-BerBind([byte[]]$oid, [byte[]]$value) { return New-Ber 0x30 ([byte[]](@(New-Ber 0x06 $oid) + $value)) }
+    $sysUpTimeOid = [byte[]](0x2B, 6, 1, 2, 1, 1, 3, 0)
+    $trapOidOid = [byte[]](0x2B, 6, 1, 6, 3, 1, 1, 4, 1, 0)
+    $linkDownOid = [byte[]](0x2B, 6, 1, 6, 3, 1, 1, 5, 3)
+
+    It "v2c の linkDown Trap を読み取り、重要度と説明文に直せること" {
+        $binds = [byte[]](@(New-BerBind $sysUpTimeOid (New-Ber 0x43 ([byte[]](1, 0)))) + @(New-BerBind $trapOidOid (New-Ber 0x06 $linkDownOid)) + @(New-BerBind ([byte[]](0x2B, 6, 1, 2, 1, 2, 2, 1, 1, 3)) (New-Ber 0x02 ([byte[]](3)))))
+        $pduBody = [byte[]](@(New-Ber 0x02 ([byte[]](1))) + @(New-Ber 0x02 ([byte[]](0))) + @(New-Ber 0x02 ([byte[]](0))) + @(New-Ber 0x30 $binds))
+        $packet = New-Ber 0x30 ([byte[]](@(New-Ber 0x02 ([byte[]](1))) + @(New-BerText "public") + @(New-Ber 0xA7 $pduBody)))
+
+        $trap = ConvertFrom-SnmpTrapPacket -Packet $packet
+        $trap.Version | Should Be "v2c"
+        $trap.Pdu | Should Be "Trap"
+        $trap.TrapOid | Should Be "1.3.6.1.6.3.1.1.5.3"
+        $trap.UptimeTicks | Should Be "256"
+        @($trap.VarBinds).Count | Should Be 1
+        $trap.VarBinds[0].Oid | Should Be "1.3.6.1.2.1.2.2.1.1.3"
+        $trap.VarBinds[0].Value | Should Be "3"
+
+        $display = Get-SnmpTrapDisplay -Trap $trap
+        $display.Severity | Should Be "Warning"
+        $display.Message | Should Match "linkDown"
+        $display.Message | Should Not Match "public"
+    }
+
+    It "v1 の Trap を読み取り、v2c と同じ番号にそろえられること" {
+        $pduBody = [byte[]](@(New-Ber 0x06 ([byte[]](0x2B, 6, 1, 4, 1, 9))) + @(New-Ber 0x40 ([byte[]](192, 168, 0, 1))) + @(New-Ber 0x02 ([byte[]](2))) + @(New-Ber 0x02 ([byte[]](0))) + @(New-Ber 0x43 ([byte[]](5))) + @(New-Ber 0x30 ([byte[]]@())))
+        $packet = New-Ber 0x30 ([byte[]](@(New-Ber 0x02 ([byte[]](0))) + @(New-BerText "public") + @(New-Ber 0xA4 $pduBody)))
+
+        $trap = ConvertFrom-SnmpTrapPacket -Packet $packet
+        $trap.Version | Should Be "v1"
+        $trap.AgentAddress | Should Be "192.168.0.1"
+        $trap.TrapOid | Should Be "1.3.6.1.6.3.1.1.5.3"
+    }
+
+    It "SNMPv3 は中身を読まずに v3 とだけ返し、壊れたデータは例外になること" {
+        $v3 = New-Ber 0x30 ([byte[]](@(New-Ber 0x02 ([byte[]](3))) + @(New-Ber 0x30 ([byte[]]@()))))
+        (ConvertFrom-SnmpTrapPacket -Packet $v3).Version | Should Be "v3"
+
+        { ConvertFrom-SnmpTrapPacket -Packet ([byte[]](1, 2, 3)) } | Should Throw
+        { ConvertFrom-SnmpTrapPacket -Packet ([byte[]](0x30, 0x7F, 0x02)) } | Should Throw
+    }
+}
+
 Describe "9. システム前提環境・モジュール診断 (Common.psm1 / Test-SystemPrerequisites)" {
     It "Test-SystemPrerequisites が正常に診断結果ハッシュテーブルを返し、PowerShell互換性を検出すること" {
         $diag = Test-SystemPrerequisites

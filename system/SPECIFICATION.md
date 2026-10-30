@@ -554,9 +554,15 @@ sequenceDiagram
 
 ### 3.6 Syslog 受信・解析エンジン
 ネットワーク機器からの障害通知ログ（RFC 3164 / RFC 5424）をリアルタイムに受信・蓄積します。
-* **ポート**: `syslogPort`（既定 UDP 514）を開き、開けない場合は UDP 1514 で代わりに受信する。実際の受信ポートと失敗理由は `/api/syslog` の `listenPort` / `listenError` で返し、画面の「受信状態」に表示する。`syslogPort` を変更すると再起動なしで開き直す。SNMP Trap（UDP 162）の受信は未対応。
+* **ポート**: `syslogPort`（既定 UDP 514）を開き、開けない場合は UDP 1514 で代わりに受信する。実際の受信ポートと失敗理由は `/api/syslog` の `listenPort` / `listenError` で返し、画面の「受信状態」に表示する。`syslogPort` を変更すると再起動なしで開き直す。
 * **リングバッファ**: メモリ内に最新 500 件のログを保持（古いログから自動破棄）。
 * **ファシリティ / セベリティ解析**: PRIヘッダ（`<134>`等）から Facility（`local0`, `auth` 等）および Severity（`Emergency`, `Alert`, `Critical`, `Error`, `Warning`, `Notice`, `Info`, `Debug`）を自動抽出。
+
+### 3.6.1 SNMP Trap 受信エンジン
+機器から自発的に届く通知（SNMP Trap）を受信し、Syslog と同じ一覧（`SyslogQueue`、種類は `Kind = "Trap"`）に入れます。
+* **ポート**: `trapPort`（既定 UDP 162）を開き、開けない場合は UDP 1162 で代わりに受信する。状態は `/api/syslog` の `trapListenPort` / `trapListenError` で返す。受信の ON/OFF は `syslogEnabled` と共通。
+* **対応範囲**: SNMP v1 Trap、v2c Trap、v2c Inform（Inform には Response を返す）。解析は `SnmpService.psm1` の `ConvertFrom-SnmpTrapPacket` で行い、外部ライブラリに依存しない。SNMPv3 は暗号化されていて読めないため、案内を同じ送信元につき 1 分に 1 回まで表示する。
+* **表示**: 標準の Trap（linkDown / linkUp / coldStart 等）は日本語の説明と重要度を付ける（`Get-SnmpTrapDisplay`）。コミュニティ名は表示しない。SNMP として読めないデータは無視する。
 
 ---
 
@@ -643,7 +649,7 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/devices` | 登録機器一覧（`devices.json`）の取得 | スナップショット読込 |
 | `POST`| `/api/device` | 単一機器の新規追加 | `DevicesLock` 排他制御 |
-| `POST`| `/api/devices/bulk` | 複数機器の一括追加 | `DevicesLock` 排他制御 |
+| `POST`| `/api/devices/bulk` | 複数機器の一括追加・更新（送られた項目だけ更新し、省略した項目は登録済みの値を保つ。CSV インポートも使用） | `DevicesLock` 排他制御 |
 | `POST`| `/api/device/edit` | 機器設定の編集（IP変更、アイコン、接続先等） | `DevicesLock` 排他制御 |
 | `POST`| `/api/device/toggle` | 単一機器の監視有効/無効の切り替え | `DevicesLock` 排他制御 |
 | `POST`| `/api/device/upload-image` | 機器アイコン用画像のアップロード（png/jpg/gif/webp/bmp/ico のみ・10MB まで。ファイル名は `X-File-Name` に URL エンコードして渡す） | ファイル保存 (`public/uploads`) |
@@ -700,7 +706,7 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | `POST`| `/api/iperf/server`| `{ action: "start"\|"stop", port: 5201 }` | IPerf3 サーバーモード起動/停止 | プロセス管理 |
 | `GET` | `/api/iperf/server/status` | - | IPerf3 サーバー稼働状態取得 | 即時応答 |
 | `GET` | `/api/scan` | `?start=192.168.1.1&end=192.168.1.254` | IPレンジ並列Pingスキャン (最大20並列) | **`ThreadPool` 非同期実行** |
-| `GET` | `/api/traceroute` | `?target=192.168.1.1` | MTR 風ビジュアル経路追跡 (tracert 並行実行) | ストリーミング / 即時応答 |
+| `GET` | `/api/traceroute` | `?target=192.168.1.1` | 経路トレース（最大 20 区間）。`hops`（`ip` は応答なしなら null、`latency`）と `reached` を返す。構成図の右クリックメニューから使用 | 完了時に応答（最大 30 秒ほど） |
 | `GET` | `/api/web-check` | `?url=https://...` | 指定URLのHTTP応答ステータスおよびSSL証明書有効期限チェック | 即時応答 |
 
 ---
@@ -945,7 +951,7 @@ while ($syncHash.Running) {
 `HttpListener` を実行するメインスレッドは、数ミリ秒以内にレスポンスを返す処理のみを同期実行します。
 * **非同期オフロード対象**:
   * `/api/scan`（最大254アドレスへの並列Ping）
-  * `/api/traceroute`（最大15ホップの経路探索）
+  * `/api/traceroute`（最大20ホップの経路探索）
   * `/api/device/snmp-details`（複数MIBテーブルのWalk処理）
   * `/api/email/test`, `/api/webhook/test`（外部通信）
 * **オフロード実装**: `[System.Threading.ThreadPool]::QueueUserWorkItem` を使用し、処理完了時に `HttpListenerResponse` へ直接JSONを出力して接続をクローズ。

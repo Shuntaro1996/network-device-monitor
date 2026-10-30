@@ -520,7 +520,7 @@
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
                         <div>
                             <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px;">📡 Syslog / SNMP Trap リアルタイム受信</h2>
-                            <p style="margin:4px 0 0 0; font-size:0.82rem; color:var(--text-muted);">ネットワーク機器から UDP で送られてくる Syslog メッセージを自動受信・解析します。</p>
+                            <p style="margin:4px 0 0 0; font-size:0.82rem; color:var(--text-muted);">ネットワーク機器から UDP で送られてくる Syslog と SNMP Trap（v1 / v2c）を自動受信・解析します。</p>
                             <p id="syslog-listen-status" style="margin:4px 0 0 0; font-size:0.8rem; color:var(--text-muted);">受信状態: 確認中...</p>
                         </div>
                         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -566,8 +566,19 @@
                             <div id="topo-context-menu" class="topo-context-menu">
                                 <button id="ctx-unlink" class="ctx-danger">🔌 接続を解除</button>
                                 <button id="ctx-edit">✏️ 機器の編集</button>
+                                <button id="ctx-trace">🧭 経路トレース</button>
                             </div>
-                        </div>
+                            <!-- 経路トレースの結果 (このPCから選んだ機器までに通る機器の一覧) -->
+                            <div id="topo-trace-panel" class="glass-card" style="display:none; position:absolute; top:12px; right:12px; width:260px; max-height:70%; overflow-y:auto; padding:10px; z-index:20;">
+                                <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:4px;">
+                                    <strong style="font-size:0.85rem;">🧭 経路トレース</strong>
+                                    <span id="topo-trace-status" style="font-size:0.7rem; padding:2px 6px; border-radius:4px;"></span>
+                                    <button id="topo-trace-close" class="btn secondary-btn small" title="トレース結果を閉じて、構成図の強調表示を消します">✕</button>
+                                </div>
+                                <div id="topo-trace-target" style="font-size:0.72rem; color:var(--text-muted); margin-bottom:6px;"></div>
+                                <div id="topo-trace-list" style="display:flex; flex-direction:column; gap:4px;"></div>
+                            </div>
+</div>
 
                         <!-- 監視機器全体の通信遅延の折れ線グラフ -->
                         <div class="glass-card topo-chart-card">
