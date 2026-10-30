@@ -3372,7 +3372,7 @@ return 'http://' + u;
                     <div style="flex:1.1; min-width:0; display:flex; flex-direction:column; gap:1px;">
                         <span id="loss-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;" title="パケット損失率: 直近30回のPing送信に対する失敗割合 (%)">ロス: 0.0%</span>
                         <span id="jitter-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;" title="ジッター (ms): 応答時間のブレ・揺らぎ (RFC 3550)。5ms未満が理想">揺らぎ: -</span>
-                        ${d.obrEnabled ? `<span id="obr-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;">📶 無線: 確認中...</span>` : ''}
+                        ${d.obrEnabled ? `<button type="button" id="obr-${safeIpId}" class="obr-history-btn" style="font-size:0.71rem; color:#94a3b8;" title="押すと無線履歴を表示します">📶 無線: 確認中...</button>` : ''}
 </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;min-width:110px;">
                         <span class="header-latency" id="latency-${safeIpId}" style="min-width:50px;text-align:right;font-weight:700;" title="現在のPing応答遅延時間 (ms)">-</span>
@@ -3397,6 +3397,16 @@ return 'http://' + u;
                         e.stopPropagation();
                         openSnmpDetailsModal(d);
                     });
+                }
+
+                const obrHistoryBtn = row.querySelector('.obr-history-btn');
+                if (obrHistoryBtn) {
+                    obrHistoryBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openObrHistoryModal(ip, d.name || ip);
+                    });
+                    // 素早く 2 回押しても、機器の詳細画面まで開かないようにする
+                    obrHistoryBtn.addEventListener('dblclick', (e) => e.stopPropagation());
                 }
 
                 row.querySelector('.toggle-monitor-btn').addEventListener('click', async (e) => {
@@ -3751,7 +3761,7 @@ const ip = d.ip;
                     const obrView = describeObrStatus(data.obr);
                     obrEl.textContent = obrView.text;
                     obrEl.style.color = obrView.color;
-                    obrEl.title = obrView.detail;
+                    obrEl.title = (obrView.detail ? obrView.detail + '\n' : '') + '押すと無線履歴を表示します';
                 }
                 const lossEl = document.getElementById(`loss-${safeIpId}`);
 const jitterEl = document.getElementById(`jitter-${safeIpId}`);
@@ -8034,6 +8044,210 @@ return toCsvCell(d[c.key]);
     if (auditModal) {
         auditModal.addEventListener('click', (e) => {
             if (e.target === auditModal) closeAuditModal();
+        });
+    }
+
+    // OBR の無線履歴モーダル (電波の強さ・通信速度のグラフと、切断などの出来事の一覧)
+    const obrHistoryModal = document.getElementById('obr-history-modal');
+    const obrHistoryTitle = document.getElementById('obr-history-title');
+    const obrHistorySummary = document.getElementById('obr-history-summary');
+    const obrHistoryMessage = document.getElementById('obr-history-message');
+    const obrHistoryContent = document.getElementById('obr-history-content');
+    const obrHistoryEvents = document.getElementById('obr-history-events');
+    const obrHistoryRefreshBtn = document.getElementById('obr-history-refresh-btn');
+    let obrHistoryIp = null;
+    let obrHistoryLoadId = 0;   // 古い読み込みの結果で、新しい表示を上書きしないための番号
+    let obrSignalChart = null;
+    let obrRateChart = null;
+
+    function destroyObrHistoryCharts() {
+        if (obrSignalChart) { obrSignalChart.destroy(); obrSignalChart = null; }
+        if (obrRateChart) { obrRateChart.destroy(); obrRateChart = null; }
+    }
+
+    function parseObrTime(text) {
+        return new Date(String(text).replace(' ', 'T')).getTime();
+    }
+
+    function formatObrDuration(totalSeconds) {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        if (hours > 0) return `${hours}時間${minutes}分${seconds}秒`;
+        if (minutes > 0) return `${minutes}分${seconds}秒`;
+        return `${seconds}秒`;
+    }
+
+    // 出来事 1 件を、一覧に出す名前・色・説明にする
+    function describeObrEvent(ev) {
+        const duration = (ev.durationSec !== null && ev.durationSec !== undefined)
+            ? `${ev.ongoing ? '継続中 ' : ''}${formatObrDuration(ev.durationSec)}` : '';
+        const signal = (ev.signalDbm !== null && ev.signalDbm !== undefined) ? `${ev.signalDbm} dBm` : '';
+        switch (ev.type) {
+            case 'disconnected': return { label: '📵 切断', color: '#f87171', detail: duration };
+            case 'recovered': return { label: '✅ 復旧', color: '#10b981', detail: [ev.ssid, ev.bssid, signal, ev.txBitrate].filter(Boolean).join(' / ') };
+            case 'roamed': return { label: '🔀 AP切り替え', color: '#60a5fa', detail: `${ev.fromBssid} → ${ev.toBssid}${signal ? ` / ${signal}` : ''}` };
+            case 'loginFailed': return { label: '🔒 ログイン失敗', color: '#f59e0b', detail: duration };
+            default: return { label: '❓ 確認できず', color: '#94a3b8', detail: `管理画面に接続できません${duration ? `（${duration}）` : ''}` };
+        }
+    }
+
+    // 2 つのグラフで共通の設定。横軸は実際の時刻にして、記録のない時間が詰まって見えないようにする
+    function createObrHistoryChart(canvasId, datasets, firstMs, lastMs, spanMs, yOptions) {
+        const isDay = document.documentElement.getAttribute('data-theme') === 'day';
+        const textColor = isDay ? '#0f172a' : '#f8fafc';
+        const gridColor = isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+        const pad = (n) => String(n).padStart(2, '0');
+        const formatTick = (ms) => {
+            const dt = new Date(ms);
+            const clock = `${dt.getHours()}:${pad(dt.getMinutes())}`;
+            return spanMs >= 86400000 ? `${dt.getMonth() + 1}/${dt.getDate()} ${clock}` : `${clock}:${pad(dt.getSeconds())}`;
+        };
+        return new Chart(document.getElementById(canvasId).getContext('2d'), {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: textColor, boxHeight: 2 } },
+                    tooltip: {
+                        filter: (item) => item.datasetIndex === 0,
+                        callbacks: { title: (items) => items.length ? formatTick(items[0].parsed.x) : '' }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        min: spanMs > 0 ? firstMs : undefined,
+                        max: spanMs > 0 ? lastMs : undefined,
+                        ticks: { color: textColor, maxTicksLimit: 8, callback: (value) => formatTick(value) },
+                        grid: { color: gridColor }
+                    },
+                    y: Object.assign({ ticks: { color: textColor }, grid: { color: gridColor } }, yOptions)
+                }
+            }
+        });
+    }
+
+    function renderObrHistory(view) {
+        destroyObrHistoryCharts();
+        if (!view.rowCount) {
+            obrHistoryContent.style.display = 'none';
+            obrHistorySummary.textContent = '';
+            obrHistoryMessage.style.display = 'block';
+            obrHistoryMessage.textContent = view.loggingEnabled === false
+                ? 'ログ記録（CSV）が OFF のため履歴がありません。'
+                : 'まだ履歴がありません。OBR の確認結果が記録されるまで 20 秒ほどお待ちください（パスワードが未設定の間は記録されません）。';
+            return;
+        }
+        obrHistoryMessage.style.display = 'none';
+        obrHistoryContent.style.display = 'block';
+
+        const points = view.points.map((p) => ({ x: parseObrTime(p.t), signal: p.signal, rate: p.rate }));
+        const firstMs = points[0].x;
+        const lastMs = points[points.length - 1].x;
+        const spanMs = lastMs - firstMs;
+        // 監視の一時停止などで記録がない時間は、線をつながず途切れさせる
+        const gapLimitMs = Math.max(60000, 3 * spanMs / points.length);
+        const toSeries = (key) => {
+            const series = [];
+            points.forEach((p, i) => {
+                if (i > 0 && p.x - points[i - 1].x > gapLimitMs) series.push({ x: p.x - 1, y: null });
+                series.push({ x: p.x, y: p[key] });
+            });
+            return series;
+        };
+        const signalSeries = toSeries('signal');
+        const lineStyle = { tension: 0, borderWidth: 1.5, pointRadius: points.length <= 60 ? 2 : 0 };
+        const guideLine = (label, value, color) => ({
+            label, data: signalSeries.map((p) => ({ x: p.x, y: value })),
+            borderColor: color, borderWidth: 1, borderDash: [5, 4], pointRadius: 0
+        });
+        obrSignalChart = createObrHistoryChart('obr-signal-chart', [
+            Object.assign({ label: '電波の強さ (dBm)', data: signalSeries, borderColor: '#3b82f6' }, lineStyle),
+            guideLine('-67 dBm（やや弱い）', -67, '#f59e0b'),
+            guideLine('-75 dBm（弱い）', -75, '#f87171')
+        ], firstMs, lastMs, spanMs, { suggestedMin: -90, suggestedMax: -40 });
+        obrRateChart = createObrHistoryChart('obr-rate-chart', [
+            Object.assign({ label: '通信速度 (Mbit/s・接続の上限の速さ)', data: toSeries('rate'), borderColor: '#10b981' }, lineStyle)
+        ], firstMs, lastMs, spanMs, { beginAtZero: true });
+
+        const summary = [`${view.firstAt} 〜 ${view.lastAt}（${view.rowCount.toLocaleString()} 件の記録）`];
+        if (view.thinned) summary.push('グラフは区間内の最小値に間引いて表示しています');
+        obrHistorySummary.textContent = summary.join(' / ');
+
+        const events = view.events.slice().reverse();
+        if (events.length === 0) {
+            obrHistoryEvents.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:12px;">切断などの出来事はありません。</div>';
+        } else {
+            const omitted = view.eventsTotal - events.length;
+            obrHistoryEvents.innerHTML = events.map((ev) => {
+                const info = describeObrEvent(ev);
+                return `
+                    <div class="audit-entry">
+                        <span style="color:var(--text-muted); font-size:0.75rem; white-space:nowrap;">${escapeHTML(ev.time)}</span>
+                        <span style="font-weight:700; color:${info.color}; font-size:0.8rem; white-space:nowrap;">${escapeHTML(info.label)}</span>
+                        <span style="color:var(--text-main); font-size:0.8rem; flex:1; min-width:0; overflow-wrap:anywhere;">${escapeHTML(info.detail)}</span>
+                    </div>
+                `;
+            }).join('') + (omitted > 0 ? `<div style="color:var(--text-muted); text-align:center; padding:8px; font-size:0.75rem;">古い出来事 ${omitted.toLocaleString()} 件は省略しています</div>` : '');
+        }
+    }
+
+    async function loadObrHistory() {
+        const loadId = ++obrHistoryLoadId;
+        if (obrHistoryRefreshBtn) obrHistoryRefreshBtn.disabled = true;
+        try {
+            const res = await fetch(`/api/obr/history?ip=${encodeURIComponent(obrHistoryIp)}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const view = await res.json();
+            if (loadId === obrHistoryLoadId) renderObrHistory(view);
+        } catch (err) {
+            if (loadId === obrHistoryLoadId) {
+                destroyObrHistoryCharts();
+                obrHistoryContent.style.display = 'none';
+                obrHistorySummary.textContent = '';
+                obrHistoryMessage.style.display = 'block';
+                obrHistoryMessage.textContent = '履歴の取得に失敗しました。もう一度「更新」を押してください。';
+            }
+        } finally {
+            if (loadId === obrHistoryLoadId && obrHistoryRefreshBtn) obrHistoryRefreshBtn.disabled = false;
+        }
+    }
+
+    function openObrHistoryModal(ip, name) {
+        if (!obrHistoryModal) return;
+        obrHistoryIp = ip;
+        obrHistoryTitle.textContent = `無線履歴: ${name} (${ip})`;
+        destroyObrHistoryCharts();
+        obrHistorySummary.textContent = '';
+        obrHistoryContent.style.display = 'none';
+        obrHistoryMessage.style.display = 'block';
+        obrHistoryMessage.textContent = '履歴を読み込み中...';
+        obrHistoryModal.style.display = 'flex';
+        setTimeout(() => obrHistoryModal.classList.add('active'), 10);
+        loadObrHistory();
+    }
+
+    function closeObrHistoryModal() {
+        if (!obrHistoryModal) return;
+        obrHistoryLoadId++;
+        obrHistoryModal.classList.remove('active');
+        setTimeout(() => {
+            obrHistoryModal.style.display = 'none';
+            destroyObrHistoryCharts();
+        }, 250);
+    }
+
+    if (obrHistoryRefreshBtn) obrHistoryRefreshBtn.addEventListener('click', loadObrHistory);
+    document.getElementById('close-obr-history-btn')?.addEventListener('click', closeObrHistoryModal);
+    document.getElementById('close-obr-history-footer-btn')?.addEventListener('click', closeObrHistoryModal);
+    if (obrHistoryModal) {
+        obrHistoryModal.addEventListener('click', (e) => {
+            if (e.target === obrHistoryModal) closeObrHistoryModal();
         });
     }
 

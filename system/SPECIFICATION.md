@@ -563,6 +563,7 @@ sequenceDiagram
 * **結果**: `/api/status` の各機器の `obr` に `state`（`Connected` / `Disconnected` / `LoginFailed` / `Unreachable` / `NoPassword` / `DecryptFailed`）、`ssid`、`bssid`、`channel`、`signalDbm`、`txBitrate`、`checkedAt` を返す。
 * **表示**: 機器カードと構成図のノード。構成図のノードでは通信量の表示位置に無線状況を出し、通信量はツールチップに残す。`Disconnected` は画面のアラートと音で通知する（Webhook・メールは送らない）。
 * **履歴**: 確認結果を記録専用スレッドがセッションフォルダの `obr_wireless_<IP>.csv`（UTF-8 BOM 付き、10MB で `_1` へ切り替え）に追記する。`loggingEnabled` が false のときは記録しない。パスワード未設定・復号不可の状態は確認していないので記録しない。
+* **履歴画面**: 機器カードの無線の表示を押すと、今回の起動分の履歴をモーダルで表示する。`GET /api/obr/history?ip=<IP>` が `obr_wireless_<IP>_1.csv` と `obr_wireless_<IP>.csv` を古い順に別スレッドで読み、`points`（`t`、`signal`、`rate`）と `events`（`disconnected` / `recovered` / `roamed` / `unreachable` / `loginFailed`）を返す。`points` は最大 2,000 点に間引き、区間の最小値を残す。`events` は間引く前の全行で判定し、最新 500 件を返す。自動更新はせず、「更新」ボタンで読み直す。
 * **注意**: OBR との通信は平文の HTTP。ログイン回数を減らすため、状態ページを読めるあいだは再ログインしない。
 
 ### 3.6.1 SNMP Trap 受信エンジン
@@ -727,6 +728,7 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | `GET` | `/api/ip-conflicts` | 検出中のIPアドレス競合（MACアドレス不一致・急変）情報一覧取得 |
 | `GET` | `/api/audit` | 操作監査ログ（`audit.log`）の取得 |
 | `GET` | `/api/history` | 指定機器の過去ログ取得（日本語・英語ヘッダー自動正規化返却） |
+| `GET` | `/api/obr/history` | 指定した OBR の無線履歴（グラフの点と出来事の一覧）を取得 |
 | `POST`| `/api/history/clear`| 全機器の履歴データ・メモリキャッシュのクリア |
 | `GET` | `/api/history/download` | セッション全ログのZIP/CSV一括ダウンロード |
 | `POST`| `/api/reports/export` | 指定期間の稼働統計レポート一括CSVエクスポート |

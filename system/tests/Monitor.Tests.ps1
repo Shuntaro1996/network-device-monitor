@@ -410,6 +410,90 @@ ContentsStart("Connecting Wireless LAN Access Point Information");
         }
     }
 
+    It "無線履歴から切断・復旧・切り替え・確認できずの出来事を判定できること" {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_ObrView_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $rows = @(
+                @{ ip = '10.0.0.1'; name = 'A'; state = 'Connected'; ssid = '=AP'; bssid = 'AA'; channel = '6'; signalDbm = -50; txBitrate = '144.4 Mbit/s'; checkedAt = '2026-10-30 10:00:00' },
+                @{ ip = '10.0.0.1'; name = 'A'; state = 'Connected'; ssid = '=AP'; bssid = 'BB'; channel = '6'; signalDbm = -60; txBitrate = '1 Gbit/s'; checkedAt = '2026-10-30 10:00:10' },
+                @{ ip = '10.0.0.1'; name = 'A'; state = 'Disconnected'; checkedAt = '2026-10-30 10:00:20' },
+                @{ ip = '10.0.0.1'; name = 'A'; state = 'Disconnected'; checkedAt = '2026-10-30 10:00:30' },
+                @{ ip = '10.0.0.1'; name = 'A'; state = 'Connected'; ssid = '=AP'; bssid = 'BB'; channel = '6'; signalDbm = -70; txBitrate = '72 Mbit/s'; checkedAt = '2026-10-30 10:02:30' },
+                @{ ip = '10.0.0.1'; name = 'A'; state = 'Unreachable'; checkedAt = '2026-10-30 10:02:40' },
+                @{ ip = '10.0.0.1'; name = 'A'; state = 'Unreachable'; checkedAt = '2026-10-30 10:02:50' }
+            )
+            Write-ObrHistoryRows -SessionDir $dir -Rows $rows | Should Be $true
+            $view = Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.1'
+            $view.rowCount | Should Be 7
+            $view.thinned | Should Be $false
+            $view.firstAt | Should Be '2026-10-30 10:00:00'
+            $view.lastAt | Should Be '2026-10-30 10:02:50'
+            @($view.points).Count | Should Be 7
+            $view.points[0].signal | Should Be -50
+            $view.points[0].rate | Should Be 144.4
+            $view.points[1].rate | Should Be 1000
+            $view.points[2].signal | Should Be $null
+
+            $types = @($view.events | ForEach-Object { $_.type }) -join ','
+            $types | Should Be 'roamed,disconnected,recovered,unreachable'
+            $view.events[0].fromBssid | Should Be 'AA'
+            $view.events[0].toBssid | Should Be 'BB'
+            $view.events[1].durationSec | Should Be 130
+            $view.events[1].ongoing | Should Be $false
+            # Excel 対策の ' は画面では取り除く
+            $view.events[2].ssid | Should Be '=AP'
+            $view.events[3].durationSec | Should Be 10
+            $view.events[3].ongoing | Should Be $true
+        } finally {
+            Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "無線履歴を間引いても、短い電波の低下と切断が残ること" {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_ObrView_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $start = [DateTime]'2026-10-30 00:00:00'
+            $rows = for ($i = 0; $i -lt 3000; $i++) {
+                $state = if ($i -eq 2001) { 'Disconnected' } else { 'Connected' }
+                $signal = if ($i -eq 1500) { -90 } else { -50 }
+                @{ ip = '10.0.0.2'; name = 'B'; state = $state; ssid = 'AP'; bssid = 'AA'; channel = '6'; signalDbm = $signal; txBitrate = '144 Mbit/s'; checkedAt = $start.AddSeconds($i * 10).ToString('yyyy-MM-dd HH:mm:ss') }
+            }
+            Write-ObrHistoryRows -SessionDir $dir -Rows $rows | Should Be $true
+            $view = Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.2' -MaxPoints 100
+            $view.rowCount | Should Be 3000
+            $view.thinned | Should Be $true
+            (@($view.points).Count -le 100) | Should Be $true
+            (@($view.points | Where-Object { $_.signal -eq -90 }).Count) | Should Be 1
+            (@($view.events | ForEach-Object { $_.type }) -join ',') | Should Be 'disconnected,recovered'
+            $view.lastAt | Should Be $start.AddSeconds(29990).ToString('yyyy-MM-dd HH:mm:ss')
+        } finally {
+            Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "無線履歴の切り替え前のファイルも古い順に読み、書き込み途中の行は読み飛ばすこと" {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_ObrView_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            (Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.3').rowCount | Should Be 0
+            $old = @(@{ ip = '10.0.0.3'; name = 'C'; state = 'Connected'; ssid = 'AP'; bssid = 'AA'; channel = '6'; signalDbm = -50; txBitrate = '144 Mbit/s'; checkedAt = '2026-10-30 10:00:00' })
+            $new = @(@{ ip = '10.0.0.3'; name = 'C'; state = 'Disconnected'; checkedAt = '2026-10-30 10:00:10' })
+            Write-ObrHistoryRows -SessionDir $dir -Rows $old | Should Be $true
+            Rename-Item -LiteralPath (Join-Path $dir 'obr_wireless_10.0.0.3.csv') -NewName 'obr_wireless_10.0.0.3_1.csv'
+            Write-ObrHistoryRows -SessionDir $dir -Rows $new | Should Be $true
+            [System.IO.File]::AppendAllText((Join-Path $dir 'obr_wireless_10.0.0.3.csv'), '"2026-10-30 10:00:20","10.0.0.3","C","Connec', (New-Object System.Text.UTF8Encoding($false)))
+            $view = Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.3'
+            $view.rowCount | Should Be 2
+            $view.firstAt | Should Be '2026-10-30 10:00:00'
+            $view.lastAt | Should Be '2026-10-30 10:00:10'
+            $view.events[0].type | Should Be 'disconnected'
+        } finally {
+            Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It "OBR に接続できないときは Unreachable を返すこと" {
         (Get-ObrWirelessStatus -HostName '127.0.0.9' -Password 'x' -TimeoutMs 1000).State | Should Be 'Unreachable'
     }

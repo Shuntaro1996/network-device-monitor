@@ -5595,6 +5595,27 @@ sslWarnDays              = $syncHash.SslWarnDays
                         Write-JsonResponse $response @{ error = "No history log found for this device" } 404
                     }
                 }
+                elseif ($urlPath -eq "/api/obr/history" -and $method -eq "GET") {
+                    $ip = $request.QueryString["ip"]
+                    if (-not $ip -or $ip -notmatch '^[a-zA-Z0-9\.\-]+$') {
+                        Write-JsonResponse $response @{ error = "Invalid IP address" } 400
+                        continue
+                    }
+                    # 長く動かすと CSV が 15 万行ほどになり、読み込み中に画面全体が止まらないよう別スレッドで処理する
+                    Start-BackgroundScript -ArgumentList @($response, (Join-Path $modulesDir "ObrStatus.psm1"), $syncHash.SessionDir, $ip, ($syncHash.LoggingEnabled -ne $false)) -ScriptBlock {
+                        param($response, $obrModulePath, $sessionDir, $ip, $loggingEnabled)
+                        try {
+                            Import-Module $obrModulePath -DisableNameChecking -ErrorAction Stop
+                            $view = Get-ObrHistoryView -SessionDir $sessionDir -Ip $ip
+                            $view.status = "success"
+                            $view.loggingEnabled = $loggingEnabled
+                            Write-JsonResponse $response $view
+                        }
+                        catch {
+                            Write-JsonResponse $response @{ error = "Failed to read OBR history" } 500
+                        }
+                    }
+                }
                 elseif ($urlPath -eq "/api/iperf" -and $method -eq "GET") {
                     $targetIp = $request.QueryString["ip"]
                     $duration = $request.QueryString["t"]

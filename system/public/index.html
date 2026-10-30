@@ -2042,6 +2042,40 @@
         </div>
     </div>
 
+    <!-- OBR 無線履歴モーダル -->
+    <div id="obr-history-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-modal config-modal-box" style="max-width:840px; width:90%;">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span style="font-size:1.4rem;">📶</span>
+                    <div>
+                        <h2 id="obr-history-title" class="modal-title" style="margin:0; font-size:1.15rem;">無線履歴</h2>
+                        <span id="obr-history-summary" style="font-size:0.75rem; color:var(--text-muted);"></span>
+                    </div>
+                </div>
+                <button id="close-obr-history-btn" class="modal-close-btn">&times;</button>
+            </div>
+
+            <div class="modal-body-scroll config-modal-body" style="max-height:70vh; padding:16px;">
+                <div id="obr-history-message" style="color:var(--text-muted); text-align:center; padding:20px;"></div>
+                <div id="obr-history-content" style="display:none;">
+                    <div class="obr-history-chart"><canvas id="obr-signal-chart"></canvas></div>
+                    <div class="obr-history-chart"><canvas id="obr-rate-chart"></canvas></div>
+                    <h3 style="margin:12px 0 8px; font-size:0.9rem;">出来事（新しい順）</h3>
+                    <div id="obr-history-events" style="display:flex; flex-direction:column; gap:6px;"></div>
+                </div>
+            </div>
+
+            <div class="modal-footer" style="justify-content:space-between;">
+                <span style="font-size:0.75rem; color:var(--text-muted);">※ 今回の起動分を表示します（最新の記録は最大で約 10 秒遅れます）</span>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn secondary-btn" id="obr-history-refresh-btn">更新</button>
+                    <button class="btn primary-btn" id="close-obr-history-footer-btn">閉じる</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Shutdown Confirmation Modal (監視終了＆報告書) -->
     <div id="shutdown-confirm-modal" class="modal-overlay" style="display:none;">
         <div class="glass-modal config-modal-box" style="max-width:520px; width:90%; border-top:4px solid #ef4444;">
