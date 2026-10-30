@@ -17,9 +17,17 @@ function Send-WebhookNotification {
         [string]$ip,
         [string]$eventType,
         [string]$details = "",
-        [string]$severity = "CRITICAL"  # WARNING or CRITICAL
+        [string]$severity = "CRITICAL", # WARNING or CRITICAL
+        [switch]$ThrowOnError           # テスト送信用: 失敗時に理由を例外で返す
     )
     if ([string]::IsNullOrWhiteSpace($url)) { return }
+
+    # http / https 以外 (file: など) を受け付けると、通知内容がPC内のファイルに書き込まれてしまうため送らない
+    $uriObj = $null
+    if (-not [System.Uri]::TryCreate($url.Trim(), [System.UriKind]::Absolute, [ref]$uriObj) -or $uriObj.Scheme -notin @("http", "https")) {
+        if ($ThrowOnError) { throw "Webhook URL は http:// または https:// で始まる必要があります" }
+        return $false
+    }
 
     $emoji = switch ($eventType.ToLower()) {
         "offline"   { [char]::ConvertFromUtf32(0x1F534) } # 🔴
@@ -58,7 +66,7 @@ function Send-WebhookNotification {
     $jsonPayload = $bodyObj | ConvertTo-Json -Depth 3
 
     try {
-        $webReq = [System.Net.WebRequest]::Create($url)
+        $webReq = [System.Net.WebRequest]::Create($uriObj)
         $webReq.Method = "POST"
         $webReq.ContentType = "application/json; charset=utf-8"
         $webReq.Timeout = 4000
@@ -75,9 +83,11 @@ function Send-WebhookNotification {
             $webResp = $webReq.GetResponse()
             return $true
         } catch [System.Net.WebException] {
-            if ($_.Response) {
-                try { $_.Response.Close(); $_.Response.Dispose() } catch {}
+            $webErr = $_.Exception
+            if ($webErr.Response) {
+                try { $webErr.Response.Close(); $webErr.Response.Dispose() } catch {}
             }
+            if ($ThrowOnError) { throw $webErr.Message }
             return $false
         } finally {
             if ($null -ne $webResp) {
@@ -85,6 +95,7 @@ function Send-WebhookNotification {
             }
         }
     } catch {
+        if ($ThrowOnError) { throw }
         return $false
     }
 }
@@ -107,6 +118,8 @@ function Send-EmailNotification {
         [string]$body
     )
     if ([string]::IsNullOrWhiteSpace($smtpHost) -or [string]::IsNullOrWhiteSpace($to)) { return $false }
+    $mail = $null
+    $smtp = $null
     try {
         # 暗号化パスワードの自動復号
         $actualPass = if ($smtpPass -and $smtpPass.StartsWith("enc:")) {
@@ -133,12 +146,14 @@ function Send-EmailNotification {
             $smtp.Credentials = New-Object System.Net.NetworkCredential($smtpUser, $actualPass)
         }
         $smtp.Send($mail)
-        $mail.Dispose()
-        $smtp.Dispose()
         return $true
     } catch {
         Write-Warning "SMTP notification error: $($_.Exception.Message)"
         return $false
+    } finally {
+        # 送信に失敗したときも接続を閉じる (閉じないと失敗のたびに接続が残り続ける)
+        if ($mail) { try { $mail.Dispose() } catch {} }
+        if ($smtp) { try { $smtp.Dispose() } catch {} }
     }
 }
 

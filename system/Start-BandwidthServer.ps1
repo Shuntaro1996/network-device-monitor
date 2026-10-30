@@ -74,9 +74,10 @@ if ($AddFirewallRule) {
     $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
     if (-not $existing) {
         try {
+            # -ErrorAction Stop を付けないと、管理者権限がなく失敗しても catch に入らず「追加しました」と表示されていた
             New-NetFirewallRule -DisplayName $ruleName `
                 -Direction Inbound -Protocol TCP -LocalPort $Port `
-                -Action Allow -Profile Any | Out-Null
+                -Action Allow -Profile Any -ErrorAction Stop | Out-Null
             Write-Host "  ファイアウォールルールを追加しました: $ruleName" -ForegroundColor Green
         } catch {
             Write-Host "  [警告] ファイアウォールルールの追加に失敗（管理者権限が必要）" -ForegroundColor Yellow
@@ -99,7 +100,8 @@ Write-Host ""
 Write-Host "  リッスンポート: $Port" -ForegroundColor White
 Write-Host ""
 Write-Host "  別のPCから計測するには:" -ForegroundColor Yellow
-    Write-Host "  .\system\Measure-Bandwidth.ps1 -IpList `"<このPCのIP>`" -UseIperf3" -ForegroundColor White
+    $portArg = if ($Port -ne 5201) { " -IperfPort $Port" } else { "" }   # 標準以外のポートなら計測側にも指定が必要
+    Write-Host "  .\system\Measure-Bandwidth.ps1 -IpList `"<このPCのIP>`" -UseIperf3$portArg" -ForegroundColor White
 Write-Host ""
 Write-Host "  停止: Ctrl+C" -ForegroundColor Gray
 Write-Host "=====================================================" -ForegroundColor Cyan

@@ -95,12 +95,31 @@ foreach ($kv in $targetFileInfos.GetEnumerator()) {
     }
 
     if (-not $hasBom) {
-        $text = [System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)
-        [System.IO.File]::WriteAllText($f, $text, $utf8Bom)
-        Write-Host "[BOM FIXED] $relName" -ForegroundColor Yellow
-        $fixedCount++
-        $fiUpdated = [System.IO.FileInfo]::new($f)
-        $sig = "$($fiUpdated.Length):$($fiUpdated.LastWriteTimeUtc.Ticks)"
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($f)
+            # UTF-8 として正しく読めるかを厳密に確認する。読めない場合は Shift_JIS (CP932) で保存されたファイルとみなす
+            # (以前は常に UTF-8 として読んで上書きしていたため、Shift_JIS で保存されたファイルの日本語が
+            #  「?」などに置き換わり、元に戻せない形で壊れていた。PowerShell 5.1 も BOM なしは CP932 として読む)
+            $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
+            $sourceEncName = "UTF-8"
+            try {
+                $text = $strictUtf8.GetString($bytes)
+            }
+            catch [System.Text.DecoderFallbackException] {
+                $text = [System.Text.Encoding]::GetEncoding(932).GetString($bytes)
+                $sourceEncName = "Shift_JIS"
+            }
+            [System.IO.File]::WriteAllText($f, $text, $utf8Bom)
+            Write-Host "[BOM FIXED] $relName (from $sourceEncName)" -ForegroundColor Yellow
+            $fixedCount++
+            $fiUpdated = [System.IO.FileInfo]::new($f)
+            $sig = "$($fiUpdated.Length):$($fiUpdated.LastWriteTimeUtc.Ticks)"
+        }
+        catch {
+            # 他のソフトが開いている等で書き換えられないファイルがあっても、残りのファイルの確認は続ける
+            Write-Host "[BOM SKIP]  $relName ($($_.Exception.Message))" -ForegroundColor Red
+            continue
+        }
     } else {
         if (-not $Quiet) {
             Write-Host "[BOM OK]    $relName" -ForegroundColor Green

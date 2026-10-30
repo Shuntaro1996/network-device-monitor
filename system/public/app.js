@@ -133,6 +133,18 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/'/g, '&#039;');
     }
 
+    // リンク先として使ってよいURLだけを返す (javascript: など、クリックで任意の処理が動くURLは無効にする)
+    // 「\\サーバー\共有」や「C:\フォルダ」のようなパスは file: のURLに直す
+    function safeLinkUrl(url) {
+        const u = (url || '').toString().trim();
+        if (!u) return '';
+        if (/^(https?|file):/i.test(u)) return u;
+        if (/^\\\\/.test(u)) return 'file:' + u.replace(/\\/g, '/');            // \\server\share → file://server/share
+        if (/^[a-zA-Z]:[\\/]/.test(u)) return 'file:///' + u.replace(/\\/g, '/'); // C:\docs → file:///C:/docs
+        if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(u)) return '';
+        return 'http://' + u;
+    }
+
     // Utility function to escape XML/SVG special characters
     function escapeXml(str) {
         if (!str) return '';
@@ -1123,7 +1135,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             });
         } catch (err) {
-            listEl.innerHTML = `<div style="font-size:0.75rem; color:#ef4444; text-align:center; padding:10px;">スナップショット取得エラー: ${err.message}</div>`;
+            listEl.innerHTML = `<div style="font-size:0.75rem; color:#ef4444; text-align:center; padding:10px;">スナップショット取得エラー: ${escapeHTML(err.message)}</div>`;
         }
     }
 
@@ -1687,14 +1699,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const isCurrentlyUltra = ultraHighFreqActive;
         const isNewUltra = newInterval <= 100;
 
-        // Backup enabled states if transitioning from normal to ultra-high-frequency mode
-        if (!isCurrentlyUltra && isNewUltra) {
-            const stateToSave = {};
-            devices.forEach(d => {
-                stateToSave[d.ip] = (d.enabled !== false);
-            });
-            localStorage.setItem('preUltraHighFreqEnabledState', JSON.stringify(stateToSave));
-        }
+        // ※ 超高頻度モードは「対象機器を0.1秒・その他を5秒」で監視し続ける方式で、他の機器を一時停止しない。
+        //   そのため以前ここで行っていた「全機器の監視ON/OFF状態の退避」と、通常モードへ戻すときの「復元」は削除した
+        //   (復元が残っていたため、超高頻度モード中に⏸/▶で切り替えた監視状態が、通常モードに戻すと元に戻されていた)
+        try { localStorage.removeItem('preUltraHighFreqEnabledState'); } catch (e) {}
 
         // Collect up to 2 IPs from the two separate dropdowns
         const isUltra = isNewUltra;
@@ -1730,47 +1738,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     showToast('warning', '⚠ 超高頻度モード', '対象①から少なくとも1台選択してください。', 4000);
                 }
 
-                // Restore previous enabled states if transitioning from ultra-high-frequency to normal mode
-                if (isCurrentlyUltra && !isNewUltra) {
-                    const savedStateStr = localStorage.getItem('preUltraHighFreqEnabledState');
-                    if (savedStateStr) {
-                        try {
-                            const savedState = JSON.parse(savedStateStr);
-                            const enableIps = [];
-                            const disableIps = [];
-                            Object.keys(savedState).forEach(ip => {
-                                if (savedState[ip]) {
-                                    enableIps.push(ip);
-                                } else {
-                                    disableIps.push(ip);
-                                }
-                            });
-
-                            if (enableIps.length > 0) {
-                                await fetch('/api/devices/bulk-action', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ ips: enableIps, action: 'enable' })
-                                });
-                            }
-                            if (disableIps.length > 0) {
-                                await fetch('/api/devices/bulk-action', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ ips: disableIps, action: 'disable' })
-                                });
-                            }
-                            localStorage.removeItem('preUltraHighFreqEnabledState');
-                        } catch (e) {
-                            console.error('Failed to restore pre-ultra high freq states:', e);
-                        }
-                    }
-                }
-
                 // Sync ultra-high-freq state immediately for dashboard Paused display
                 updateUltraHighFreqState(payload.pollInterval, highFreqIps);
-                
-                // If we restored states, reload devices first to ensure UI is in sync
+
+                // 超高頻度モードから戻るときは機器一覧を読み直して、カード表示 (対象機器のみ → 全機器) を作り直す
                 if (isCurrentlyUltra && !isNewUltra) {
                     await fetchDevices();
                 } else {
@@ -3531,6 +3502,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 機器の状態に応じて画面の通知 (トースト) と警告音を出す
+    // (カードを表示していない機器 = 超高頻度モードの5.0s間隔の機器 にも通知が出るよう、カード更新とは分けている)
+    // ※ 状態データ (data) には機器名が含まれないため、名前は機器一覧 (d.name) から取る (以前は常にIPが表示されていた)
+    function raiseDeviceAlerts(d, data) {
+        const ip = d.ip;
+        const label = d.name || ip;
+        const isSuppressed = isAlertSuppressed(ip) || data.isSuppressed;
+        if (isSuppressed) return;
+        if ((data.status === "Failed" || data.status === "Error") && canAlert(ip, 'offline')) {
+            showToast('error', `🔴 ${label} オフライン`, `IP: ${ip} 応答なし`, 5000);
+            playAlertSound('error');
+        } else if (data.status === "Warning" && canAlert(ip, 'warning')) {
+            showToast('warning', `⚠️ ${label} 警告状態 (遅延/瞬断)`, `IP: ${ip} 遅延: ${data.latency != null ? data.latency + 'ms' : '単発断'}`, 4000);
+            playAlertSound('warning');
+        }
+        const warnLat = parseFloat(threshLatencyEl.value) || 100;
+        if ((data.status === "Success" || data.status === "Warning") && data.latency !== null && data.latency >= warnLat && canAlert(ip, 'latency')) {
+            showToast('warning', `⚠️ ${label} 高遅延検知`, `IP: ${ip} 遅延: ${data.latency}ms (閾値: ${warnLat}ms)`, 5000);
+            playAlertSound('warning');
+        }
+    }
+
     function updateDeviceData(statusData) {
         devices.forEach(d => {
             const ip = d.ip, safeIpId = ip.replace(/\./g, '-');
@@ -3544,7 +3537,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const dotEl = document.getElementById(`dot-${safeIpId}`), latencyEl = document.getElementById(`latency-${safeIpId}`);
             if (!dotEl || !latencyEl) {
                 // 画面にカードがない機器 (超高頻度モードで5.0s間隔の機器など) も、グラフ用の履歴だけは記録する
-                if (data && d.enabled !== false) pushLatencyHistory(ip, data);
+                if (data && d.enabled !== false) {
+                    pushLatencyHistory(ip, data);
+                    raiseDeviceAlerts(d, data);
+                }
                 return;
             }
 
@@ -3559,22 +3555,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             : 'paused';
                 dotEl.className = 'status-dot ' + statusClass;
 
-                if ((data.status === "Failed" || data.status === "Error") && !isSuppressed && canAlert(ip, 'offline')) {
-                    showToast('error', `🔴 ${data.name || ip} オフライン`, `IP: ${ip} 応答なし`, 5000);
-                    playAlertSound('error');
-                } else if (data.status === "Warning" && !isSuppressed && canAlert(ip, 'warning')) {
-                    showToast('warning', `⚠️ ${data.name || ip} 警告状態 (遅延/瞬断)`, `IP: ${ip} 遅延: ${data.latency != null ? data.latency + 'ms' : '単発断'}`, 4000);
-                    playAlertSound('warning');
-                }
+                raiseDeviceAlerts(d, data);
 
                 const warnLat = parseFloat(threshLatencyEl.value) || 100;
                 if ((data.status === "Success" || data.status === "Warning") && data.latency !== null) {
                     latencyEl.textContent = `${data.latency} ms`;
                     latencyEl.className = 'header-latency' + (data.status === "Warning" || data.latency >= warnLat ? ' bad' : '');
-                    if (data.latency >= warnLat && !isSuppressed && canAlert(ip, 'latency')) {
-                        showToast('warning', `⚠️ ${data.name || ip} 高遅延検知`, `IP: ${ip} 遅延: ${data.latency}ms (閾値: ${warnLat}ms)`, 5000);
-                        playAlertSound('warning');
-                    }
                     // Update per-session min/max
                     if (!latencyStats[ip]) latencyStats[ip] = { min: null, max: null };
                     if (latencyStats[ip].min === null || data.latency < latencyStats[ip].min) latencyStats[ip].min = data.latency;
@@ -3884,9 +3870,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e && e.persisted) return;
         try {
             if (navigator.sendBeacon) {
-                navigator.sendBeacon('/api/shutdown');
+                // reason=unload: ブラウザを閉じた・再読み込みしたときの合図 (無人運用モードではサーバー側で無視される)
+                navigator.sendBeacon('/api/shutdown?reason=unload');
             } else {
-                fetch('/api/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
+                fetch('/api/shutdown?reason=unload', { method: 'POST', keepalive: true }).catch(() => {});
             }
         } catch (err) {}
     };
@@ -3908,7 +3895,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const headers = {
                 'X-Device-IP': sanitizedIp,
-                'X-File-Name': file.name
+                'X-File-Name': encodeURIComponent(file.name)  // 日本語のファイル名もヘッダーで送れるようにする
             };
 
             try {
@@ -3927,7 +3914,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         devImageUrl.value = data.path;
                     }
                 } else {
-                    alert('画像のアップロードに失敗しました。');
+                    let reason = '';
+                    try { reason = (await response.json()).error || ''; } catch (_) {}
+                    alert('画像のアップロードに失敗しました。' + (reason ? '\n' + reason : ''));
                 }
             } catch (err) {
                 console.error('Error uploading file:', err);
@@ -4050,7 +4039,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast('error', '❌ ターゲット未入力', '計測対象のデバイスを選択するか、ホスト名を入力してください。');
                 return;
             }
-            const duration = parseInt(iperfViewDurationInput.value) || 5;
+            const duration = Math.min(3600, Math.max(1, parseInt(iperfViewDurationInput.value) || 5));   // サーバー側の上限 (1〜3600秒) に合わせる
             const options = iperfViewOptionsInput ? iperfViewOptionsInput.value : '';
             
             // UI Reset for new run
@@ -4138,7 +4127,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Visual feedback of resetting
             iperfLiveConsole.innerHTML = `<span style="color: var(--text-muted);">[${new Date().toLocaleTimeString()}]</span> > 新しい計測セッションを開始しています...<br>`;
-            iperfLiveConsole.innerHTML += `> ターゲット: <span style="color: var(--primary); font-weight: bold;">${ip}</span><br>`;
+            iperfLiveConsole.innerHTML += `> ターゲット: <span style="color: var(--primary); font-weight: bold;">${escapeHTML(ip)}</span><br>`;
             iperfLiveConsole.scrollTop = 0;
             
             // Countdown timer
@@ -4184,7 +4173,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     iperfViewExecutedCommand.textContent = `実行コマンド: ${startData.command}`;
                     iperfViewExecutedCommand.classList.remove('hidden');
                     iperfViewExecutedCommand.style.display = 'block';
-                    iperfLiveConsole.innerHTML += `> コマンド実行: <span style="color: #94a3b8;">${startData.command}</span>\n\n`;
+                    iperfLiveConsole.innerHTML += `> コマンド実行: <span style="color: #94a3b8;">${escapeHTML(startData.command)}</span>\n\n`;
                 }
 
                 if (startData.status === 'started') {
@@ -4244,7 +4233,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         `;
                     }
                 } else {
-                    iperfViewSummary.innerHTML = `<span style="color: var(--error);">&#10060; エラー: ${startData.error || '計測を開始できませんでした'}</span>`;
+                    iperfViewSummary.innerHTML = `<span style="color: var(--error);">&#10060; エラー: ${escapeHTML(startData.error || '計測を開始できませんでした')}</span>`;
                 }
             } catch (err) {
                 if (!isStopRequested) {
@@ -4488,7 +4477,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (image && PREDEFINED_ICONS[image]) {
             iconContent = PREDEFINED_ICONS[image].replace(/#94a3b8/g, normalIconColor);
         } else if (image && image !== '') {
-            iconContent = `<image href="${image}" x="-2" y="-2" width="40" height="40" clip-path="url(#circle-clip)" preserveAspectRatio="xMidYMid slice"/>`;
+            iconContent = `<image href="${escapeXml(image)}" x="-2" y="-2" width="40" height="40" clip-path="url(#circle-clip)" preserveAspectRatio="xMidYMid slice"/>`;
         } else {
             iconContent = PREDEFINED_ICONS.server.replace(/#94a3b8/g, mutedIconColor);
         }
@@ -6135,7 +6124,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const headers = {
                 'X-Device-IP': sanitizedIp,
-                'X-File-Name': file.name
+                'X-File-Name': encodeURIComponent(file.name)  // 日本語のファイル名もヘッダーで送れるようにする
             };
 
             const submitBtn = document.querySelector('#topo-node-form button[type="submit"]');
@@ -6157,7 +6146,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         topoImageUrl.value = data.path;
                     }
                 } else {
-                    alert('画像のアップロードに失敗しました。');
+                    let reason = '';
+                    try { reason = (await response.json()).error || ''; } catch (_) {}
+                    alert('画像のアップロードに失敗しました。' + (reason ? '\n' + reason : ''));
                 }
             } catch (err) {
                 console.error('Error uploading file:', err);
@@ -6377,7 +6368,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         `;
                     }
                 } else {
-                    if (iperfSummary) iperfSummary.innerHTML = `<span style="color: var(--error);">❌ エラー: ${data.error || data.message || '計測に失敗しました'}</span>`;
+                    if (iperfSummary) iperfSummary.innerHTML = `<span style="color: var(--error);">❌ エラー: ${escapeHTML(data.error || data.message || '計測に失敗しました')}</span>`;
                 }
             } catch (err) {
                 console.error('Iperf error:', err);
@@ -7071,7 +7062,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const text = await file.text();
                 const parsed = JSON.parse(text);
                 if (!Array.isArray(parsed)) { alert('ファイル形式が無効です。JSON配列形式のファイルを指定してください。'); return; }
-                const confirmed = confirm(`${parsed.length} 台のデバイスをインポートします。既存設定に追加されます。よろしいですか？`);
+                // サーバー側のインポートは「現在の機器一覧をすべて置き換える」動作 (追加ではない) なので、その通りに確認する
+                // (以前は「既存設定に追加されます」と表示され、登録済みの機器が消えることが分からなかった)
+                const confirmed = confirm(`${parsed.length} 台のデバイスをインポートします。\n\n⚠ 現在登録されている ${devices.length} 台の機器一覧は、すべてこのファイルの内容に置き換わります（ファイルにない機器は削除されます）。\n\nよろしいですか？`);
                 if (!confirmed) return;
 
                 const res = await fetch('/api/devices/import', {
@@ -7580,7 +7573,7 @@ document.addEventListener('DOMContentLoaded', () => {
         uiModeToggleBtn.addEventListener('click', () => {
             const newMode = (currentUiMode === 'simple') ? 'detail' : 'simple';
             applyUiMode(newMode);
-            showToast((newMode === 'simple') ? 'かんたん表示モードに切り替えました' : '詳細表示モードに切り替えました', 'info');
+            showToast('info', '表示モード', (newMode === 'simple') ? 'かんたん表示モードに切り替えました' : '詳細表示モードに切り替えました');
         });
     }
     applyUiMode(currentUiMode);
@@ -7699,6 +7692,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 cachedSyslogs = data.logs || [];
                 renderSyslogStream();
+                // 実際に受信しているポートを表示する (指定ポートが使えず 1514 に切り替わった場合も分かるように)
+                const listenStatusEl = document.getElementById('syslog-listen-status');
+                if (listenStatusEl) {
+                    if (data.enabled === false) {
+                        listenStatusEl.textContent = '受信状態: 停止中 (設定で Syslog 受信が無効です)';
+                        listenStatusEl.style.color = 'var(--text-muted)';
+                    } else if (data.listenError) {
+                        listenStatusEl.textContent = '⚠ 受信状態: ' + data.listenError;
+                        listenStatusEl.style.color = '#f59e0b';
+                    } else if (data.listenPort) {
+                        listenStatusEl.textContent = `受信状態: UDP ${data.listenPort} 番で受信中`;
+                        listenStatusEl.style.color = '#10b981';
+                    }
+                }
             }
         } catch (err) {}
     }
@@ -7711,7 +7718,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 await fetch('/api/syslog/clear', { method: 'POST' });
                 cachedSyslogs = [];
                 renderSyslogStream();
-                showToast('Syslog ログを消去しました', 'info');
+                showToast('info', 'Syslog', 'Syslog ログを消去しました');
             }
         });
     }
@@ -7789,13 +7796,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 const data = await res.json();
                 if (res.ok && data.status === 'success') {
-                    showToast(`✅ スナップショットを作成しました (${data.filename})`, 'success');
+                    showToast('success', 'コンフィグバックアップ', `スナップショットを作成しました (${data.filename})`);
                     await loadConfigBackupList(currentSnmpIp);
                 } else {
-                    showToast('❌ バックアップ取得に失敗しました。', 'error');
+                    showToast('error', 'コンフィグバックアップ', 'バックアップ取得に失敗しました。');
                 }
             } catch (err) {
-                showToast('❌ 通信エラーが発生しました。', 'error');
+                showToast('error', 'コンフィグバックアップ', '通信エラーが発生しました。');
             } finally {
                 btnRunConfigBackup.disabled = false;
                 btnRunConfigBackup.textContent = '➕ バックアップ即時取得';
@@ -7857,10 +7864,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const emptyEl = document.getElementById('modal-memo-empty');
         
         if (locEl) locEl.textContent = device.location || '未登録';
-        if (webEl) webEl.innerHTML = device.webUrl ? `<a href="${escapeHTML(device.webUrl)}" target="_blank" style="color:var(--primary); text-decoration:underline;">${escapeHTML(device.webUrl)}</a>` : '—';
+        if (webEl) webEl.innerHTML = safeLinkUrl(device.webUrl) ? `<a href="${escapeHTML(safeLinkUrl(device.webUrl))}" target="_blank" rel="noopener noreferrer" style="color:var(--primary); text-decoration:underline;">${escapeHTML(device.webUrl)}</a>` : '—';
         
         if (device.troubleMemo && device.troubleMemo.trim()) {
-            if (linkEl) linkEl.href = device.troubleMemo.trim();
+            if (linkEl) linkEl.href = safeLinkUrl(device.troubleMemo) || '#';
             if (linkWrapper) linkWrapper.style.display = 'block';
             if (emptyEl) emptyEl.style.display = 'none';
         } else {
@@ -7889,7 +7896,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 memoDiv.className = 'simple-mode-memo-badge';
                 memoDiv.innerHTML = `
                     ${device.location ? `<span>📍 <strong>${escapeHTML(device.location)}</strong></span>` : ''}
-                    ${device.troubleMemo ? `<span>📖 <a href="${escapeHTML(device.troubleMemo)}" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline;">マニュアル</a></span>` : ''}
+                    ${safeLinkUrl(device.troubleMemo) ? `<span>📖 <a href="${escapeHTML(safeLinkUrl(device.troubleMemo))}" target="_blank" rel="noopener noreferrer" style="color:var(--primary); font-weight:600; text-decoration:underline;">マニュアル</a></span>` : ''}
                 `;
                 const content = card.querySelector('.device-card-content') || card;
                 content.appendChild(memoDiv);

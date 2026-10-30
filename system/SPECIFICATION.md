@@ -167,11 +167,12 @@ flowchart TB
 | スレッド/Runspace名 | 担当処理 | 実行周期 / トリガー | スレッドモデル |
 | :--- | :--- | :--- | :--- |
 | **Main Thread** | `HttpListener` による HTTP リクエスト受付、静的ファイル配信、APIルーティング | 常時リッスン (同期ループ) | メインプロセス |
-| **Runspace 1: Ping** | 監視対象機器へのPing送信、RTT計測、瞬断検知、パケットロス/ジッター計算、CSVログ記録 | 設定間隔（100ms 〜 60,000ms） | バックグラウンド Runspace |
+| **Runspace 1: Ping** | 監視対象機器へのPing送信、RTT計測、瞬断検知、パケットロス/ジッター計算（記録はメモリ上のキューへ） | 設定間隔（100ms 〜 60,000ms） | バックグラウンド Runspace |
 | **Runspace 2: Bandwidth** | `Measure-Bandwidth.ps1` によるスクリプト帯域計測 | 10秒固定周期 | バックグラウンド Runspace |
 | **Runspace 3: SNMP Basic** | SNMPトラフィック（In/Out Octets）およびエラー（Errors/Discards）収集、バックオフ制御 | 設定間隔（5秒 〜 30秒） | バックグラウンド Runspace |
 | **Runspace 4: SNMP Detail** | インターフェースリンク速度、Wi-Fi周波数帯、CDP/LLDP隣接機器収集、トポロジー自動親子付け | 30秒固定周期 | バックグラウンド Runspace |
 | **Runspace 5: Syslog** | UDP 514 / 1514 ポートでの Syslog パケット受信、パース、キュー格納 | UDPパケット受信時（即時） | バックグラウンド Runspace |
+| **Runspace 1b: Disk Writer** | メモリ上のキューから CSV ログへの追記（10MB で世代交代）、統計チェックポイント `_checkpoint.json` の保存。ドライブの書き込みが止まっても Ping 監視を止めないよう分離 | CSV: 10秒 / チェックポイント: 60秒 | バックグラウンド Runspace |
 | **Runspace 6: Watchdog** | コンソールキー入力検知（Enterキー停止）、ブラウザハートビート監視（60秒無通信で自動保存＆終了） | 200ms 周期 | バックグラウンド Runspace |
 | **ThreadPool Workers** | IPレンジスキャン、Traceroute、SNMP詳細クエリ、Webhook送信、メール送信 | APIリクエスト時に動的生成 | .NET ThreadPool |
 
@@ -553,7 +554,7 @@ sequenceDiagram
 
 ### 3.6 Syslog 受信・解析エンジン
 ネットワーク機器からの障害通知ログ（RFC 3164 / RFC 5424）をリアルタイムに受信・蓄積します。
-* **ポート**: UDP 514（特権ポート）および UDP 1514（非特権ポート代替）を自動バインド。
+* **ポート**: `syslogPort`（既定 UDP 514）を開き、開けない場合は UDP 1514 で代わりに受信する。実際の受信ポートと失敗理由は `/api/syslog` の `listenPort` / `listenError` で返し、画面の「受信状態」に表示する。`syslogPort` を変更すると再起動なしで開き直す。SNMP Trap（UDP 162）の受信は未対応。
 * **リングバッファ**: メモリ内に最新 500 件のログを保持（古いログから自動破棄）。
 * **ファシリティ / セベリティ解析**: PRIヘッダ（`<134>`等）から Facility（`local0`, `auth` 等）および Severity（`Emergency`, `Alert`, `Critical`, `Error`, `Warning`, `Notice`, `Info`, `Debug`）を自動抽出。
 
@@ -645,7 +646,7 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | `POST`| `/api/devices/bulk` | 複数機器の一括追加 | `DevicesLock` 排他制御 |
 | `POST`| `/api/device/edit` | 機器設定の編集（IP変更、アイコン、接続先等） | `DevicesLock` 排他制御 |
 | `POST`| `/api/device/toggle` | 単一機器の監視有効/無効の切り替え | `DevicesLock` 排他制御 |
-| `POST`| `/api/device/upload-image` | 機器アイコン用画像のアップロード | Base64/ファイル保存 |
+| `POST`| `/api/device/upload-image` | 機器アイコン用画像のアップロード（png/jpg/gif/webp/bmp/ico のみ・10MB まで。ファイル名は `X-File-Name` に URL エンコードして渡す） | ファイル保存 (`public/uploads`) |
 | `POST`| `/api/devices/delete` | 機器の削除および関連履歴CSVのクリーンアップ | `DevicesLock` 排他制御 |
 | `POST`| `/api/devices/reorder` | 機器の並び順（表示順序）の保存 | `DevicesLock` 排他制御 |
 | `POST`| `/api/devices/positions`| トポロジー図上の座標（x, y）の一括保存 | `DevicesLock` 排他制御 |
@@ -776,9 +777,9 @@ flowchart TD
 
 ---
 
-### 5.3 超高頻度モード（0.1s）状態退避・復元仕様
+### 5.3 超高頻度モード（0.1s）切り替え仕様
 
-0.1秒モード切り替え時におけるユーザー操作と状態遷移の仕様です。
+0.1秒モード切り替え時の状態遷移です。対象外の機器は一時停止せず 5.0 秒間隔で監視を続けるため、各機器の監視 ON/OFF（enabled）は変更・退避・復元しません。
 
 ```mermaid
 stateDiagram-v2
@@ -786,19 +787,20 @@ stateDiagram-v2
     
     NormalMode --> UltraMode: ユーザーが「超高頻度(0.1s)」を選択
     note right of UltraMode
-        1. 変更前の全機器 enabled 状態を localStorage に退避
-        2. 選択機器以外を一時停止 (enabled: false)
-        3. 未選択機器のトポロジー色・遅延・トラフィックをキャッシュから維持表示
-        4. ポーリング周期を 100ms に短縮
+        1. 選択した最大2台を 0.1 秒間隔で監視
+        2. その他の有効な機器は 5.0 秒間隔で監視を継続
+        3. ダッシュボードのカードは対象機器のみ表示（遅延推移グラフは 5.0 秒間隔の機器も点線で表示）
     end note
 
     UltraMode --> NormalMode: ユーザーが「1秒 / 5秒 等」に戻す
     note right of NormalMode
-        1. localStorage から退避した enabled 状態を復元
-        2. /api/devices/bulk-action で一括再開
-        3. 全機器の通常監視を再開
+        1. 全機器を設定間隔で監視
+        2. 機器一覧を読み直してカード表示を全機器に戻す
+        3. 各機器の監視 ON/OFF は超高頻度モード中に変更した状態のまま
     end note
 ```
+
+> 2026-10-30 変更: 以前は通常モードへ戻すときに、超高頻度モードに入る前の監視 ON/OFF 状態をブラウザに保存しておいて復元していたため、超高頻度モード中に ⏸/▶ で切り替えた状態が元に戻されていました。現在は復元しません。
 
 ---
 
@@ -979,6 +981,7 @@ NetworkDeviceMonitor/
 ├── README.md                 # 簡易概要・クイックスタート
 ├── 利用手順書.md             # エンドユーザー向け操作マニュアル
 ├── Start-Monitor.bat         # ワンクリック起動バッチ
+├── Stop-All.bat              # Launcher.ps1 で開いた機器ごとの監視ウィンドウを一括終了 (.stop_signal を置く)
 ├── Reports/                  # 永続ログ・レポート保存先
 │   ├── audit.log             # 操作監査ログ
 │   ├── Configs/              # 機器コンフィグバックアップ保存先

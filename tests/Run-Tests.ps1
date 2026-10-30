@@ -36,7 +36,14 @@ foreach ($tsFile in $allTestScripts) {
         $bytes = [System.IO.File]::ReadAllBytes($tsFile.FullName)
         $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
         if (-not $hasBom) {
-            $txt = [System.IO.File]::ReadAllText($tsFile.FullName, [System.Text.Encoding]::UTF8)
+            # UTF-8 として読めないファイルは Shift_JIS (CP932) で保存されたものとして読む
+            # (常に UTF-8 で読むと、Shift_JIS のファイルの日本語が壊れたまま上書きされるため)
+            try {
+                $txt = (New-Object System.Text.UTF8Encoding($false, $true)).GetString($bytes)
+            }
+            catch [System.Text.DecoderFallbackException] {
+                $txt = [System.Text.Encoding]::GetEncoding(932).GetString($bytes)
+            }
             [System.IO.File]::WriteAllText($tsFile.FullName, $txt, $utf8Bom)
         }
     } catch {}

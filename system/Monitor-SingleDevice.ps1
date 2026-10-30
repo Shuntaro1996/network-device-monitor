@@ -127,7 +127,8 @@ try {
     $summaryLines += "【計測サマリー (Summary): $TargetAddress】"
     $summaryLines += "計測開始時間: $($startTime.ToString('yyyy-MM-dd HH:mm:ss'))"
     $summaryLines += "計測終了時間: $($endTime.ToString('yyyy-MM-dd HH:mm:ss'))"
-    $summaryLines += "計測期間(hh:mm:ss): $($duration.ToString('hh\:mm\:ss'))"
+    # 24時間を超えても正しく表示する (hh だと日数が切り捨てられ、30時間でも「06:00:00」になっていた)
+    $summaryLines += "計測期間(hh:mm:ss): {0:00}:{1:mm\:ss}" -f [math]::Floor($duration.TotalHours), $duration
     $summaryLines += "-----------------------------------------"
 
     $total = $stats.Success + $stats.Failed + $stats.Error

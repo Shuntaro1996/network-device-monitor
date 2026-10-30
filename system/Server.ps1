@@ -45,6 +45,36 @@ if (Test-Path $modulesDir) {
     Import-Module (Join-Path $modulesDir "RemoteExec.psm1") -Force -DisableNameChecking -ErrorAction SilentlyContinue
 }
 
+# TCPポート監視用: 接続が終わった瞬間の所要時間を測る小さな補助クラス (メモリ内でコンパイルし、exe は作らない)
+# (以前は全機器の確認が終わるまで待ってから時間を読んでいたため、応答しない機器が1台あるだけで
+#  TCP 監視の機器の遅延が実際の 1ms ではなく 500ms 以上と表示され、「高遅延」と誤判定されていた)
+if (-not ("NdmTcpProbe" -as [type])) {
+    try {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Diagnostics;
+using System.Net.Sockets;
+using System.Threading.Tasks;
+public static class NdmTcpProbe {
+    // 接続できたらかかったミリ秒、失敗したら -1 を返す
+    public static Task<long> ConnectTimed(string host, int port) {
+        var sw = Stopwatch.StartNew();
+        var client = new TcpClient();
+        Task connectTask;
+        try { connectTask = client.ConnectAsync(host, port); }
+        catch { try { client.Close(); } catch { } return Task.FromResult(-1L); }
+        return connectTask.ContinueWith(t => {
+            sw.Stop();
+            try { client.Close(); } catch { }
+            return (t.IsFaulted || t.IsCanceled) ? -1L : sw.ElapsedMilliseconds;
+        });
+    }
+}
+"@ -ErrorAction Stop
+    }
+    catch { Write-Host "NdmTcpProbe compile failed: $($_.Exception.Message)" -ForegroundColor Red }
+}
+
 # Clean up any leftover iperf3.exe processes from previous unclean exits
 try {
     Get-Process -Name "iperf3" -ErrorAction SilentlyContinue | ForEach-Object {
@@ -163,7 +193,7 @@ $syncHash.EnableParentSuppression = $true
 function Import-ConfigToSyncHash($savedConfig) {
     if ($null -eq $savedConfig) { return }
     if ($null -ne $savedConfig.pollInterval) { $syncHash.PollInterval = [int]$savedConfig.pollInterval }
-    if ($null -ne $savedConfig.pingDataSize) { $syncHash.PingDataSize = [int]$savedConfig.pingDataSize }
+    if ($null -ne $savedConfig.pingDataSize) { $syncHash.PingDataSize = [math]::Min(65500, [math]::Max(0, [int]$savedConfig.pingDataSize)) }
     if ($null -ne $savedConfig.loggingEnabled) { $syncHash.LoggingEnabled = [bool]$savedConfig.loggingEnabled }
     if ($null -ne $savedConfig.highFreqTargetIps) { $syncHash.HighFreqTargetIps = [string]$savedConfig.highFreqTargetIps }
     elseif ($null -ne $savedConfig.highFreqTargetIp) { $syncHash.HighFreqTargetIps = [string]$savedConfig.highFreqTargetIp }
@@ -200,14 +230,63 @@ function Import-ConfigToSyncHash($savedConfig) {
     if ($null -ne $savedConfig.autoShutdownOnDisconnect) { $syncHash.AutoShutdownOnDisconnect = [bool]$savedConfig.autoShutdownOnDisconnect }
 }
 
+# ─────────────────────────────────────────
+# 設定ファイル (config.json / devices.json) を読み込む。壊れていて読めないときは、
+#  ① 壊れたファイルを「～.broken_日時」として残し、② 自動スナップショット (backups) の新しい順に読めるものを探して使う。
+# (以前は読めないと空の状態で起動し、次に何かを保存した時点で空の内容で上書きされ、登録済みの機器や設定がすべて消えていた)
+# ─────────────────────────────────────────
+function Read-JsonWithSnapshotFallback([string]$path, [string]$snapshotPrefix) {
+    $raw = $null
+    try { $raw = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8) } catch { }
+    if ($null -ne $raw) {
+        if ([string]::IsNullOrWhiteSpace($raw)) { return @{ ok = $true; empty = $true; data = $null } }
+        try { return @{ ok = $true; data = ($raw | ConvertFrom-Json -ErrorAction Stop) } } catch { }
+    }
+    $brokenCopy = "$path.broken_$((Get-Date).ToString('yyyyMMdd_HHmmss'))"
+    try { Copy-Item -LiteralPath $path -Destination $brokenCopy -Force -ErrorAction Stop } catch { $brokenCopy = "" }
+    Write-Host "[WARNING] $([System.IO.Path]::GetFileName($path)) is broken and cannot be read. Saved a copy: $brokenCopy" -ForegroundColor Red
+    if (Test-Path -LiteralPath $syncHash.BackupDir) {
+        # 新しい順 = ファイル名 (日時) の降順 (更新日時はコピー元のものが引き継がれるため使わない)
+        $snaps = Get-ChildItem -LiteralPath $syncHash.BackupDir -Filter "${snapshotPrefix}_*.json" -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+        foreach ($s in $snaps) {
+            try {
+                $snapData = [System.IO.File]::ReadAllText($s.FullName, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop
+                if ($null -ne $snapData) {
+                    Write-Host "[RECOVERED] Loaded the latest readable snapshot instead: $($s.Name)" -ForegroundColor Yellow
+                    return @{ ok = $true; data = $snapData; recoveredFrom = $s.Name }
+                }
+            }
+            catch { }
+        }
+    }
+    return @{ ok = $false; data = $null }
+}
+
+# config.json を安全に保存する: 変更前の内容をスナップショットに退避し、一時ファイルに書いてから置き換える
+# (直接上書きすると、書き込み途中で止まったとき (ドライブの同期遅延・PCの電源断など) にファイルが壊れ、
+#  一括復元時はスナップショットも取っていなかったため、元の設定に戻せなかった)
+function Save-ConfigJsonSafely($configData) {
+    if (Test-Path -LiteralPath $configFileJson) {
+        $null = Backup-ConfigSnapshot -targetFilePath $configFileJson -backupDir $syncHash.BackupDir -minIntervalSec 60
+    }
+    $tmpFile = "$configFileJson.$([Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        $configData | ConvertTo-Json -Depth 5 | Out-File -FilePath $tmpFile -Encoding UTF8
+        Move-Item -LiteralPath $tmpFile -Destination $configFileJson -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $tmpFile) { Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 # Load Config from file if exists
 if (Test-Path $configFileJson) {
-    try {
-        $savedConfig = Get-Content $configFileJson -Raw -Encoding UTF8 | ConvertFrom-Json
-        Import-ConfigToSyncHash $savedConfig
+    $cfgRead = Read-JsonWithSnapshotFallback $configFileJson "config"
+    if ($cfgRead.ok -and $null -ne $cfgRead.data) {
+        Import-ConfigToSyncHash $cfgRead.data
         Write-Host "Config loaded from $configFileJson" -ForegroundColor Green
     }
-    catch {
+    else {
         Write-Host "Failed to load config.json, using defaults." -ForegroundColor Yellow
     }
 }
@@ -221,102 +300,9 @@ foreach ($envKey in @("NETWORK_MONITOR_AUTOSHUTDOWN", "AUTOSHUTDOWN_ON_DISCONNEC
     }
 }
 
-# Helper: Send Webhook notification (Async-friendly)
-function Send-WebhookNotification {
-    param(
-        [string]$url,
-        [string]$deviceName,
-        [string]$ip,
-        [string]$eventType,
-        [string]$details = ""
-    )
-    if ([string]::IsNullOrWhiteSpace($url)) { return }
-    $emoji = switch ($eventType) {
-        "offline" { [char]::ConvertFromUtf32(0x1F534) }
-        "online" { [char]::ConvertFromUtf32(0x1F7E2) }
-        "latency" { [char]::ConvertFromUtf32(0x26A0) }
-        "test" { [char]::ConvertFromUtf32(0x1F514) }
-        default { [char]::ConvertFromUtf32(0x1F4E2) }
-    }
-    $title = switch ($eventType) {
-        "offline" { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("5qmf5Zmo44Kq44OV44Op44Kk44Oz5qSc55+l")) }
-        "online" { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("5qmf5Zmo44Kq44Oz44Op44Kk44Oz5b6p5biw")) }
-        "latency" { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("6YGF5bu244Ki44Op44O844OI6LaF6YGO")) }
-        "test" { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("V2ViaG9va+ODhuOCueODiOmAnuefpQ==")) }
-        default { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("55uj6KaW44Ki44Op44O844OI")) }
-    }
-    $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    $msgText = "$emoji **$title**`n[Target]: $deviceName ($ip)`n[Time]: $ts`n[Detail]: $details"
-        
-    $bodyObj = @{
-        text       = $msgText
-        content    = $msgText   # Discord compatibility
-        title      = "$emoji $title"
-        deviceName = $deviceName
-        ip         = $ip
-        eventType  = $eventType
-        timestamp  = $ts
-        details    = $details
-    }
-    $jsonPayload = $bodyObj | ConvertTo-Json -Depth 3
-        
-    try {
-        $webReq = [System.Net.WebRequest]::Create($url)
-        $webReq.Method = "POST"
-        $webReq.ContentType = "application/json; charset=utf-8"
-        $webReq.Timeout = 4000
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($jsonPayload)
-        $webReq.ContentLength = $bytes.Length
-        $reqStream = $webReq.GetRequestStream()
-        $reqStream.Write($bytes, 0, $bytes.Length)
-        $reqStream.Close()
-        $webResp = $webReq.GetResponse()
-    }
-    catch { }
-}
-
-# Helper: Send Email (SMTP) notification
-function Send-EmailNotification {
-    param(
-        [string]$smtpHost,
-        [int]$smtpPort,
-        [bool]$useSsl,
-        [string]$smtpUser,
-        [string]$smtpPass,
-        [string]$from,
-        [string]$to,
-        [string]$subject,
-        [string]$body
-    )
-    if ([string]::IsNullOrWhiteSpace($smtpHost) -or [string]::IsNullOrWhiteSpace($to)) { return $false }
-    try {
-        $mail = New-Object System.Net.Mail.MailMessage
-        $mail.From = New-Object System.Net.Mail.MailAddress (if ($from) { $from } else { "monitor@localhost" })
-        foreach ($addr in ($to -split '[,;]')) {
-            if ($addr.Trim()) { $mail.To.Add($addr.Trim()) }
-        }
-        $mail.Subject = $subject
-        $mail.Body = $body
-        $mail.IsBodyHtml = $false
-        $mail.BodyEncoding = [System.Text.Encoding]::UTF8
-        $mail.SubjectEncoding = [System.Text.Encoding]::UTF8
-
-        $smtp = New-Object System.Net.Mail.SmtpClient($smtpHost, $smtpPort)
-        $smtp.EnableSsl = $useSsl
-        $smtp.Timeout = 8000
-        if (-not [string]::IsNullOrWhiteSpace($smtpUser)) {
-            $smtp.Credentials = New-Object System.Net.NetworkCredential($smtpUser, $smtpPass)
-        }
-        $smtp.Send($mail)
-        $mail.Dispose()
-        $smtp.Dispose()
-        return $true
-    }
-    catch {
-        Write-Warning "SMTP notification error: $($_.Exception.Message)"
-        return $false
-    }
-}
+# Webhook / メール送信は modules\AlertManager.psm1 の Send-WebhookNotification / Send-EmailNotification を使う
+# (以前はここに古い同名の関数があり、そちらが優先されていた。メールのテスト送信は必ず失敗し、
+#  Webhook のテスト送信は失敗しても「送信しました」と表示されていた)
 
 # Helper: Log Audit record (Delegates to Common.psm1's mutex-locked Log-Audit)
 function Log-Audit {
@@ -512,9 +498,12 @@ public static class TrustAllCertsPolicy {
     catch [System.Net.WebException] {
         $sw.Stop()
         $res.ResponseTimeMs = [int]$sw.ElapsedMilliseconds
-        if ($_.Response) {
-            $res.StatusCode = [int]$_.Response.StatusCode
-            $_.Response.Close()
+        # $_ はエラー記録なので、応答は $_.Exception.Response にある (以前は常に空で、404 等でも状態コードが 0 になり、
+        #  応答も閉じられずに接続が残り、同じサイトへの次の確認がタイムアウトしていた)
+        $errResp = $_.Exception.Response
+        if ($errResp) {
+            $res.StatusCode = [int]$errResp.StatusCode
+            try { $errResp.Close() } catch {}
         }
         $res.Error = $_.Exception.Message
     }
@@ -563,9 +552,13 @@ $syncHash.Devices = @()
 $syncHash.Shutdown = $false  # flag for Enter-key exit
 $syncHash.PendingShutdown = $false
 $syncHash.PendingShutdownTime = [DateTime]::MinValue
+$syncHash.PendingShutdownForced = $false   # 「監視終了」ボタンによる終了 (画面の通信が来ても取り消さない)
 $syncHash.HasClientConnected = $false
 $syncHash.LastClientActivity = [DateTime]::UtcNow
-$syncHash.AutoShutdownOnDisconnect = $true
+# 無人運用モードの設定は、上の config.json・環境変数の読み込みで決まっている。ここで決め直すと設定が効かなくなるため、
+# どちらにも指定がないときだけ標準値 (ブラウザを閉じたら終了) にする
+# (以前は無条件に $true で上書きしており、「無人運用モード (false)」がまったく働いていなかった)
+if ($null -eq $syncHash.AutoShutdownOnDisconnect) { $syncHash.AutoShutdownOnDisconnect = $true }
 $syncHash.HeartbeatTimeoutSec = 600  # ブラウザのバックグラウンドスロットリングやタブ切替・リロードでの誤終了を防ぐため60秒に設定
 $syncHash.DevicesLock = [object]::new()  # Issue 5: デバイス設定保存専用ロックオブジェクト（$syncHash全体ロックを回避）
 $syncHash.Listener = $null   # will be set after listener creation
@@ -574,17 +567,18 @@ $syncHash.PSScriptRoot = $PSScriptRoot
 $cleanLines = [System.Collections.Generic.List[string]]::new()
 if (Test-Path $devicesFileJson) {
     try {
-        $rawJson = Get-Content $devicesFileJson -Raw -Encoding UTF8
-        if ([string]::IsNullOrWhiteSpace($rawJson)) {
-            $jsonContent = @()
+        $devRead = Read-JsonWithSnapshotFallback $devicesFileJson "devices"
+        if (-not $devRead.ok) {
+            # 復元もできないときは、空の一覧で上書きして全機器が消えないよう、保存を止めて起動する
+            $syncHash.DevicesLoadFailed = $true
+            Write-Host "[ERROR] devices.json and all snapshots are unreadable. Device saving is disabled to protect the file." -ForegroundColor Red
         }
-        else {
-            $jsonContent = $rawJson | ConvertFrom-Json
-        }
+        $jsonContent = $devRead.data
         if ($null -ne $jsonContent) {
             foreach ($d in $jsonContent) {
-                $ip = [string]$d.ip
-                if (-not [string]::IsNullOrWhiteSpace($ip)) {
+                $ip = ([string]$d.ip).Trim()
+                # 同じIPが複数行あると二重に監視・表示されるため最初の1件だけ使う
+                if (-not [string]::IsNullOrWhiteSpace($ip) -and -not $cleanLines.Contains($ip)) {
                     $cleanLines.Add($ip)
                     $syncHash.Community[$ip] = if ($null -ne $d.community) { [string]$d.community } else { "public" }
                     $syncHash.DeviceName[$ip] = if ($null -ne $d.name) { [string]$d.name } else { $ip }
@@ -674,6 +668,11 @@ $syncHash.Devices = $cleanLines.ToArray()
 
 $saveDevicesJsonScript = {
     function Save-DevicesJson {
+        # 起動時に devices.json もスナップショットも読めなかった場合は、空の一覧で上書きして機器が全部消えないよう保存しない
+        if ($syncHash.DevicesLoadFailed) {
+            try { [System.IO.File]::AppendAllText((Join-Path $syncHash.PSScriptRoot "debug.log"), "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] Save-DevicesJson skipped: devices.json could not be loaded at startup`r`n", [System.Text.Encoding]::UTF8) } catch {}
+            return
+        }
         # Issue 5: $syncHash全体ではなく専用のDevicesLockオブジェクトのみをロックし、Pingループをブロックしない
         [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
         try {
@@ -735,7 +734,7 @@ $saveDevicesJsonScript = {
                         $jsonStr | Out-File -FilePath $tmpFile -Encoding UTF8
                         # 変更前の devices.json を自動スナップショット退避
                         if (Test-Path $devicesFileJson) {
-                            $null = Backup-ConfigSnapshot -targetFilePath $devicesFileJson -backupDir $syncHash.BackupDir
+                            $null = Backup-ConfigSnapshot -targetFilePath $devicesFileJson -backupDir $syncHash.BackupDir -minIntervalSec 60
                         }
                         Move-Item -Path $tmpFile -Destination $devicesFileJson -Force
                         break
@@ -789,6 +788,16 @@ $snmpHelpersScript = {
             [string[]]$Oids,
             [int]$Timeout = 2000
         )
+        # SNMP ライブラリが読み込まれていない環境 (SNMP モジュール未インストール等) では何もせず空を返す
+        # (以前は呼び出しのたびに「型 [Lextm.SharpSnmpLib...] が見つかりません」で失敗し、機器ごと・数十秒ごとに
+        #  debug.log へ同じエラーが書かれ続け、1日に数十MB 増えていた。理由は最初の1回だけ記録する)
+        if (-not ("Lextm.SharpSnmpLib.ObjectIdentifier" -as [type])) {
+            if (-not $syncHash.SnmpLibMissingLogged) {
+                $syncHash.SnmpLibMissingLogged = $true
+                try { [System.IO.File]::AppendAllText((Join-Path $syncHash.PSScriptRoot "debug.log"), "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] SNMP library (SharpSnmpLib) is not loaded. SNMP queries are skipped until the SNMP module is installed and the server is restarted.`r`n", [System.Text.Encoding]::UTF8) } catch {}
+            }
+            return $null
+        }
         
         $ipAddr = [System.Net.IPAddress]::Parse($IP)
         $endpoint = New-Object System.Net.IPEndPoint $ipAddr, $Port
@@ -890,6 +899,16 @@ $snmpHelpersScript = {
             [string]$OIDStart,
             [int]$Timeout = 2000
         )
+        # SNMP ライブラリが読み込まれていない環境 (SNMP モジュール未インストール等) では何もせず空を返す
+        # (以前は呼び出しのたびに「型 [Lextm.SharpSnmpLib...] が見つかりません」で失敗し、機器ごと・数十秒ごとに
+        #  debug.log へ同じエラーが書かれ続け、1日に数十MB 増えていた。理由は最初の1回だけ記録する)
+        if (-not ("Lextm.SharpSnmpLib.ObjectIdentifier" -as [type])) {
+            if (-not $syncHash.SnmpLibMissingLogged) {
+                $syncHash.SnmpLibMissingLogged = $true
+                try { [System.IO.File]::AppendAllText((Join-Path $syncHash.PSScriptRoot "debug.log"), "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))] SNMP library (SharpSnmpLib) is not loaded. SNMP queries are skipped until the SNMP module is installed and the server is restarted.`r`n", [System.Text.Encoding]::UTF8) } catch {}
+            }
+            return $null
+        }
         
         $ipAddr = [System.Net.IPAddress]::Parse($IP)
         $endpoint = New-Object System.Net.IPEndPoint $ipAddr, $Port
@@ -1064,6 +1083,7 @@ function Initialize-DeviceLog {
                 JitterSum        = 0.0    # セッション累計ジッター合計（平均算出用）
                 JitterCount      = 0      # セッション累計ジッター計測回数
                 PreviousStatus   = "Initial"
+                OfflineNotified  = $false  # 障害通知 (Webhook/メール) を実際に送ったか。送った機器にだけ復旧通知を送る
             })
     }
     
@@ -1130,15 +1150,24 @@ $pingScript = {
     $alertModPath = Join-Path $syncHash.PSScriptRoot "modules\AlertManager.psm1"
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $lastFlushTime = [DateTime]::Now
-    $lastCheckpointTime = [DateTime]::Now   # 60秒ごとに Stats を _checkpoint.json へ保存
     $lastSlowPingTime = [DateTime]::MinValue
     $lastArpCheckTime = [DateTime]::MinValue
     # 超高速モードの低頻度Ping (5秒ごと) は次サイクル以降に結果を回収する (100msループを待たせない)
     $pendingSlowPings = @{}
+    # 通知 (Webhook/メール) 送信用に作った PowerShell を、送信が終わったら片付けるための一覧
+    # (以前は作りっぱなしで、通知1回ごとに約3MBが解放されずに残り、機器が不安定で通知が続くとメモリを使い続けていた)
+    $alertJobs = [System.Collections.ArrayList]::new()
 
     while ($syncHash.Running) {
         $syncHash.LastPingLoopUtc = [DateTime]::UtcNow
+        for ($ai = $alertJobs.Count - 1; $ai -ge 0; $ai--) {
+            $aj = $alertJobs[$ai]
+            if ($aj.Handle.IsCompleted) {
+                try { $null = $aj.PS.EndInvoke($aj.Handle) } catch {}
+                try { $aj.PS.Dispose() } catch {}
+                $alertJobs.RemoveAt($ai)
+            }
+        }
         if ($syncHash.PollInterval -lt 0) {
             Start-Sleep -Seconds 2
             continue
@@ -1206,22 +1235,16 @@ $pingScript = {
             $isTcpCheck = ($syncHash.CheckType.ContainsKey($ip) -and $syncHash.CheckType[$ip] -eq "tcp" -and $syncHash.Port.ContainsKey($ip) -and $syncHash.Port[$ip] -gt 0)
             if ($isTcpCheck) {
                 $targetPort = [int]$syncHash.Port[$ip]
-                $tcpClient = New-Object System.Net.Sockets.TcpClient
                 try {
-                    $swTcp = [System.Diagnostics.Stopwatch]::StartNew()
-                    $task = [System.Threading.Tasks.Task]::Factory.FromAsync(
-                        $tcpClient.BeginConnect,
-                        $tcpClient.EndConnect,
-                        $ip,
-                        $targetPort,
-                        $null
-                    )
+                    # 非同期に接続し、接続が終わった時点の所要時間 (ms) を結果として受け取る (失敗は -1)
+                    # (以前の Task.Factory.FromAsync($tcpClient.BeginConnect, ...) は PowerShell では引数を合わせられず
+                    #  必ず失敗し、TCP 監視の機器は常に「Error/Failed」になっていた)
+                    $task = [NdmTcpProbe]::ConnectTimed($ip, $targetPort)
                     [PSCustomObject]@{
-                        IP = $ip; Ping = $null; TcpClient = $tcpClient; Task = $task; Stopwatch = $swTcp; IsTcp = $true; Port = $targetPort; Error = $false; Skipped = $false; KeepExisting = $false
+                        IP = $ip; Ping = $null; TcpClient = $null; Task = $task; Stopwatch = $null; IsTcp = $true; Port = $targetPort; Error = $false; Skipped = $false; KeepExisting = $false
                     }
                 }
                 catch {
-                    try { $tcpClient.Close(); $tcpClient.Dispose() } catch {}
                     [PSCustomObject]@{
                         IP = $ip; Ping = $null; TcpClient = $null; Task = $null; Stopwatch = $null; IsTcp = $true; Port = $targetPort; Error = $true; Skipped = $false; KeepExisting = $false
                     }
@@ -1315,9 +1338,9 @@ $pingScript = {
             }
             else {
                 if ($t.IsTcp) {
-                    if ($t.Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
+                    if ($t.Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $t.Task.Result -ge 0) {
                         $status = "Success"
-                        $latency = [math]::Max(1, [int]$t.Stopwatch.ElapsedMilliseconds)
+                        $latency = [math]::Max(1, [int]$t.Task.Result)
                     }
                     else {
                         $status = "Failed"
@@ -1460,7 +1483,9 @@ $pingScript = {
 
                     if ($syncHash.Status[$ip].rawStatus -eq "Success") {
                         # Webhook & Email on recovery (Offline -> Online)
-                        if ($stats.PreviousStatus -eq "Failed") {
+                        # 障害通知を送った機器にだけ復旧通知を送る (親機器ダウンで障害通知を抑止した子機器まで
+                        # 親の復旧時に一斉に「復旧」を送り、抑止したはずの通知の嵐になっていた)
+                        if ($stats.PreviousStatus -eq "Failed" -and $stats.OfflineNotified) {
                             if ($syncHash.WebhookEnabled) {
                                 $webhookUrl = $syncHash.WebhookUrl
                                 $capturedName = $devName; $capturedIp = $ip
@@ -1472,7 +1497,7 @@ $pingScript = {
                                         }
                                         catch {}
                                     }).AddArgument($alertModPath).AddArgument($webhookUrl).AddArgument($capturedName).AddArgument($capturedIp)
-                                $null = $psWh.BeginInvoke()
+                                $null = $alertJobs.Add(@{ PS = $psWh; Handle = $psWh.BeginInvoke() })
                             }
                             if ($syncHash.EmailEnabled -and $syncHash.SmtpHost -and $syncHash.SmtpTo) {
                                 $sHost = $syncHash.SmtpHost; $sPort = $syncHash.SmtpPort; $sSsl = $syncHash.SmtpSsl
@@ -1488,10 +1513,11 @@ $pingScript = {
                                         }
                                         catch {}
                                     }).AddArgument($alertModPath).AddArgument($sHost).AddArgument($sPort).AddArgument($sSsl).AddArgument($sUser).AddArgument($sPass).AddArgument($sFrom).AddArgument($sTo).AddArgument($capturedName).AddArgument($capturedIp)
-                                $null = $psEm.BeginInvoke()
+                                $null = $alertJobs.Add(@{ PS = $psEm; Handle = $psEm.BeginInvoke() })
                             }
                         }
                         $stats.PreviousStatus = "Success"
+                        $stats.OfflineNotified = $false
 
                         # Device recovered from offline: finalize outage duration & check thresholds
                         if ($null -ne $stats.OutageStartTime -or $stats.CurrentOutageSec -gt 0) {
@@ -1576,6 +1602,7 @@ $pingScript = {
                         # Webhook & Email on failure (Online -> Offline) only if not suppressed by parent offline
                         if (($st -eq "Failed" -or $st -eq "Error") -and $stats.PreviousStatus -eq "Success") {
                             if (-not $isSuppressed) {
+                                $stats.OfflineNotified = $true
                                 if ($syncHash.WebhookEnabled) {
                                     $webhookUrl = $syncHash.WebhookUrl
                                     $capturedName = $devName; $capturedIp = $ip
@@ -1587,7 +1614,7 @@ $pingScript = {
                                             }
                                             catch {}
                                         }).AddArgument($alertModPath).AddArgument($webhookUrl).AddArgument($capturedName).AddArgument($capturedIp)
-                                    $null = $psWh.BeginInvoke()
+                                    $null = $alertJobs.Add(@{ PS = $psWh; Handle = $psWh.BeginInvoke() })
                                 }
                                 if ($syncHash.EmailEnabled -and $syncHash.SmtpHost -and $syncHash.SmtpTo) {
                                     $sHost = $syncHash.SmtpHost; $sPort = $syncHash.SmtpPort; $sSsl = $syncHash.SmtpSsl
@@ -1603,7 +1630,7 @@ $pingScript = {
                                             }
                                             catch {}
                                         }).AddArgument($alertModPath).AddArgument($sHost).AddArgument($sPort).AddArgument($sSsl).AddArgument($sUser).AddArgument($sPass).AddArgument($sFrom).AddArgument($sTo).AddArgument($capturedName).AddArgument($capturedIp)
-                                    $null = $psEm.BeginInvoke()
+                                    $null = $alertJobs.Add(@{ PS = $psEm; Handle = $psEm.BeginInvoke() })
                                 }
                             }
                             else {
@@ -1634,6 +1661,36 @@ $pingScript = {
             }
         }
 
+        # Record last ping loop timestamp for external watchdog health checking
+        $syncHash.LastPingLoopUtc = [DateTime]::UtcNow
+
+        $elapsed = $sw.ElapsedMilliseconds
+        $targetInterval = if ($syncHash.PollInterval -gt 0) { $syncHash.PollInterval } else { 1000 }
+        $sleepTime = $targetInterval - $elapsed
+        if ($sleepTime -gt 0) {
+            Start-Sleep -Milliseconds $sleepTime
+        }
+    }
+}
+$pipeline = $runspace.CreatePipeline()
+$null = $pipeline.Commands.AddScript($pingScript)
+$asyncResult = $pipeline.InvokeAsync()
+
+# ─────────────────────────────────────────
+# 1b. 記録ファイル書き込み専用 Runspace (CSV ログ: 10秒ごと / 統計チェックポイント: 60秒ごと)
+# 以前は Ping 監視ループの中でファイルに書き込んでいたため、保存先のドライブ (Google ドライブの同期フォルダ等) が
+# 書き込みで止まると Ping 監視そのものが止まり、障害の検知・通知もできなくなっていた。
+# 書き込みを別スレッドに分け、ドライブが止まっても Ping 監視は動き続けるようにする。
+# ─────────────────────────────────────────
+$diskWriterRunspace = [runspacefactory]::CreateRunspace()
+$diskWriterRunspace.ApartmentState = "STA"
+$diskWriterRunspace.ThreadOptions = "ReuseThread"
+$diskWriterRunspace.Open()
+$diskWriterRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
+$diskWriterScript = {
+    $lastFlushTime = [DateTime]::Now
+    $lastCheckpointTime = [DateTime]::Now   # 60秒ごとに Stats を _checkpoint.json へ保存
+    while ($syncHash.Running) {
         # Real-time 10-second log flush to disk (reduces disk I/O significantly for up to 50 devices)
         if (([DateTime]::Now - $lastFlushTime).TotalSeconds -ge 10.0) {
             $lastFlushTime = [DateTime]::Now
@@ -1766,20 +1823,12 @@ $pingScript = {
         }
 
 
-        # Record last ping loop timestamp for external watchdog health checking
-        $syncHash.LastPingLoopUtc = [DateTime]::UtcNow
-
-        $elapsed = $sw.ElapsedMilliseconds
-        $targetInterval = if ($syncHash.PollInterval -gt 0) { $syncHash.PollInterval } else { 1000 }
-        $sleepTime = $targetInterval - $elapsed
-        if ($sleepTime -gt 0) {
-            Start-Sleep -Milliseconds $sleepTime
-        }
+        Start-Sleep -Milliseconds 500
     }
 }
-$pipeline = $runspace.CreatePipeline()
-$null = $pipeline.Commands.AddScript($pingScript)
-$asyncResult = $pipeline.InvokeAsync()
+$diskWriterPipeline = $diskWriterRunspace.CreatePipeline()
+$null = $diskWriterPipeline.Commands.AddScript($diskWriterScript)
+$diskWriterAsyncResult = $diskWriterPipeline.InvokeAsync()
 
 # ─────────────────────────────────────────
 # 2. Start background BANDWIDTH runspace (10s loop)
@@ -2568,23 +2617,47 @@ $syslogRunspace.Open()
 $syslogRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
 
 $syslogScriptBlock = {
-    $port = if ($syncHash.SyslogPort) { $syncHash.SyslogPort } else { 514 }
-    $udpClient = $null
-    try {
-        $udpClient = New-Object System.Net.Sockets.UdpClient($port)
-        $udpClient.Client.ReceiveTimeout = 1000
-    }
-    catch {
+    # 受信ポートを開く。指定ポートが他のソフトに使われていれば 1514 で代わりに受信する
+    # 実際に受信しているポートと失敗理由は画面に表示する (以前は 1514 に切り替わっても画面からは分からず、
+    #  機器が 514 番へ送っても届かない原因がつかめなかった)
+    $openSyslogPort = {
+        param($wantPort)
+        $client = $null
+        $syncHash.SyslogListenPort = 0
+        $syncHash.SyslogListenError = ""
         try {
-            $udpClient = New-Object System.Net.Sockets.UdpClient(1514)
-            $udpClient.Client.ReceiveTimeout = 1000
+            $client = New-Object System.Net.Sockets.UdpClient($wantPort)
+            $syncHash.SyslogListenPort = $wantPort
         }
-        catch {}
+        catch {
+            $firstErr = $_.Exception.InnerException.Message
+            if (-not $firstErr) { $firstErr = $_.Exception.Message }
+            try {
+                $client = New-Object System.Net.Sockets.UdpClient(1514)
+                $syncHash.SyslogListenPort = 1514
+                $syncHash.SyslogListenError = "UDP $wantPort を開けなかったため 1514 で受信しています ($firstErr)"
+            }
+            catch {
+                $syncHash.SyslogListenError = "UDP $wantPort / 1514 のどちらも開けません ($firstErr)"
+            }
+        }
+        if ($null -ne $client) { $client.Client.ReceiveTimeout = 1000 }
+        return $client
     }
+
+    $wantedPort = if ($syncHash.SyslogPort) { [int]$syncHash.SyslogPort } else { 514 }
+    $udpClient = & $openSyslogPort $wantedPort
 
     $remoteEP = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
 
     while ($syncHash.Running) {
+        # 設定でポート番号が変わったら開き直す (以前は再起動するまで反映されなかった)
+        $newWanted = if ($syncHash.SyslogPort) { [int]$syncHash.SyslogPort } else { 514 }
+        if ($newWanted -ne $wantedPort) {
+            if ($null -ne $udpClient) { try { $udpClient.Close() } catch {} }
+            $wantedPort = $newWanted
+            $udpClient = & $openSyslogPort $wantedPort
+        }
         if (-not $syncHash.SyslogEnabled -or $null -eq $udpClient) {
             Start-Sleep -Milliseconds 500
             continue
@@ -2741,8 +2814,8 @@ $iss.Variables.Add((New-Object System.Management.Automation.Runspaces.SessionSta
 $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry("Write-JsonResponse", ${function:Write-JsonResponse}.ToString())))
 $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry("Invoke-SnmpGetUnified", ${function:Invoke-SnmpGetUnified}.ToString())))
 $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry("Invoke-SnmpWalkUnified", ${function:Invoke-SnmpWalkUnified}.ToString())))
-$iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry("Send-WebhookNotification", ${function:Send-WebhookNotification}.ToString())))
-$iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry("Send-EmailNotification", ${function:Send-EmailNotification}.ToString())))
+# Webhook / メール送信関数は AlertManager.psm1 から読み込む
+$iss.ImportPSModule(@((Join-Path $PSScriptRoot "modules\AlertManager.psm1")))
 $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry("Log-Audit", ${function:Log-Audit}.ToString())))
 $iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry("Check-WebAndSslEndpoint", ${function:Check-WebAndSslEndpoint}.ToString())))
 # Log-Audit は内部で Common\Log-Audit を呼ぶため、別スレッド側にも Common.psm1 を読み込む
@@ -2845,6 +2918,9 @@ $keyScript = {
     $syncHash.Shutdown = $true
     try { $ListenerRef.Stop() } catch {}
 }
+# 定期メンテナンスの前回実行時刻 (起動時に同じ処理を済ませているので、次回は6時間後)
+$script:LastMaintenanceUtc = [DateTime]::UtcNow
+
 $keyPipeline = $keyRunspace.CreatePipeline()
 $null = $keyPipeline.Commands.AddScript($keyScript)
 $null = $keyPipeline.InvokeAsync()
@@ -2879,12 +2955,33 @@ try {
             }
         }
 
-        # Update client activity on any request from browser
-        $syncHash.HasClientConnected = $true
-        $syncHash.LastClientActivity = [DateTime]::UtcNow
+        # 定期メンテナンス (6時間ごと): 保存期間を過ぎたレポートの削除と debug.log の世代交代
+        # (以前は起動時・終了時・保存期間の変更時にしか行わず、無人運用で長期間動かすと
+        #  Reports フォルダや debug.log が再起動まで増え続けていた)
+        if (([DateTime]::UtcNow - $script:LastMaintenanceUtc).TotalHours -ge 6) {
+            $script:LastMaintenanceUtc = [DateTime]::UtcNow
+            if ($syncHash.LogRetentionDays -gt 0) {
+                try { Invoke-PurgeOldReports -reportsDirectory $ReportsDir -retentionDays $syncHash.LogRetentionDays -activeSessionDir $syncHash.SessionDir | Out-Null } catch {}
+            }
+            try {
+                if ((Test-Path -LiteralPath $debugLogPath) -and (Get-Item -LiteralPath $debugLogPath).Length -gt 5MB) {
+                    Move-Item -LiteralPath $debugLogPath -Destination (Join-Path $PSScriptRoot "debug_1.log") -Force -ErrorAction SilentlyContinue
+                }
+            }
+            catch {}
+        }
 
-        if ($urlPath -ne "/api/shutdown") {
-            if ($syncHash.PendingShutdown) {
+        # Update client activity on any request from browser
+        # /api/health は Watchdog が15秒ごとに呼ぶ死活確認で、画面 (ブラウザ) は使わない。これを「画面からの通信」と数えると
+        # ブラウザを閉じても終了予約が取り消され、無通信10分での自動終了も働かなくなるため除外する
+        $isBrowserActivity = ($urlPath -ne "/api/health")
+        if ($isBrowserActivity) {
+            $syncHash.HasClientConnected = $true
+            $syncHash.LastClientActivity = [DateTime]::UtcNow
+        }
+
+        if ($isBrowserActivity -and $urlPath -ne "/api/shutdown") {
+            if ($syncHash.PendingShutdown -and -not $syncHash.PendingShutdownForced) {
                 $syncHash.PendingShutdown = $false
                 Write-Host "Shutdown cancelled (client reconnected/active)." -ForegroundColor Green
             }
@@ -2919,9 +3016,9 @@ try {
                                 snmpVersion   = if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" }
                                 snmpUser      = if ($syncHash.SnmpUser.ContainsKey($ip)) { $syncHash.SnmpUser[$ip] } else { "" }
                                 snmpAuthProto = if ($syncHash.SnmpAuthProto.ContainsKey($ip)) { $syncHash.SnmpAuthProto[$ip] } else { "none" }
-                                snmpAuthPass  = if ($syncHash.SnmpAuthPass.ContainsKey($ip)) { $syncHash.SnmpAuthPass[$ip] } else { "" }
+                                snmpAuthPass  = if ($syncHash.SnmpAuthPass.ContainsKey($ip) -and $syncHash.SnmpAuthPass[$ip]) { Protect-SecretString $syncHash.SnmpAuthPass[$ip] } else { "" }   # 平文で画面やエクスポートファイルに出さない (暗号化した形で返す)
                                 snmpPrivProto = if ($syncHash.SnmpPrivProto.ContainsKey($ip)) { $syncHash.SnmpPrivProto[$ip] } else { "none" }
-                                snmpPrivPass  = if ($syncHash.SnmpPrivPass.ContainsKey($ip)) { $syncHash.SnmpPrivPass[$ip] } else { "" }
+                                snmpPrivPass  = if ($syncHash.SnmpPrivPass.ContainsKey($ip) -and $syncHash.SnmpPrivPass[$ip]) { Protect-SecretString $syncHash.SnmpPrivPass[$ip] } else { "" }
                                 remote        = if ($syncHash.Remote -and $syncHash.Remote.ContainsKey($ip)) { $syncHash.Remote[$ip] } else { $null }
                             }
                         }
@@ -3129,9 +3226,9 @@ try {
                         $snmpVersion = if ($payload.snmpVersion) { $payload.snmpVersion.Trim() } else { "v2c" }
                         $snmpUser = if ($payload.snmpUser) { $payload.snmpUser.Trim() } else { "" }
                         $snmpAuthProto = if ($payload.snmpAuthProto) { $payload.snmpAuthProto.Trim() } else { "none" }
-                        $snmpAuthPass = if ($payload.snmpAuthPass) { $payload.snmpAuthPass } else { "" }
+                        $snmpAuthPass = if ($payload.snmpAuthPass) { Unprotect-SecretString ([string]$payload.snmpAuthPass) } else { "" }   # 暗号化された形 (enc:...) で届いても使えるように復号
                         $snmpPrivProto = if ($payload.snmpPrivProto) { $payload.snmpPrivProto.Trim() } else { "none" }
-                        $snmpPrivPass = if ($payload.snmpPrivPass) { $payload.snmpPrivPass } else { "" }
+                        $snmpPrivPass = if ($payload.snmpPrivPass) { Unprotect-SecretString ([string]$payload.snmpPrivPass) } else { "" }
                         
                         [System.Threading.Monitor]::Enter($syncHash.DevicesLock)
                         try {
@@ -3736,9 +3833,9 @@ try {
                                     $snmpVersion = if ($item.snmpVersion) { $item.snmpVersion.Trim() } else { "v2c" }
                                     $snmpUser = if ($item.snmpUser) { $item.snmpUser.Trim() } else { "" }
                                     $snmpAuthProto = if ($item.snmpAuthProto) { $item.snmpAuthProto.Trim() } else { "none" }
-                                    $snmpAuthPass = if ($item.snmpAuthPass) { $item.snmpAuthPass } else { "" }
+                                    $snmpAuthPass = if ($item.snmpAuthPass) { Unprotect-SecretString ([string]$item.snmpAuthPass) } else { "" }
                                     $privProto = if ($item.snmpPrivProto) { $item.snmpPrivProto.Trim() } else { "none" }
-                                    $privPass = if ($item.snmpPrivPass) { $item.snmpPrivPass } else { "" }
+                                    $privPass = if ($item.snmpPrivPass) { Unprotect-SecretString ([string]$item.snmpPrivPass) } else { "" }
                                     
                                     $isNew = $true
                                     foreach ($d in $syncHash.Devices) {
@@ -4243,9 +4340,9 @@ try {
                         $snmpVersion = if (& $hasField 'snmpVersion') { if ($payload.snmpVersion) { $payload.snmpVersion.Trim() } else { "v2c" } } else { & $prevValue $syncHash.SnmpVersion "v2c" }
                         $snmpUser = if (& $hasField 'snmpUser') { if ($payload.snmpUser) { $payload.snmpUser.Trim() } else { "" } } else { & $prevValue $syncHash.SnmpUser "" }
                         $snmpAuthProto = if (& $hasField 'snmpAuthProto') { if ($payload.snmpAuthProto) { $payload.snmpAuthProto.Trim() } else { "none" } } else { & $prevValue $syncHash.SnmpAuthProto "none" }
-                        $snmpAuthPass = if (& $hasField 'snmpAuthPass') { if ($payload.snmpAuthPass) { $payload.snmpAuthPass } else { "" } } else { & $prevValue $syncHash.SnmpAuthPass "" }
+                        $snmpAuthPass = if (& $hasField 'snmpAuthPass') { if ($payload.snmpAuthPass) { Unprotect-SecretString ([string]$payload.snmpAuthPass) } else { "" } } else { & $prevValue $syncHash.SnmpAuthPass "" }
                         $snmpPrivProto = if (& $hasField 'snmpPrivProto') { if ($payload.snmpPrivProto) { $payload.snmpPrivProto.Trim() } else { "none" } } else { & $prevValue $syncHash.SnmpPrivProto "none" }
-                        $snmpPrivPass = if (& $hasField 'snmpPrivPass') { if ($payload.snmpPrivPass) { $payload.snmpPrivPass } else { "" } } else { & $prevValue $syncHash.SnmpPrivPass "" }
+                        $snmpPrivPass = if (& $hasField 'snmpPrivPass') { if ($payload.snmpPrivPass) { Unprotect-SecretString ([string]$payload.snmpPrivPass) } else { "" } } else { & $prevValue $syncHash.SnmpPrivPass "" }
                         $locationVal = if (& $hasField 'location') { [string]$payload.location } else { & $prevValue $syncHash.Location "" }
                         $vendorContactVal = if (& $hasField 'vendorContact') { [string]$payload.vendorContact } else { & $prevValue $syncHash.VendorContact "" }
                         $troubleMemoVal = if (& $hasField 'troubleMemo') { [string]$payload.troubleMemo } else { & $prevValue $syncHash.TroubleMemo "" }
@@ -4574,6 +4671,8 @@ try {
 
                                 $newArr = [System.Collections.Generic.List[string]]::new()
                                 foreach ($item in $validPayload) {
+                                    # 同じIPが複数行あると、同じ機器が二重に監視・表示されるため最初の1件だけ使う
+                                    if ($newArr.Contains(([string]$item.ip).Trim())) { continue }
                                     # 起動時と同じ全項目を読み込む (以前は監視方式・ポート・メモ・設置場所等が読み込まれず消えていた)
                                     $ip = Set-DeviceRecordInSyncHash $item
                                     if (-not $ip) { continue }
@@ -4596,7 +4695,8 @@ try {
                             }
                             
                             Save-DevicesJson
-                            Write-JsonResponse $response @{ status = "success"; count = $validPayload.Count }
+                            # 重複を除いた、実際に取り込んだ台数を返す
+                            Write-JsonResponse $response @{ status = "success"; count = @($syncHash.Devices).Count }
                         }
                         else {
                             Write-JsonResponse $response @{ error = "No valid devices found in payload" } 400
@@ -4736,10 +4836,14 @@ try {
                     $payload = $jsonBody | ConvertFrom-Json
 
                     if ($null -ne $payload.pollInterval) {
-                        $syncHash.PollInterval = [int]$payload.pollInterval
+                        # マイナスは「監視一時停止」の意味なのでそのまま。0.1秒未満・1時間超は範囲内に丸める
+                        $v = [int]$payload.pollInterval
+                        if ($v -gt 0) { $v = [math]::Min(3600000, [math]::Max(100, $v)) }
+                        $syncHash.PollInterval = $v
                     }
                     if ($null -ne $payload.pingDataSize) {
-                        $syncHash.PingDataSize = [int]$payload.pingDataSize
+                        # Ping で送れるデータは最大 65,500 バイト。超えると全機器の Ping が失敗し「全台オフライン」になる
+                        $syncHash.PingDataSize = [math]::Min(65500, [math]::Max(0, [int]$payload.pingDataSize))
                     }
                     if ($null -ne $payload.loggingEnabled) {
                         $syncHash.LoggingEnabled = [bool]$payload.loggingEnabled
@@ -4782,9 +4886,12 @@ try {
                     }
                     if ($null -ne $payload.logRetentionDays) {
                         $v = [int]$payload.logRetentionDays
-                        if ($v -ge 0 -and $v -le 365) { 
-                            $syncHash.LogRetentionDays = $v 
-                            if ($v -gt 0) { 
+                        if ($v -ge 0 -and $v -le 365) {
+                            $retentionChanged = ($syncHash.LogRetentionDays -ne $v)
+                            $syncHash.LogRetentionDays = $v
+                            # 古いレポートの削除はフォルダ全体を調べるので時間がかかる。設定を保存するたび (画面の操作ごと) に
+                            # 実行すると画面全体が止まるため、保存期間が変わったときだけ実行する (普段の削除は 6 時間ごとの定期メンテナンスで行う)
+                            if ($v -gt 0 -and $retentionChanged) {
                                 try { Invoke-PurgeOldReports -reportsDirectory $ReportsDir -retentionDays $v -activeSessionDir $syncHash.SessionDir | Out-Null } catch {}
                             }
                         }
@@ -4802,12 +4909,15 @@ try {
                         $syncHash.SoundEnabled = [bool]$payload.soundEnabled
                     }
                     if ($null -ne $payload.soundVolume) {
-                        $syncHash.SoundVolume = [double]$payload.soundVolume
+                        $syncHash.SoundVolume = [math]::Min(1.0, [math]::Max(0.0, [double]$payload.soundVolume))
                     }
 
                     if ($null -ne $payload.emailEnabled) { $syncHash.EmailEnabled = [bool]$payload.emailEnabled }
                     if ($null -ne $payload.smtpHost) { $syncHash.SmtpHost = [string]$payload.smtpHost }
-                    if ($null -ne $payload.smtpPort) { $syncHash.SmtpPort = [int]$payload.smtpPort }
+                    if ($null -ne $payload.smtpPort) {
+                        $v = [int]$payload.smtpPort
+                        if ($v -ge 1 -and $v -le 65535) { $syncHash.SmtpPort = $v }
+                    }
                     if ($null -ne $payload.smtpSsl) { $syncHash.SmtpSsl = [bool]$payload.smtpSsl }
                     if ($null -ne $payload.smtpUser) { $syncHash.SmtpUser = [string]$payload.smtpUser }
                     if ($null -ne $payload.smtpPass -and [string]$payload.smtpPass -ne "********") { $syncHash.SmtpPass = [string]$payload.smtpPass }
@@ -4815,8 +4925,15 @@ try {
                     if ($null -ne $payload.smtpTo) { $syncHash.SmtpTo = [string]$payload.smtpTo }
 
                     if ($null -ne $payload.syslogEnabled) { $syncHash.SyslogEnabled = [bool]$payload.syslogEnabled }
-                    if ($null -ne $payload.syslogPort) { $syncHash.SyslogPort = [int]$payload.syslogPort }
-                    if ($null -ne $payload.sslWarnDays) { $syncHash.SslWarnDays = [int]$payload.sslWarnDays }
+                    if ($null -ne $payload.syslogPort) {
+                        # 範囲外のポート番号だと Syslog の受信が始められなくなるため、1〜65535 のときだけ反映する
+                        $v = [int]$payload.syslogPort
+                        if ($v -ge 1 -and $v -le 65535) { $syncHash.SyslogPort = $v }
+                    }
+                    if ($null -ne $payload.sslWarnDays) {
+                        $v = [int]$payload.sslWarnDays
+                        if ($v -ge 1 -and $v -le 3650) { $syncHash.SslWarnDays = $v }
+                    }
                     if ($null -ne $payload.uiMode) { $syncHash.UiMode = [string]$payload.uiMode }
                     if ($null -ne $payload.bwThreshMbps) {
                         $v = [double]$payload.bwThreshMbps
@@ -4888,11 +5005,8 @@ try {
                             bwThreshMbps             = $syncHash.BwThreshMbps
                             enableParentSuppression  = $syncHash.EnableParentSuppression
                         }
-                        # 保存前に変更前 config.json を自動スナップショット退避
-                        if (Test-Path $configFileJson) {
-                            $null = Backup-ConfigSnapshot -targetFilePath $configFileJson -backupDir $syncHash.BackupDir
-                        }
-                        $configObj | ConvertTo-Json | Out-File -FilePath $configFileJson -Encoding UTF8
+                        # 変更前の config.json をスナップショットに退避してから、一時ファイル経由で安全に置き換える
+                        Save-ConfigJsonSafely $configObj
                     }
                     catch {
                         Write-Host "Failed to save config.json: $_" -ForegroundColor Red
@@ -4900,17 +5014,17 @@ try {
                 }
                 elseif ($urlPath -eq "/api/config/export" -and $method -eq "GET") {
                     # One-click full backup JSON (devices + config + positions)
-                    $devicesJsonContent = if (Test-Path $devicesFileJson) { Get-Content $devicesFileJson -Raw | ConvertFrom-Json } else { @() }
-                    $configJsonContent = if (Test-Path $configFileJson) { Get-Content $configFileJson -Raw | ConvertFrom-Json } else { @{} }
+                    $devicesJsonContent = if (Test-Path $devicesFileJson) { Get-Content $devicesFileJson -Raw -Encoding UTF8 | ConvertFrom-Json } else { @() }
+                    # -Encoding UTF8: BOM のないファイルでも日本語の機器名が文字化けしないように
+                    $configJsonContent = if (Test-Path $configFileJson) { Get-Content $configFileJson -Raw -Encoding UTF8 | ConvertFrom-Json } else { @{} }
                     
-                    $backupObj = @{
-                        version      = "2.0"
-                        exportDate   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-                        systemConfig = $configJsonContent
-                        devices      = $devicesJsonContent
-                    }
-                    
-                    $exportJson = $backupObj | ConvertTo-Json -Depth 10
+                    # 読み込んだ配列をそのまま ConvertTo-Json すると、PowerShell 5.1 では機器一覧が
+                    # {"value":[...],"Count":N} という形で書き出され、復元時に機器が1台も戻らなかった。
+                    # そのため、機器一覧と設定は元のJSONをそのまま組み立てて出力する
+                    $devText = if ($null -ne $devicesJsonContent) { ConvertTo-Json -InputObject @($devicesJsonContent | ForEach-Object { $_ }) -Depth 10 } else { "[]" }
+                    if (@($devicesJsonContent).Count -eq 0) { $devText = "[]" }
+                    $cfgText = if ($null -ne $configJsonContent) { ConvertTo-Json -InputObject $configJsonContent -Depth 10 } else { "{}" }
+                    $exportJson = "{`r`n  `"version`": `"2.0`",`r`n  `"exportDate`": `"$((Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))`",`r`n  `"systemConfig`": $cfgText,`r`n  `"devices`": $devText`r`n}"
                     $bytes = [System.Text.Encoding]::UTF8.GetBytes($exportJson)
                     $fileName = "NetworkMonitor_Backup_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".json"
                     
@@ -4935,14 +5049,18 @@ try {
                             # ファイルにだけ書かれて次の設定保存で失われていた)
                             Import-ConfigToSyncHash $cfg
 
-                            $cfg | ConvertTo-Json | Out-File -FilePath $configFileJson -Encoding UTF8
+                            Save-ConfigJsonSafely $cfg
                         }
                         
                         # 2. Restore devices.json if present
-                        if ($null -ne $payload.devices -and $payload.devices.Count -gt 0) {
+                        # 以前のバージョンで書き出したバックアップは機器一覧が {"value":[...]} で包まれているので取り出す
+                        $importDevices = $payload.devices
+                        if ($null -ne $importDevices -and $null -ne $importDevices.PSObject.Properties['value']) { $importDevices = $importDevices.value }
+                        $importDevices = @($importDevices | Where-Object { $null -ne $_ })
+                        if ($importDevices.Count -gt 0) {
                             $validPayload = [System.Collections.Generic.List[object]]::new()
                             $ipRegex = '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
-                            foreach ($item in $payload.devices) {
+                            foreach ($item in $importDevices) {
                                 if ($item.ip -and $item.ip.Trim() -match $ipRegex) {
                                     $validPayload.Add($item)
                                 }
@@ -4962,6 +5080,8 @@ try {
 
                                     $newArr = [System.Collections.Generic.List[string]]::new()
                                     foreach ($item in $validPayload) {
+                                        # 同じIPが複数行あると二重に監視・表示されるため最初の1件だけ使う
+                                        if ($newArr.Contains(([string]$item.ip).Trim())) { continue }
                                         $ip = Set-DeviceRecordInSyncHash $item
                                         if (-not $ip) { continue }
                                         $newArr.Add($ip)
@@ -4997,8 +5117,8 @@ try {
                         Start-BackgroundScript -ArgumentList @($respRef, $urlRef) -ScriptBlock {
                             param($respRef, $urlRef)
                             try {
-                                Send-WebhookNotification -url $urlRef -deviceName ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44K344K544OG44Og55uj6KaW44Oe44ON44O844K444O8"))) -ip "127.0.0.1" -eventType "test" -details ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44OG44K544OI6YCa55+l44GM5q2j5bi444Gr5Y+X5L+h44GV44KM44G+44GX44Gf44CC")))
-                                Write-JsonResponse $respRef @{ status = "success"; message = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("V2ViaG9vayDjg4bjgrnjg4jpgJrnsp7jgpLpgIHkv6HjgZfjgb7jgZfjgZ/jgII=")) }
+                                Send-WebhookNotification -url $urlRef -deviceName "システム監視マネージャー" -ip "127.0.0.1" -eventType "test" -details ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("44OG44K544OI6YCa55+l44GM5q2j5bi444Gr5Y+X5L+h44GV44KM44G+44GX44Gf44CC"))) -ThrowOnError   # 失敗したら catch へ (以前は失敗しても「送信しました」と表示されていた)
+                                Write-JsonResponse $respRef @{ status = "success"; message = "Webhook テスト通知を送信しました。" }
                             }
                             catch {
                                 Write-JsonResponse $respRef @{ error = "送信失敗: $($_.Exception.Message)" } 500
@@ -5039,7 +5159,7 @@ try {
                     }
 
                     if ($targetIp) {
-                        if ($targetIp -notmatch '^[a-zA-Z0-9\.\-]+$') {
+                        if ($targetIp -notmatch '^[a-zA-Z0-9][a-zA-Z0-9\.\-]*$') {   # 先頭が「-」だとコマンドのオプションとして扱われるため許可しない
                             Write-JsonResponse $response @{ error = "Invalid target IP address" } 400
                             continue
                         }
@@ -5102,7 +5222,8 @@ try {
                         }
                         
                         $ps = [powershell]::Create().AddScript($mtrTaskScript).AddArgument($targetIp).AddArgument($syncHash)
-                        $null = $ps.BeginInvoke()
+                        # 終わったら Start-BackgroundScript 側で片付けられるよう一覧に登録する (以前は作りっぱなしで実行のたびにメモリが残った)
+                        $null = $script:AsyncHttpJobs.Add(@{ PS = $ps; Handle = $ps.BeginInvoke() })
                         
                         Write-JsonResponse $response @{ status = "started" }
                     }
@@ -5251,7 +5372,7 @@ try {
                     }
 
                     if ($targetIp) {
-                        if ($targetIp -notmatch '^[a-zA-Z0-9\.\-]+$') {
+                        if ($targetIp -notmatch '^[a-zA-Z0-9][a-zA-Z0-9\.\-]*$') {   # 先頭が「-」だとコマンドのオプションとして扱われるため許可しない
                             Write-JsonResponse $response @{ error = "Invalid target IP address" } 400
                             continue
                         }
@@ -5704,7 +5825,8 @@ try {
                             $reportsDir = Join-Path $syncHash.PSScriptRoot "..\Reports"
                             if (-not (Test-Path $reportsDir)) { New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null }
                             $ps = [powershell]::Create().AddScript($iperfTaskScript).AddArgument($iperfExe).AddArgument($targetIp).AddArgument($duration).AddArgument($safeOpts).AddArgument($syncHash).AddArgument($syncHash.SessionDir).AddArgument($bwThreshMbps).AddArgument($reportsDir)
-                            $null = $ps.BeginInvoke()
+                            # 終わったら Start-BackgroundScript 側で片付けられるよう一覧に登録する (以前は作りっぱなしで実行のたびにメモリが残った)
+                            $null = $script:AsyncHttpJobs.Add(@{ PS = $ps; Handle = $ps.BeginInvoke() })
                             
                             # Initial response
                             Write-JsonResponse $response @{ status = "started"; command = "iperf3 (Starting)" }
@@ -5985,27 +6107,53 @@ try {
                 elseif ($urlPath -eq "/api/device/upload-image" -and $method -eq "POST") {
                     $ip = $request.Headers["X-Device-IP"]
                     $filename = $request.Headers["X-File-Name"]
-                    if ($ip -and $filename) {
-                        $uploadsDir = Join-Path $publicDir "uploads"
-                        if (-not (Test-Path $uploadsDir)) { New-Item -ItemType Directory -Path $uploadsDir | Out-Null }
-                        
-                        $safeFilename = [System.IO.Path]::GetFileName($filename)
-                        $destPath = Join-Path $uploadsDir "$($ip)_$safeFilename"
-                        
-                        $inputStream = $request.InputStream
-                        $fileStream = [System.IO.File]::Create($destPath)
-                        
-                        $buffer = New-Object byte[] 64kb
-                        while (($bytesRead = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-                            $fileStream.Write($buffer, 0, $bytesRead)
-                        }
-                        $fileStream.Close()
-                        
-                        $webPath = "/uploads/$($ip)_$safeFilename"
-                        Write-JsonResponse $response @{ status = "success"; path = $webPath }
+                    $maxUploadBytes = 10MB
+                    # 画面側は日本語のファイル名を送れるよう URL エンコードして送ってくるので元に戻す
+                    if ($filename) { try { $filename = [System.Uri]::UnescapeDataString($filename) } catch {} }
+                    $uploadExt = if ($filename) { [System.IO.Path]::GetExtension([System.IO.Path]::GetFileName($filename)).ToLower() } else { "" }
+                    if (-not ($ip -and $filename)) {
+                        Write-JsonResponse $response @{ error = "Missing IP or Filename headers" } 400
+                    }
+                    elseif ($uploadExt -notin @(".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico")) {
+                        # HTML や SVG などを置けると、監視画面と同じ場所からスクリプトが動いてしまうため画像形式のみ許可
+                        Write-JsonResponse $response @{ error = "画像ファイル (png / jpg / gif / webp / bmp / ico) のみアップロードできます" } 415
+                    }
+                    elseif ($request.ContentLength64 -gt $maxUploadBytes) {
+                        Write-JsonResponse $response @{ error = "画像のサイズが大きすぎます (上限 10MB)" } 413
                     }
                     else {
-                        Write-JsonResponse $response @{ error = "Missing IP or Filename headers" } 400
+                        $uploadsDir = Join-Path $publicDir "uploads"
+                        if (-not (Test-Path $uploadsDir)) { New-Item -ItemType Directory -Path $uploadsDir | Out-Null }
+
+                        # IP やファイル名に「..\」などが入っていても uploads フォルダの外に書き込まないよう、使える文字だけにする
+                        $safeIp = $ip -replace '[^A-Za-z0-9._-]', '_'
+                        $safeFilename = [System.IO.Path]::GetFileName($filename) -replace '[\\/:*?"<>|\x00-\x1f%#]', '_'
+                        $destPath = Join-Path $uploadsDir "$($safeIp)_$safeFilename"
+
+                        $inputStream = $request.InputStream
+                        $fileStream = [System.IO.File]::Create($destPath)
+                        $totalBytes = 0
+                        $tooLarge = $false
+                        try {
+                            $buffer = New-Object byte[] 64kb
+                            while (($bytesRead = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                                $totalBytes += $bytesRead
+                                if ($totalBytes -gt $maxUploadBytes) { $tooLarge = $true; break }
+                                $fileStream.Write($buffer, 0, $bytesRead)
+                            }
+                        }
+                        finally {
+                            $fileStream.Close()
+                        }
+
+                        if ($tooLarge) {
+                            try { Remove-Item -LiteralPath $destPath -Force -ErrorAction SilentlyContinue } catch {}
+                            Write-JsonResponse $response @{ error = "画像のサイズが大きすぎます (上限 10MB)" } 413
+                        }
+                        else {
+                            $webPath = "/uploads/" + [System.Uri]::EscapeDataString("$($safeIp)_$safeFilename")
+                            Write-JsonResponse $response @{ status = "success"; path = $webPath }
+                        }
                     }
                 }
                 elseif ($urlPath -eq "/api/scan" -and $method -eq "GET") {
@@ -6175,7 +6323,12 @@ try {
                     finally {
                         [System.Threading.Monitor]::Exit($syncHash.SyslogQueue.SyncRoot)
                     }
-                    Write-JsonResponse $response @{ logs = $logs }
+                    Write-JsonResponse $response @{
+                        logs        = $logs
+                        enabled     = [bool]$syncHash.SyslogEnabled
+                        listenPort  = [int]$syncHash.SyslogListenPort
+                        listenError = [string]$syncHash.SyslogListenError
+                    }
                 }
                 elseif ($urlPath -eq "/api/syslog/clear" -and $method -eq "POST") {
                     [System.Threading.Monitor]::Enter($syncHash.SyslogQueue.SyncRoot)
@@ -6322,7 +6475,8 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                     $p1 = Join-Path $configsDir ([System.IO.Path]::GetFileName($file1))
                     $p2 = Join-Path $configsDir ([System.IO.Path]::GetFileName($file2))
                     
-                    if ((Test-Path $p1) -and (Test-Path $p2)) {
+                    # f1/f2 が空だと Configs フォルダ自体を指してしまい、読み込みで例外になるためファイルであることも確認する
+                    if ($file1 -and $file2 -and (Test-Path -LiteralPath $p1 -PathType Leaf) -and (Test-Path -LiteralPath $p2 -PathType Leaf)) {
                         $lines1 = [System.IO.File]::ReadAllLines($p1, [System.Text.Encoding]::UTF8)
                         $lines2 = [System.IO.File]::ReadAllLines($p2, [System.Text.Encoding]::UTF8)
                         
@@ -6359,10 +6513,24 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                     Write-JsonResponse $response @{ status = "alive"; time = [DateTime]::UtcNow.ToString("o") }
                 }
                 elseif ($urlPath -eq "/api/shutdown") {
-                    $syncHash.PendingShutdown = $true
-                    $syncHash.PendingShutdownTime = [DateTime]::UtcNow.AddSeconds(2) # wait 2 seconds for clean exit
-                    Write-JsonResponse $response @{ status = "success"; message = "Shutdown initiated" }
-                    Write-Host "Shutdown signal received from browser." -ForegroundColor Yellow
+                    # reason=unload は「ブラウザを閉じた・再読み込みした」ときに自動で送られる合図
+                    # (「監視終了」ボタンからの明示的な終了には付かない)
+                    $isUnloadSignal = ($request.QueryString["reason"] -eq "unload")
+                    if ($isUnloadSignal -and $syncHash.AutoShutdownOnDisconnect -eq $false) {
+                        # 無人運用モードでは、ブラウザを閉じても監視を続ける (以前はこの合図で終了していた)
+                        Write-JsonResponse $response @{ status = "ignored"; message = "Unattended mode: keep running" }
+                    }
+                    else {
+                        $syncHash.PendingShutdown = $true
+                        # ページの再読み込み (F5) でも送られてくるため、すぐには止めず 10 秒待つ (その間に画面から通信があれば取り消す)
+                        # 以前は 2 秒で、PC が重いときなどは再読み込みが間に合わず監視ごと終了していた
+                        $waitSec = if ($isUnloadSignal) { 10 } else { 2 }
+                        # 「監視終了」ボタンからの終了は、画面の定期通信が来ても取り消さない
+                        if (-not $isUnloadSignal) { $syncHash.PendingShutdownForced = $true }
+                        $syncHash.PendingShutdownTime = [DateTime]::UtcNow.AddSeconds($waitSec)
+                        Write-JsonResponse $response @{ status = "success"; message = "Shutdown initiated" }
+                        Write-Host "Shutdown signal received from browser." -ForegroundColor Yellow
+                    }
                 }
                 elseif ($urlPath -eq "/api/health" -and $method -eq "GET") {
                     $nowUtc = [DateTime]::UtcNow
@@ -6417,6 +6585,8 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                                         try {
                                             $restoredIps = [System.Collections.Generic.List[string]]::new()
                                             foreach ($d in $loadedDevs) {
+                                                # 同じIPが複数行あると二重に監視・表示されるため最初の1件だけ使う
+                                                if ($restoredIps.Contains(([string]$d.ip).Trim())) { continue }
                                                 $rIp = Set-DeviceRecordInSyncHash $d
                                                 if (-not $rIp) { continue }
                                                 $restoredIps.Add($rIp)
@@ -6532,6 +6702,7 @@ finally {
 
     # Stop and close the background runspaces first to ensure no concurrent writes
     if ($null -ne $runspace) { try { $runspace.Close(); $runspace.Dispose() } catch {} }
+    if ($null -ne $diskWriterRunspace) { try { $diskWriterRunspace.Close(); $diskWriterRunspace.Dispose() } catch {} }
     if ($null -ne $bwRunspace) { try { $bwRunspace.Close(); $bwRunspace.Dispose() } catch {} }
     if ($null -ne $snmpRunspace) { try { $snmpRunspace.Close(); $snmpRunspace.Dispose() } catch {} }
     if ($null -ne $macRunspace) { try { $macRunspace.Close(); $macRunspace.Dispose() } catch {} }

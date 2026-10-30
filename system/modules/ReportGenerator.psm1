@@ -262,7 +262,11 @@ function Generate-SessionReportHtml {
         $dName   = if ($sync.DeviceName.ContainsKey($ip) -and $sync.DeviceName[$ip]) { $sync.DeviceName[$ip] } else { $ip }
         $dGroup  = if ($sync.Group.ContainsKey($ip) -and $sync.Group[$ip]) { $sync.Group[$ip] } else { "未分類" }
         $dLoc    = if ($sync.Location.ContainsKey($ip) -and $sync.Location[$ip]) { $sync.Location[$ip] } else { "—" }
-        $dManual = if ($sync.TroubleMemo.ContainsKey($ip) -and $sync.TroubleMemo[$ip]) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($sync.TroubleMemo[$ip]))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
+        # マニュアルのリンクは http / https / file とファイルパスだけを許可する (javascript: 等はリンクにしない)
+        $memoUrl = if ($sync.TroubleMemo.ContainsKey($ip)) { ([string]$sync.TroubleMemo[$ip]).Trim() } else { "" }
+        if ($memoUrl -match '^[a-zA-Z]:[\\/]' -or $memoUrl.StartsWith('\\')) { $memoUrl = 'file:' + $(if ($memoUrl.StartsWith('\\')) { '' } else { '///' }) + $memoUrl.Replace('\', '/') }
+        elseif ($memoUrl -and $memoUrl -notmatch '^(https?|file):') { $memoUrl = "" }
+        $dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($memoUrl))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
         $color   = $palette[$devIdx % $palette.Count]
 
         $totalPings = 0
@@ -329,7 +333,7 @@ function Generate-SessionReportHtml {
         $reportRows += @"
 <tr>
     <td><span class="color-dot" style="background-color:$color;"></span><strong>$([System.Web.HttpUtility]::HtmlEncode($dName))</strong><br><small style="color:#64748b;">$ip</small></td>
-    <td>$dGroup<br><small style="color:#64748b;">$dLoc</small></td>
+    <td>$([System.Web.HttpUtility]::HtmlEncode($dGroup))<br><small style="color:#64748b;">$([System.Web.HttpUtility]::HtmlEncode($dLoc))</small></td>
     <td><span class="status-tag $($st.ToLower())">$st</span></td>
     <td style="text-align:center; font-weight:600; color:#475569; white-space:nowrap;">$freqDisplay</td>
     <td style="text-align:right;">$totalPings</td>
@@ -755,7 +759,7 @@ function Generate-SessionReportHtml {
         <div class="report-header">
             <div>
                 <div class="report-title">📊 ネットワーク機器 稼働状況・定期点検報告書</div>
-                <div style="font-size:11px; color:#64748b; margin-top:4px;">対象期間: $period | 作成日時: $tsNow</div>
+                <div style="font-size:11px; color:#64748b; margin-top:4px;">対象期間: $([System.Web.HttpUtility]::HtmlEncode($period)) | 作成日時: $tsNow</div>
             </div>
             <div class="report-meta">
                 システム名: <strong>Network Device Monitor</strong><br>

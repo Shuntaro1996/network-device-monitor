@@ -66,9 +66,12 @@ public static class TrustAllCertsPolicy {
     } catch [System.Net.WebException] {
         $sw.Stop()
         $res.ResponseTimeMs = [int]$sw.ElapsedMilliseconds
-        if ($_.Response) {
-            $res.StatusCode = [int]$_.Response.StatusCode
-            $_.Response.Close()
+        # $_ はエラー記録なので、応答は $_.Exception.Response にある (以前は常に空で、404 等でも状態コードが 0 になり、
+        #  応答も閉じられずに接続が残り、同じサイトへの次の確認がタイムアウトしていた)
+        $errResp = $_.Exception.Response
+        if ($errResp) {
+            $res.StatusCode = [int]$errResp.StatusCode
+            try { $errResp.Close() } catch {}
         }
         $res.Error = $_.Exception.Message
     } catch {

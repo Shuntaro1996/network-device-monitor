@@ -479,7 +479,11 @@ function Backup-ConfigSnapshot {
     param(
         [string]$targetFilePath,
         [string]$backupDir,
-        [int]$maxGenerations = 20
+        [int]$maxGenerations = 20,
+        # 0より大きいと、直前のスナップショットがこの秒数以内なら新しく作らない
+        # (構成図で機器をドラッグするたびに保存されるため、毎回作ると20世代がすぐに入れ替わり、
+        #  一括削除などの「戻したい時点」のスナップショットが数十秒で消えていた)
+        [int]$minIntervalSec = 0
     )
     if (-not (Test-Path $targetFilePath)) { return $null }
     try {
@@ -487,6 +491,14 @@ function Backup-ConfigSnapshot {
             New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
         }
         $baseName = [System.IO.Path]::GetFileNameWithoutExtension($targetFilePath) # "devices" or "config"
+        if ($minIntervalSec -gt 0) {
+            $latest = Get-ChildItem -Path $backupDir -Filter "${baseName}_*.json" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+            # スナップショットの作成時刻はファイル名 (yyyyMMdd_HHmmss_fff) から読む (コピー元の更新日時が引き継がれるため)
+            if ($latest -and $latest.Name -match "^${baseName}_(\d{8}_\d{6})") {
+                $latestTime = [datetime]::ParseExact($matches[1], "yyyyMMdd_HHmmss", $null)
+                if (((Get-Date) - $latestTime).TotalSeconds -lt $minIntervalSec) { return $latest.FullName }
+            }
+        }
         $ts = (Get-Date).ToString("yyyyMMdd_HHmmss_fff")
         $snapshotName = "${baseName}_${ts}.json"
         $snapshotPath = Join-Path $backupDir $snapshotName
@@ -551,8 +563,15 @@ function Restore-ConfigSnapshot {
         [string]$backupDir,
         [string]$targetDir
     )
+    # ファイル名に「..\」などを含めてバックアップフォルダの外のファイルを読み込ませないよう、名前の形式を限定する
+    if ([string]::IsNullOrWhiteSpace($snapshotFileName) -or
+        $snapshotFileName -ne [System.IO.Path]::GetFileName($snapshotFileName) -or
+        $snapshotFileName -notmatch '^(devices|config)_[A-Za-z0-9_.\-]+\.json$' -or
+        $snapshotFileName.Contains('..')) {
+        return @{ success = $false; error = "Invalid snapshot file name: $snapshotFileName" }
+    }
     $sourcePath = Join-Path $backupDir $snapshotFileName
-    if (-not (Test-Path $sourcePath)) {
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
         return @{ success = $false; error = "Snapshot file not found: $snapshotFileName" }
     }
 
@@ -565,6 +584,13 @@ function Restore-ConfigSnapshot {
     try {
         # 同一ミリ秒でのバックアップ上書き競合を防ぐため、復元元のバイト列を先にメモリへ確保
         $sourceBytes = [System.IO.File]::ReadAllBytes($sourcePath)
+        # 壊れたスナップショットで現在の設定を上書きしないよう、JSON として読めることを先に確認する
+        try {
+            $null = ([System.Text.Encoding]::UTF8.GetString($sourceBytes).TrimStart([char]0xFEFF) | ConvertFrom-Json -ErrorAction Stop)
+        }
+        catch {
+            return @{ success = $false; error = "Snapshot file is not valid JSON: $snapshotFileName" }
+        }
         # 復元前に現行ファイルを安全スナップショット退避
         if (Test-Path $destPath) {
             $null = Backup-ConfigSnapshot -targetFilePath $destPath -backupDir $backupDir

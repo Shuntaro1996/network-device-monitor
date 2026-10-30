@@ -254,6 +254,28 @@ Describe "8. 設定・機器定義の自動スナップショット＆ロール�
             Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+
+    It "Restore-ConfigSnapshot がバックアップフォルダ外のファイルや壊れたJSONで設定を上書きしないこと" {
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_RestoreGuard_$(Get-Random)"
+        $backupDir = Join-Path $tempDir "backups"
+        New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+        try {
+            $targetFile = Join-Path $tempDir "devices.json"
+            $origContent = '[{"ip":"10.0.0.1","name":"CoreSwitch"}]'
+            [System.IO.File]::WriteAllText($targetFile, $origContent, [System.Text.Encoding]::UTF8)
+            # バックアップフォルダの外にある「機器一覧に見えない」ファイル
+            [System.IO.File]::WriteAllText((Join-Path $tempDir "outside.json"), '{"evil":true}', [System.Text.Encoding]::UTF8)
+            # 壊れたスナップショット
+            [System.IO.File]::WriteAllText((Join-Path $backupDir "devices_20260101_000000.json"), '[{"ip":', [System.Text.Encoding]::UTF8)
+
+            (Restore-ConfigSnapshot -snapshotFileName "devices_..\outside.json" -backupDir $backupDir -targetDir $tempDir).success | Should Be $false
+            (Restore-ConfigSnapshot -snapshotFileName "devices_20260101_000000.json" -backupDir $backupDir -targetDir $tempDir).success | Should Be $false
+
+            [System.IO.File]::ReadAllText($targetFile, [System.Text.Encoding]::UTF8) | Should Be $origContent
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Describe "9. システム前提環境・モジュール診断 (Common.psm1 / Test-SystemPrerequisites)" {

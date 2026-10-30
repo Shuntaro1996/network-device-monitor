@@ -520,7 +520,8 @@
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
                         <div>
                             <h2 style="margin:0; font-size:1.2rem; display:flex; align-items:center; gap:8px;">📡 Syslog / SNMP Trap リアルタイム受信</h2>
-                            <p style="margin:4px 0 0 0; font-size:0.82rem; color:var(--text-muted);">UDP ポート 514 / 162 でネットワーク機器からの Trap / Syslog メッセージを自動受信・解析します。</p>
+                            <p style="margin:4px 0 0 0; font-size:0.82rem; color:var(--text-muted);">ネットワーク機器から UDP で送られてくる Syslog メッセージを自動受信・解析します。</p>
+                            <p id="syslog-listen-status" style="margin:4px 0 0 0; font-size:0.8rem; color:var(--text-muted);">受信状態: 確認中...</p>
                         </div>
                         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                             <select id="syslog-severity-filter" class="form-select" style="font-size:0.85rem; padding:6px 12px;">

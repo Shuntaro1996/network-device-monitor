@@ -150,8 +150,14 @@ if ($snmpInfo.installed) {
     Write-Host "==========================================================" -ForegroundColor Cyan
     
     $shouldInstall = $false
+    # 画面のない起動 (タスクスケジューラの「PC起動時に実行」やサービス) では、質問しても誰も答えられず
+    # 起動がここで止まったままになるため、質問せずにインストールを見送って監視を始める
+    $canAsk = $true
+    try { $canAsk = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected } catch { $canAsk = $false }
     if ($AutoInstall) {
         $shouldInstall = $true
+    } elseif (-not $canAsk) {
+        Write-Host "（画面のない起動のため、SNMP モジュールのインストール確認を省略します）" -ForegroundColor Gray
     } else {
         Write-Host ""
         $answer = Read-Host "SNMP モジュールを今すぐ自動インストールしますか？ [Y: はい / N: スキップ] (デフォルト: Y)"

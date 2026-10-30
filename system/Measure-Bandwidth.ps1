@@ -4,6 +4,7 @@ param(
     [switch]$Scan,
     [switch]$UseIperf3,
     [int]$DurationSec = 5,
+    [int]$IperfPort = 5201,   # 計測相手の iperf3 サーバーのポート (Start-BandwidthServer.ps1 -Port と合わせる)
     [int]$PingCount = 5,
     [switch]$NoCsv,
     [switch]$NoReport,
@@ -117,9 +118,9 @@ foreach ($ip in $targets) {
     }
 
     if ($res.Reachable) {
-        if ($UseIperf3 -and $Iperf3Exe -and (Test-TcpPort $ip 5201)) {
+        if ($UseIperf3 -and $Iperf3Exe -and (Test-TcpPort $ip $IperfPort)) {
             Write-Log "  Running iperf3..." -Color Gray
-            $out = & $Iperf3Exe -c $ip -t $DurationSec -J 2>&1 | Out-String
+            $out = & $Iperf3Exe -c $ip -p $IperfPort -t $DurationSec -J 2>&1 | Out-String
             $json = $out | ConvertFrom-Json -ErrorAction SilentlyContinue
             if ($json -and $json.end -and $json.end.sum_sent) {
                 $res.BandwidthMbps = [math]::Round($json.end.sum_sent.bits_per_second / 1000000, 2)
@@ -147,10 +148,14 @@ if (-not $NoCsv) {
 
 if (-not $NoReport) {
     $GenScript = Join-Path $SystemDir "Generate-BandwidthReport.ps1"
-    if (Test-Path $GenScript -and -not $NoCsv) {
+    # 「Test-Path $GenScript -and ...」と書くと -and が Test-Path の引数と解釈されてエラーになるため、かっこで区切る
+    if ((Test-Path -LiteralPath $GenScript) -and -not $NoCsv) {
         & $GenScript -CsvFile $CsvFile -OutputFile $ReportFile
         Write-Host "  Report generated: $ReportFile" -ForegroundColor Green
         if ($OpenReport) { Start-Process $ReportFile }
+    }
+    elseif (-not $NoCsv) {
+        Write-Log "  HTML report skipped (Generate-BandwidthReport.ps1 not found). CSV: $CsvFile" -Color Gray
     }
 }
 Write-Log "Finished." "Cyan"

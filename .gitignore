@@ -32,3 +32,9 @@ tests/temp_*
 
 # Machine-specific BOM check cache
 system/.bom_cache
+
+# Stop-All.bat が置く一括停止の合図
+.stop_signal
+
+# 壊れて読めなかった設定ファイルの退避コピー
+system/*.broken_*
