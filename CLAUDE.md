@@ -15,7 +15,7 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
   - 時間のかかる処理は `Start-BackgroundScript`（RunspacePool `$asyncWorkerPool`）で実行し、メインループを止めない。
 - `system/modules/*.psm1`
   - Common：DPAPI、監査ログ、CSRF 判定など
-  - PingEngine、SnmpService、RemoteExec、IperfRunner、AlertManager、ReportGenerator
+  - PingEngine、SnmpService、RemoteExec、IperfRunner、AlertManager、ReportGenerator、ObrStatus
   - Runspace 内では関数が見えないため、各スクリプトブロックで明示的に `Import-Module` するか、`$iss` に登録する。
 - `system/public/`：`index.html` / `app.js`（約 8,800 行）/ `style.css`。vis-network と Chart.js は同梱のファイルを使い、npm は使わない。
 - 設定ファイルは `system/config.json` と `system/devices.json`。パスワードは DPAPI で暗号化して保存する。実行時の生成物は `Reports/` に出力され、git の管理対象外。

@@ -325,6 +325,8 @@ function ConvertFrom-BerValue {
     param([byte[]]$buffer, [hashtable]$element)
     $start = $element.ValueStart
     $length = $element.Length
+    # 中身が空の値 (noSuchObject など) はよく届く正常なデータ。読み飛ばす
+    if ($length -le 0) { return "" }
     switch ($element.Tag) {
         0x02 {
             # INTEGER (符号付き整数)
@@ -352,8 +354,12 @@ function ConvertFrom-BerValue {
         }
         { $_ -in @(0x41, 0x42, 0x43, 0x46) } {
             # Counter32 / Gauge32 / TimeTicks / Counter64 (符号なし整数)
+            # 大きな値は先頭に 0 が付いて 9 バイトになるので、先頭の 0 を飛ばしてから読む
             [uint64]$number = 0
-            for ($i = 0; $i -lt [math]::Min($length, 8); $i++) { $number = ($number * 256) + $buffer[$start + $i] }
+            $first = $start
+            while ($first -lt ($start + $length - 1) -and $buffer[$first] -eq 0) { $first++ }
+            $lastExclusive = [math]::Min($start + $length, $first + 8)
+            for ($i = $first; $i -lt $lastExclusive; $i++) { $number = ($number * 256) + $buffer[$i] }
             return [string]$number
         }
         default { return ([System.BitConverter]::ToString($buffer, $start, $length) -replace '-', ':') }

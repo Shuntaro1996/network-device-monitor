@@ -809,6 +809,17 @@
                                         <input type="password" id="dev-snmp-priv-pass" placeholder="privpassphrase" class="form-input-sm">
                                     </div>
                                 </div>
+                                <!-- OBR の無線接続状況の確認 -->
+                                <div class="form-group">
+                                    <div class="form-checkbox" style="margin-bottom: 0;">
+                                        <input type="checkbox" id="dev-obr-enabled">
+                                        <label for="dev-obr-enabled" style="cursor: pointer;">📶 OBR の無線接続状況を確認する（30秒ごと）</label>
+                                    </div>
+                                    <div id="dev-obr-group" class="hidden" style="margin-top: 8px;">
+                                        <label for="dev-obr-password">OBR の管理者パスワード</label>
+                                        <input type="password" id="dev-obr-password" placeholder="管理者パスワード" class="form-input-sm" autocomplete="new-password">
+                                    </div>
+                                </div>
                                 <!-- Remote Management Settings Section (Milestone 2) -->
                                 <div class="remote-settings-container" style="margin: 1rem 0; padding: 12px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px;">
                                     <div class="form-checkbox remote-toggle-header" style="margin-bottom: 0;">

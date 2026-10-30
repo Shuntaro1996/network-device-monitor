@@ -317,12 +317,71 @@ Describe "8b. SNMP Trap の解析 (SnmpService.psm1)" {
         $trap.TrapOid | Should Be "1.3.6.1.6.3.1.1.5.3"
     }
 
+    It "値が空の変数や 9 バイトの大きなカウンタがあっても Trap を読み取れること" {
+        $binds = [byte[]](@(New-BerBind ([byte[]](0x2B, 6, 1, 2, 1, 1)) (New-Ber 0x46 ([byte[]](0, 255, 255, 255, 255, 255, 255, 255, 255)))) + @(New-BerBind ([byte[]](0x2B, 6, 1, 2, 1, 2)) (New-Ber 0x80 ([byte[]]@()))))
+        $pduBody = [byte[]](@(New-Ber 0x02 ([byte[]](1))) + @(New-Ber 0x02 ([byte[]](0))) + @(New-Ber 0x02 ([byte[]](0))) + @(New-Ber 0x30 $binds))
+        $packet = New-Ber 0x30 ([byte[]](@(New-Ber 0x02 ([byte[]](1))) + @(New-BerText "public") + @(New-Ber 0xA7 $pduBody)))
+
+        $trap = ConvertFrom-SnmpTrapPacket -Packet $packet
+        @($trap.VarBinds).Count | Should Be 2
+        $trap.VarBinds[0].Value | Should Be "18446744073709551615"
+        $trap.VarBinds[1].Value | Should Be ""
+    }
+
     It "SNMPv3 は中身を読まずに v3 とだけ返し、壊れたデータは例外になること" {
         $v3 = New-Ber 0x30 ([byte[]](@(New-Ber 0x02 ([byte[]](3))) + @(New-Ber 0x30 ([byte[]]@()))))
         (ConvertFrom-SnmpTrapPacket -Packet $v3).Version | Should Be "v3"
 
         { ConvertFrom-SnmpTrapPacket -Packet ([byte[]](1, 2, 3)) } | Should Throw
         { ConvertFrom-SnmpTrapPacket -Packet ([byte[]](0x30, 0x7F, 0x02)) } | Should Throw
+    }
+}
+
+Describe "8c. OBR の接続状況の読み取り (ObrStatus.psm1)" {
+    Import-Module (Join-Path $projectRoot "system\modules\ObrStatus.psm1") -Force -DisableNameChecking
+
+    It "接続中の応答から SSID・チャンネル・電波の強さ・速度を読み取れること" {
+        $html = @'
+<html><head><META HTTP-EQUIV="refresh" CONTENT="30;url=wlstast_main.htm?lang=eng"></head><body>
+<script type="text/javascript">
+<!--
+var stainfo = {ssid:"SAMPLE-AP(00:11:22:33:44:55)",chan:"6 (2.4GHz) 20MHz",signal:-47,txbitrate:"144.4 Mbit/s"};
+var antennaName = "antenna"
+ContentsStart("Connecting Wireless LAN Access Point Information");
+// -->
+</script></body></html>
+'@
+        $r = ConvertFrom-ObrStatusHtml -Html $html
+        $r.Found | Should Be $true
+        $r.Connected | Should Be $true
+        $r.Ssid | Should Be "SAMPLE-AP"
+        $r.Bssid | Should Be "00:11:22:33:44:55"
+        $r.Channel | Should Be "6 (2.4GHz) 20MHz"
+        $r.SignalDbm | Should Be -47
+        $r.TxBitrate | Should Be "144.4 Mbit/s"
+    }
+
+    It "非接続の応答を「未接続」と判定できること" {
+        $r = ConvertFrom-ObrStatusHtml -Html 'var stainfo = {ssid:"---(---)",chan:"---",signal:0,txbitrate:"---"};'
+        $r.Found | Should Be $true
+        $r.Connected | Should Be $false
+        $r.Ssid | Should Be ""
+        $r.SignalDbm | Should Be $null
+    }
+
+    It "かっこを含む SSID を正しく分けられること" {
+        $r = ConvertFrom-ObrStatusHtml -Html 'var stainfo = {ssid:"AP(2F)(AA:BB:CC:DD:EE:FF)",chan:"36 (5GHz) 80MHz",signal:-60,txbitrate:"866 Mbit/s"};'
+        $r.Ssid | Should Be "AP(2F)"
+        $r.Bssid | Should Be "AA:BB:CC:DD:EE:FF"
+    }
+
+    It "OBR に接続できないときは Unreachable を返すこと" {
+        (Get-ObrWirelessStatus -HostName '127.0.0.9' -Password 'x' -TimeoutMs 1000).State | Should Be 'Unreachable'
+    }
+
+    It "stainfo がないページ (ログイン画面など) は接続状況なしと判定すること" {
+        (ConvertFrom-ObrStatusHtml -Html '<html><body><form action="login"></form></body></html>').Found | Should Be $false
+        (ConvertFrom-ObrStatusHtml -Html '').Found | Should Be $false
     }
 }
 

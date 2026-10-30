@@ -139,6 +139,9 @@ $syncHash.SnmpAuthProto = [hashtable]::Synchronized(@{})
 $syncHash.SnmpAuthPass = [hashtable]::Synchronized(@{})
 $syncHash.SnmpPrivProto = [hashtable]::Synchronized(@{})
 $syncHash.SnmpPrivPass = [hashtable]::Synchronized(@{})
+$syncHash.ObrEnabled = [hashtable]::Synchronized(@{})    # OBR の無線接続状況を確認するか (機器ごと)
+$syncHash.ObrPassword = [hashtable]::Synchronized(@{})   # OBR の管理者パスワード (暗号化した形で持つ)
+$syncHash.ObrStatus = [hashtable]::Synchronized(@{})     # OBR の最新の無線接続状況
 
 # Remote execution settings (SSH/WinRM/Custom)
 $syncHash.Remote = [hashtable]::Synchronized(@{})
@@ -618,6 +621,8 @@ if (Test-Path $devicesFileJson) {
                     $syncHash.SnmpAuthPass[$ip] = if ($null -ne $d.snmpAuthPass) { Unprotect-SecretOrKeep ([string]$d.snmpAuthPass) } else { "" }
 $syncHash.SnmpPrivProto[$ip] = if ($null -ne $d.snmpPrivProto) { [string]$d.snmpPrivProto } else { "none" }
                     $syncHash.SnmpPrivPass[$ip] = if ($null -ne $d.snmpPrivPass) { Unprotect-SecretOrKeep ([string]$d.snmpPrivPass) } else { "" }
+                    $syncHash.ObrEnabled[$ip] = if ($null -ne $d.obrEnabled) { [bool]$d.obrEnabled } else { $false }
+                    $syncHash.ObrPassword[$ip] = if ($d.obrPassword) { Protect-SecretString ([string]$d.obrPassword) } else { "" }
 
                     # Load Remote execution configuration
                     if ($null -ne $d.remote) {
@@ -718,6 +723,8 @@ $saveDevicesJsonScript = {
                     snmpAuthPass  = if ($syncHash.SnmpAuthPass.ContainsKey($ip) -and $syncHash.SnmpAuthPass[$ip]) { Protect-SecretString $syncHash.SnmpAuthPass[$ip] } else { "" }
                     snmpPrivProto = if ($syncHash.SnmpPrivProto.ContainsKey($ip)) { $syncHash.SnmpPrivProto[$ip] } else { "none" }
                     snmpPrivPass  = if ($syncHash.SnmpPrivPass.ContainsKey($ip) -and $syncHash.SnmpPrivPass[$ip]) { Protect-SecretString $syncHash.SnmpPrivPass[$ip] } else { "" }
+                    obrEnabled    = if ($syncHash.ObrEnabled.ContainsKey($ip)) { [bool]$syncHash.ObrEnabled[$ip] } else { $false }
+                    obrPassword   = if ($syncHash.ObrPassword.ContainsKey($ip)) { [string]$syncHash.ObrPassword[$ip] } else { "" }
                 }
 
                 # Remote execution properties (DPAPI暗号化保存)
@@ -2856,6 +2863,85 @@ $null = $trapPipeline.Commands.AddScript($trapScriptBlock)
 $trapAsyncResult = $trapPipeline.InvokeAsync()
 
 # ─────────────────────────────────────────
+# 2.12 OBR の無線接続状況を確認するスレッド (機器ごとに 30 秒間隔)
+# 確認に時間がかかっても監視や画面を止めないよう、別スレッドで動かす
+# ─────────────────────────────────────────
+$obrRunspace = [runspacefactory]::CreateRunspace()
+$obrRunspace.ApartmentState = "STA"
+$obrRunspace.ThreadOptions = "ReuseThread"
+$obrRunspace.Open()
+$obrRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
+
+$obrScriptBlock = {
+    Import-Module (Join-Path $syncHash.PSScriptRoot "modules\Common.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $syncHash.PSScriptRoot "modules\ObrStatus.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
+
+    $nextCheck = @{}      # 機器ごとの次の確認時刻
+    $lastPassword = @{}   # パスワードが変わったらすぐ確認し直すために覚えておく
+
+    while ($syncHash.Running) {
+        $now = [DateTime]::UtcNow
+        foreach ($ip in @($syncHash.Devices)) {
+            if (-not $syncHash.Running) { break }
+            $enabled = $syncHash.ObrEnabled.ContainsKey($ip) -and $syncHash.ObrEnabled[$ip] -and
+                       -not ($syncHash.IsMonitored.ContainsKey($ip) -and -not $syncHash.IsMonitored[$ip])
+            if (-not $enabled) {
+                if ($syncHash.ObrStatus.ContainsKey($ip)) { $syncHash.ObrStatus.Remove($ip) }
+                $nextCheck.Remove($ip)
+                continue
+            }
+
+            $cipher = if ($syncHash.ObrPassword.ContainsKey($ip)) { [string]$syncHash.ObrPassword[$ip] } else { "" }
+            if ($lastPassword[$ip] -ne $cipher) {
+                $lastPassword[$ip] = $cipher
+                $nextCheck.Remove($ip)
+            }
+            if ($nextCheck.ContainsKey($ip) -and $now -lt $nextCheck[$ip]) { continue }
+            $nextCheck[$ip] = $now.AddSeconds(30)
+
+            $checkedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            if ([string]::IsNullOrEmpty($cipher)) {
+                $syncHash.ObrStatus[$ip] = @{ state = "NoPassword"; checkedAt = $checkedAt }
+                continue
+            }
+            $password = Unprotect-SecretString $cipher
+            if ([string]::IsNullOrEmpty($password)) {
+                $syncHash.ObrStatus[$ip] = @{ state = "DecryptFailed"; checkedAt = $checkedAt }
+                continue
+            }
+            # Ping が通っていない機器には問い合わせない (タイムアウト待ちを避ける)
+            $pingEntry = if ($syncHash.Status.ContainsKey($ip)) { $syncHash.Status[$ip] } else { $null }
+            if ($null -ne $pingEntry -and $pingEntry.status -in @("Failed", "Error")) {
+                $syncHash.ObrStatus[$ip] = @{ state = "Unreachable"; checkedAt = $checkedAt }
+                continue
+            }
+            try {
+                $obr = Get-ObrWirelessStatus -HostName $ip -Password $password
+                $syncHash.ObrStatus[$ip] = @{
+                    state     = $obr.State
+                    ssid      = $obr.Ssid
+                    bssid     = $obr.Bssid
+                    channel   = $obr.Channel
+                    signalDbm = $obr.SignalDbm
+                    txBitrate = $obr.TxBitrate
+                    checkedAt = $checkedAt
+                }
+                # パスワードが違うときは 5 分おきにする (短い間隔で失敗を繰り返すと機器側で拒否される恐れがあるため)
+                if ($obr.State -eq "LoginFailed") { $nextCheck[$ip] = $now.AddMinutes(5) }
+            }
+            catch {
+                $syncHash.ObrStatus[$ip] = @{ state = "Unreachable"; checkedAt = $checkedAt }
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+}
+
+$obrPipeline = $obrRunspace.CreatePipeline()
+$null = $obrPipeline.Commands.AddScript($obrScriptBlock)
+$obrAsyncResult = $obrPipeline.InvokeAsync()
+
+# ─────────────────────────────────────────
 # Helper: devices.json の1機器分を $syncHash の全項目へ読み込む
 # (起動時と同じ項目を復元・インポートでも読み込むための共通処理。以前の復元・インポートは
 #  名前・グループ等の一部しか読み込まず、次の保存でトラブルメモ・TCP監視・リモート設定等が消えていた)
@@ -2885,6 +2971,8 @@ function Set-DeviceRecordInSyncHash($d) {
     $syncHash.SnmpAuthPass[$ip] = if ($null -ne $d.snmpAuthPass) { Unprotect-SecretOrKeep ([string]$d.snmpAuthPass) } else { "" }
 $syncHash.SnmpPrivProto[$ip] = if ($d.snmpPrivProto) { [string]$d.snmpPrivProto } else { "none" }
     $syncHash.SnmpPrivPass[$ip] = if ($null -ne $d.snmpPrivPass) { Unprotect-SecretOrKeep ([string]$d.snmpPrivPass) } else { "" }
+    $syncHash.ObrEnabled[$ip] = if ($null -ne $d.obrEnabled) { [bool]$d.obrEnabled } else { $false }
+    $syncHash.ObrPassword[$ip] = if ($d.obrPassword) { Protect-SecretString ([string]$d.obrPassword) } else { "" }
 if (-not $syncHash.Remote) { $syncHash.Remote = [hashtable]::Synchronized(@{}) }
     if ($null -ne $d.remote) {
         $rHash = @{}
@@ -3151,6 +3239,8 @@ try {
                                 snmpAuthPass  = if ($syncHash.SnmpAuthPass.ContainsKey($ip) -and $syncHash.SnmpAuthPass[$ip]) { Protect-SecretString $syncHash.SnmpAuthPass[$ip] } else { "" }   # 平文で画面やエクスポートファイルに出さない (暗号化した形で返す)
                                 snmpPrivProto = if ($syncHash.SnmpPrivProto.ContainsKey($ip)) { $syncHash.SnmpPrivProto[$ip] } else { "none" }
                                 snmpPrivPass  = if ($syncHash.SnmpPrivPass.ContainsKey($ip) -and $syncHash.SnmpPrivPass[$ip]) { Protect-SecretString $syncHash.SnmpPrivPass[$ip] } else { "" }
+                                obrEnabled    = if ($syncHash.ObrEnabled.ContainsKey($ip)) { [bool]$syncHash.ObrEnabled[$ip] } else { $false }
+                                obrPassword   = if ($syncHash.ObrPassword.ContainsKey($ip)) { [string]$syncHash.ObrPassword[$ip] } else { "" }
                                 remote        = if ($syncHash.Remote -and $syncHash.Remote.ContainsKey($ip)) { $syncHash.Remote[$ip] } else { $null }
                             }
                         }
@@ -3234,6 +3324,7 @@ try {
                         }
                         $st.isSuppressed = if ($syncHash.Status.ContainsKey($key) -and $syncHash.Status[$key].ContainsKey('isSuppressed')) { $syncHash.Status[$key].isSuppressed } else { $false }
                         $st.connectedTo = if ($syncHash.ConnectedTo.ContainsKey($key)) { $syncHash.ConnectedTo[$key] } else { '' }
+                        $st.obr = if ($syncHash.ObrStatus.ContainsKey($key)) { $syncHash.ObrStatus[$key] } else { $null }
                         $st.ipConflict = if ($syncHash.IpConflicts -and $syncHash.IpConflicts.ContainsKey($key)) { $syncHash.IpConflicts[$key] } else { $null }
                         $statusCopy[$key] = $st
                     }
@@ -3398,6 +3489,8 @@ try {
                             $syncHash.SnmpAuthPass[$ip] = $snmpAuthPass
                             $syncHash.SnmpPrivProto[$ip] = $snmpPrivProto
                             $syncHash.SnmpPrivPass[$ip] = $snmpPrivPass
+                            $syncHash.ObrEnabled[$ip] = [bool]$payload.obrEnabled
+                            $syncHash.ObrPassword[$ip] = if ($payload.obrPassword) { Protect-SecretString ([string]$payload.obrPassword) } else { "" }
                             $syncHash.Location[$ip] = if ($null -ne $payload.location) { [string]$payload.location } else { "" }
                             $syncHash.VendorContact[$ip] = if ($null -ne $payload.vendorContact) { [string]$payload.vendorContact } else { "" }
                             $syncHash.TroubleMemo[$ip] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
@@ -4020,6 +4113,8 @@ $isNew = $true
                                     $syncHash.SnmpAuthPass[$ip] = $snmpAuthPass
                                     $syncHash.SnmpPrivProto[$ip] = $privProto
                                     $syncHash.SnmpPrivPass[$ip] = $privPass
+                                    if ($null -ne $item.PSObject.Properties['obrEnabled'] -and $null -ne $item.obrEnabled) { $syncHash.ObrEnabled[$ip] = [bool]$item.obrEnabled }
+                                    if ($null -ne $item.PSObject.Properties['obrPassword']) { $syncHash.ObrPassword[$ip] = if ($item.obrPassword) { Protect-SecretString ([string]$item.obrPassword) } else { "" } }
                                     if ($null -ne $item.checkType) { $syncHash.CheckType[$ip] = [string]$item.checkType }
                                     if ($null -ne $item.port) { $syncHash.Port[$ip] = [int]$item.port }
 
@@ -4496,6 +4591,8 @@ $isNew = $true
                         $snmpAuthPass = if (& $hasField 'snmpAuthPass') { if ($payload.snmpAuthPass) { Unprotect-SecretString ([string]$payload.snmpAuthPass) } else { "" } } else { & $prevValue $syncHash.SnmpAuthPass "" }
                         $snmpPrivProto = if (& $hasField 'snmpPrivProto') { if ($payload.snmpPrivProto) { $payload.snmpPrivProto.Trim() } else { "none" } } else { & $prevValue $syncHash.SnmpPrivProto "none" }
                         $snmpPrivPass = if (& $hasField 'snmpPrivPass') { if ($payload.snmpPrivPass) { Unprotect-SecretString ([string]$payload.snmpPrivPass) } else { "" } } else { & $prevValue $syncHash.SnmpPrivPass "" }
+                        $obrEnabledVal = if (& $hasField 'obrEnabled') { [bool]$payload.obrEnabled } else { [bool](& $prevValue $syncHash.ObrEnabled $false) }
+                        $obrPasswordVal = if (& $hasField 'obrPassword') { if ($payload.obrPassword) { Protect-SecretString ([string]$payload.obrPassword) } else { "" } } else { & $prevValue $syncHash.ObrPassword "" }
                         $locationVal = if (& $hasField 'location') { [string]$payload.location } else { & $prevValue $syncHash.Location "" }
                         $vendorContactVal = if (& $hasField 'vendorContact') { [string]$payload.vendorContact } else { & $prevValue $syncHash.VendorContact "" }
                         $troubleMemoVal = if (& $hasField 'troubleMemo') { [string]$payload.troubleMemo } else { & $prevValue $syncHash.TroubleMemo "" }
@@ -4572,6 +4669,7 @@ $isNew = $true
                                     if ($syncHash.SnmpAuthPass.ContainsKey($oldIp)) { $syncHash.SnmpAuthPass.Remove($oldIp) }
                                     if ($syncHash.SnmpPrivProto.ContainsKey($oldIp)) { $syncHash.SnmpPrivProto.Remove($oldIp) }
                                     if ($syncHash.SnmpPrivPass.ContainsKey($oldIp)) { $syncHash.SnmpPrivPass.Remove($oldIp) }
+                                    foreach ($obrTable in @($syncHash.ObrEnabled, $syncHash.ObrPassword, $syncHash.ObrStatus)) { if ($obrTable.ContainsKey($oldIp)) { $obrTable.Remove($oldIp) } }
 
                                     if ($syncHash.X.ContainsKey($oldIp)) {
                                         $syncHash.X[$newIp] = $syncHash.X[$oldIp]
@@ -4608,6 +4706,8 @@ $isNew = $true
                             $syncHash.SnmpAuthPass[$newIp] = $snmpAuthPass
                             $syncHash.SnmpPrivProto[$newIp] = $snmpPrivProto
                             $syncHash.SnmpPrivPass[$newIp] = $snmpPrivPass
+                            $syncHash.ObrEnabled[$newIp] = $obrEnabledVal
+                            $syncHash.ObrPassword[$newIp] = $obrPasswordVal
 
                             $syncHash.Location[$newIp] = $locationVal
                             $syncHash.VendorContact[$newIp] = $vendorContactVal
@@ -4815,6 +4915,7 @@ $isNew = $true
                                 $syncHash.SnmpAuthPass.Clear()
                                 $syncHash.SnmpPrivProto.Clear()
                                 $syncHash.SnmpPrivPass.Clear()
+                                $syncHash.ObrEnabled.Clear(); $syncHash.ObrPassword.Clear(); $syncHash.ObrStatus.Clear()
                                 if ($syncHash.Remote) { $syncHash.Remote.Clear() }
                                 $syncHash.Status.Clear()
                                 $syncHash.Bandwidth.Clear()
@@ -4908,6 +5009,7 @@ $isNew = $true
                                         if ($syncHash.SnmpAuthPass.ContainsKey($d)) { $syncHash.SnmpAuthPass.Remove($d) }
                                         if ($syncHash.SnmpPrivProto.ContainsKey($d)) { $syncHash.SnmpPrivProto.Remove($d) }
                                         if ($syncHash.SnmpPrivPass.ContainsKey($d)) { $syncHash.SnmpPrivPass.Remove($d) }
+                                        foreach ($obrTable in @($syncHash.ObrEnabled, $syncHash.ObrPassword, $syncHash.ObrStatus)) { if ($obrTable.ContainsKey($d)) { $obrTable.Remove($d) } }
                                         if ($syncHash.Remote -and $syncHash.Remote.ContainsKey($d)) { $syncHash.Remote.Remove($d) }
                                     }
                                 }
@@ -5234,6 +5336,7 @@ sslWarnDays              = $syncHash.SslWarnDays
                                     $syncHash.X.Clear(); $syncHash.Y.Clear()
                                     $syncHash.SnmpVersion.Clear(); $syncHash.SnmpUser.Clear(); $syncHash.SnmpAuthProto.Clear()
                                     $syncHash.SnmpAuthPass.Clear(); $syncHash.SnmpPrivProto.Clear(); $syncHash.SnmpPrivPass.Clear()
+                                    $syncHash.ObrEnabled.Clear(); $syncHash.ObrPassword.Clear(); $syncHash.ObrStatus.Clear()
                                     $syncHash.Status.Clear(); $syncHash.Stats.Clear(); $syncHash.Bandwidth.Clear()
                                     $syncHash.Traffic.Clear(); $syncHash.SnmpDetail.Clear(); $syncHash.History.Clear()
 
@@ -6871,6 +6974,7 @@ finally {
     if ($null -ne $runspace) { try { $runspace.Close(); $runspace.Dispose() } catch {} }
     if ($null -ne $diskWriterRunspace) { try { $diskWriterRunspace.Close(); $diskWriterRunspace.Dispose() } catch {} }
     if ($null -ne $trapRunspace) { try { $trapRunspace.Close(); $trapRunspace.Dispose() } catch {} }
+    if ($null -ne $obrRunspace) { try { $obrRunspace.Close(); $obrRunspace.Dispose() } catch {} }
 if ($null -ne $bwRunspace) { try { $bwRunspace.Close(); $bwRunspace.Dispose() } catch {} }
     if ($null -ne $snmpRunspace) { try { $snmpRunspace.Close(); $snmpRunspace.Dispose() } catch {} }
     if ($null -ne $macRunspace) { try { $macRunspace.Close(); $macRunspace.Dispose() } catch {} }

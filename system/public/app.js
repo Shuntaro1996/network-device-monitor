@@ -408,10 +408,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // ※ 保存済みのパスワードは画面に出さない。空欄のまま保存すると、今のパスワードをそのまま使い続ける
     function fillSnmpFields(device) {
         const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-        setVal('dev-snmp-version', (device && device.snmpVersion) || 'v2c');
+        // 選択肢に合わせて値を選ぶ。大文字小文字の違いは吸収し、選択肢にない値 (ファイルから取り込んだ AES など) は選択肢に加える
+        // (選べないと空欄になって「なし」として保存され、保存済みのパスワードまで消えてしまうため)
+        const setSelect = (id, val) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            let opt = [...el.options].find(o => o.value.toLowerCase() === String(val).toLowerCase());
+            if (!opt) {
+                opt = new Option(val, val);
+                el.add(opt);
+            }
+            el.value = opt.value;
+        };
+        setSelect('dev-snmp-version', (device && device.snmpVersion) || 'v2c');
         setVal('dev-snmp-user', (device && device.snmpUser) || '');
-        setVal('dev-snmp-auth-proto', (device && device.snmpAuthProto) || 'none');
-        setVal('dev-snmp-priv-proto', (device && device.snmpPrivProto) || 'none');
+        setSelect('dev-snmp-auth-proto', (device && device.snmpAuthProto) || 'none');
+        setSelect('dev-snmp-priv-proto', (device && device.snmpPrivProto) || 'none');
         setVal('dev-snmp-auth-pass', '');
         setVal('dev-snmp-priv-pass', '');
         const authPassEl = document.getElementById('dev-snmp-auth-pass');
@@ -419,9 +431,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const privPassEl = document.getElementById('dev-snmp-priv-pass');
         if (privPassEl) privPassEl.placeholder = (device && device.snmpPrivPass) ? '保存済み（変更するときだけ入力）' : 'privpassphrase';
         const fieldsEl = document.getElementById('snmpv3-fields');
-        if (fieldsEl) fieldsEl.classList.toggle('hidden', ((device && device.snmpVersion) || 'v2c') !== 'v3');
+        if (fieldsEl) fieldsEl.classList.toggle('hidden', String((device && device.snmpVersion) || 'v2c').toLowerCase() !== 'v3');
         const privGroupEl = document.getElementById('snmpv3-priv-pass-group');
-        if (privGroupEl) privGroupEl.style.display = ((device && device.snmpPrivProto) || 'none') === 'none' ? 'none' : 'block';
+        if (privGroupEl) privGroupEl.style.display = String((device && device.snmpPrivProto) || 'none').toLowerCase() === 'none' ? 'none' : 'block';
+
+        // OBR の無線接続状況の確認
+        const obrEnabledEl = document.getElementById('dev-obr-enabled');
+        if (obrEnabledEl) obrEnabledEl.checked = !!(device && device.obrEnabled);
+        const obrPassEl = document.getElementById('dev-obr-password');
+        if (obrPassEl) {
+            obrPassEl.value = '';
+            obrPassEl.placeholder = (device && device.obrPassword) ? '保存済み（変更するときだけ入力）' : '管理者パスワード';
+        }
+        const obrGroupEl = document.getElementById('dev-obr-group');
+        if (obrGroupEl) obrGroupEl.classList.toggle('hidden', !(device && device.obrEnabled));
     }
 
     // 入力欄から、保存する SNMP の設定を作る
@@ -442,8 +465,13 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (authPass && authPass.value) fields.snmpAuthPass = authPass.value;
         if (privProto === 'none') fields.snmpPrivPass = '';
         else if (privPass && privPass.value) fields.snmpPrivPass = privPass.value;
+
+        const obrEnabledEl = document.getElementById('dev-obr-enabled');
+        if (obrEnabledEl) fields.obrEnabled = obrEnabledEl.checked;
+        const obrPassEl = document.getElementById('dev-obr-password');
+        if (obrPassEl && obrPassEl.value) fields.obrPassword = obrPassEl.value;
         return fields;
-    }
+}
 
     function openDeviceModal(device = null) {
         if (!device) fillSnmpFields(null);
@@ -3210,6 +3238,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // 画面描画中の例外はサーバー切断ではないため、通信エラーとして数えない
             // (数えると3回で「サーバーとの接続が途切れています」と誤表示され、更新も3.5秒間隔に落ちる)
             try {
+                // 構成図の色・遅延・通信量・無線状況や、親機器障害時の通知抑止は、この最新の状態を参照する
+                // (以前はここで保存しておらず、構成図は状態が更新されないままだった)
+                window.lastStatusData = statusData;
                 updateDeviceData(statusData);
                 updateTopologyStatus();
                 updateIpConflicts(statusData._ipConflicts);
@@ -3351,7 +3382,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div style="flex:1.1; min-width:0; display:flex; flex-direction:column; gap:1px;">
                         <span id="loss-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;" title="パケット損失率: 直近30回のPing送信に対する失敗割合 (%)">ロス: 0.0%</span>
                         <span id="jitter-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;" title="ジッター (ms): 応答時間のブレ・揺らぎ (RFC 3550)。5ms未満が理想">揺らぎ: -</span>
-                    </div>
+                        ${d.obrEnabled ? `<span id="obr-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;">📶 無線: 確認中...</span>` : ''}
+</div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;min-width:110px;">
                         <span class="header-latency" id="latency-${safeIpId}" style="min-width:50px;text-align:right;font-weight:700;" title="現在のPing応答遅延時間 (ms)">-</span>
                         <span id="minmax-${safeIpId}" style="font-size:0.7rem;white-space:nowrap;" title="セッション中の最大応答遅延 / 最小応答遅延 (ms)"><span style="color:#f97316;">最大-</span> / <span style="color:#06b6d4;">最小-</span></span>
@@ -3613,8 +3645,32 @@ document.addEventListener('DOMContentLoaded', () => {
     // 機器の状態に応じて画面の通知 (トースト) と警告音を出す
     // (カードを表示していない機器 = 超高頻度モードの5.0s間隔の機器 にも通知が出るよう、カード更新とは分けている)
     // ※ 状態データ (data) には機器名が含まれないため、名前は機器一覧 (d.name) から取る (以前は常にIPが表示されていた)
+    // OBR の無線接続状況を、画面に出す文字にする (カード・構成図の共通処理)
+    function describeObrStatus(obr) {
+        if (!obr) return { text: '📶 無線: 確認中...', short: '無線: 確認中', detail: '', color: '#94a3b8' };
+        switch (obr.state) {
+            case 'Connected': {
+                const signal = (obr.signalDbm !== null && obr.signalDbm !== undefined) ? `${obr.signalDbm} dBm` : '';
+                // 電波の強さの目安: -67 dBm より弱いと通信が不安定になりやすい
+                const color = (obr.signalDbm !== null && obr.signalDbm !== undefined && obr.signalDbm < -75) ? '#f87171'
+                    : (obr.signalDbm !== null && obr.signalDbm !== undefined && obr.signalDbm < -67) ? '#f59e0b' : '#10b981';
+                return {
+                    text: `📶 ${obr.ssid} / ${signal} / ${obr.txBitrate}`,
+                    short: `${obr.ssid} ${signal}`,
+                    detail: `SSID: ${obr.ssid}\nアクセスポイント: ${obr.bssid || '-'}\nチャンネル: ${obr.channel}\n電波の強さ: ${signal}\n通信速度: ${obr.txBitrate}\n確認日時: ${obr.checkedAt}`,
+                    color
+                };
+            }
+            case 'Disconnected': return { text: '📵 無線: 未接続', short: '無線: 未接続', detail: `アクセスポイントに接続していません\n確認日時: ${obr.checkedAt}`, color: '#f87171' };
+            case 'LoginFailed': return { text: '🔒 無線: ログイン失敗', short: '無線: ログイン失敗', detail: 'OBR にログインできません。パスワードを確認してください（5分おきに再確認します）', color: '#f59e0b' };
+            case 'NoPassword': return { text: '🔒 無線: パスワード未設定', short: '無線: PW未設定', detail: '機器の編集画面で OBR のパスワードを設定してください', color: '#f59e0b' };
+            case 'DecryptFailed': return { text: '🔒 無線: パスワード復号不可', short: '無線: 復号不可', detail: 'パスワードを保存した Windows ユーザーで起動してください', color: '#f59e0b' };
+            default: return { text: '📶 無線: 取得不可', short: '無線: 取得不可', detail: `OBR の管理画面に接続できません\n確認日時: ${obr.checkedAt}`, color: '#94a3b8' };
+        }
+    }
+
     function raiseDeviceAlerts(d, data) {
-        const ip = d.ip;
+const ip = d.ip;
         const label = d.name || ip;
         const isSuppressed = isAlertSuppressed(ip) || data.isSuppressed;
         if (isSuppressed) return;
@@ -3630,7 +3686,15 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('warning', `⚠️ ${label} 高遅延検知`, `IP: ${ip} 遅延: ${data.latency}ms (閾値: ${warnLat}ms)`, 5000);
             playAlertSound('warning');
         }
-    }
+        if (d.obrEnabled && data.obr) {
+            if (data.obr.state === 'Disconnected' && canAlert(ip, 'obr')) {
+                showToast('warning', `📵 ${label} 無線未接続`, `IP: ${ip} アクセスポイントに接続していません`, 5000);
+                playAlertSound('warning');
+            } else if (data.obr.state === 'LoginFailed' && canAlert(ip, 'obrLogin')) {
+                showToast('warning', `🔒 ${label} ログイン失敗`, `IP: ${ip} OBR のパスワードを確認してください`, 5000);
+            }
+        }
+}
 
     function updateDeviceData(statusData) {
         devices.forEach(d => {
@@ -3692,8 +3756,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     minmaxEl.innerHTML = `<span style="color:#f97316;">最大${mx !== null ? mx + ' ms' : '-'}</span> / <span style="color:#06b6d4;">最小${mn !== null ? mn + ' ms' : '-'}</span>`;
                 }
                 // Refresh Packet Loss & Jitter display
+                const obrEl = document.getElementById(`obr-${safeIpId}`);
+                if (obrEl) {
+                    const obrView = describeObrStatus(data.obr);
+                    obrEl.textContent = obrView.text;
+                    obrEl.style.color = obrView.color;
+                    obrEl.title = obrView.detail;
+                }
                 const lossEl = document.getElementById(`loss-${safeIpId}`);
-                const jitterEl = document.getElementById(`jitter-${safeIpId}`);
+const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 if (lossEl) {
                     const lossRate = (data.packetLossRate != null) ? data.packetLossRate : 0.0;
                     lossEl.textContent = `ロス: ${lossRate.toFixed(1)}%`;
@@ -4576,7 +4647,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Dynamic SVG node generator for Vis Network
-    function createNodeSvg(name, ip, image, statusColor, txText, rxText, latencyText, isPaused = false) {
+    function createNodeSvg(name, ip, image, statusColor, txText, rxText, latencyText, isPaused = false, obrView = null) {
         const isDay = document.documentElement.getAttribute('data-theme') === 'day';
         
         let iconContent = '';
@@ -4618,6 +4689,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (safeRx) {
             rxTextHtml = `<text x="60" y="168" font-family="'Inter', sans-serif" font-size="8.5" font-weight="bold" fill="${rxColor}" text-anchor="middle">↓RX ${safeRx}</text>`;
+        }
+        // OBR は通信量の代わりに無線の接続状況を表示する (通信量はマウスを乗せると出る説明に残る)
+        if (obrView) {
+            const obrShort = obrView.short.length > 22 ? obrView.short.slice(0, 21) + '…' : obrView.short;
+            txTextHtml = `<text x="60" y="159" font-family="'Inter', sans-serif" font-size="8.5" font-weight="bold" fill="${obrView.color}" text-anchor="middle">${escapeXml(obrShort)}</text>`;
+            rxTextHtml = '';
         }
 
         let cardBg = isDay ? 'rgba(255, 255, 255, 0.85)' : 'rgba(30, 41, 59, 0.6)';
@@ -4867,7 +4944,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const isPaused = (d.enabled === false);
             const statusColor = getDeviceStatusColor(d.ip);
-            const svgString = createNodeSvg(d.name || d.ip, d.ip, d.image, statusColor, txSvgText, rxSvgText, latencySvgText, isPaused);
+            const svgString = createNodeSvg(d.name || d.ip, d.ip, d.image, statusColor, txSvgText, rxSvgText, latencySvgText, isPaused, d.obrEnabled ? describeObrStatus(statusData && statusData.obr) : null);
             const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
 
             const nodeObj = {
@@ -4877,7 +4954,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 size: 110,
                 label: '',
                 group: d.group || 'Ungrouped',
-                title: `${d.name || d.ip}\nIP: ${d.ip}\nGroup: ${d.group || 'Ungrouped'}${latencyTooltipText}${bandwidthText}`
+                title: `${d.name || d.ip}\nIP: ${d.ip}\nGroup: ${d.group || 'Ungrouped'}${latencyTooltipText}${bandwidthText}${d.obrEnabled ? '\n' + describeObrStatus(statusData && statusData.obr).detail : ''}`
             };
 
             if (typeof d.x === 'number' && typeof d.y === 'number') {
@@ -5909,7 +5986,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const isPaused = (d.enabled === false);
             const statusColor = getDeviceStatusColor(d.ip);
-            const svgString = createNodeSvg(d.name || d.ip, d.ip, d.image, statusColor, txSvgText, rxSvgText, latencySvgText, isPaused);
+            const svgString = createNodeSvg(d.name || d.ip, d.ip, d.image, statusColor, txSvgText, rxSvgText, latencySvgText, isPaused, d.obrEnabled ? describeObrStatus(statusData && statusData.obr) : null);
             const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
             
             const safeName = escapeXml(d.name || d.ip);
@@ -5917,7 +5994,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const safeGroup = escapeXml(d.group || 'Ungrouped');
             const safeLatencyTooltip = escapeXml(latencyTooltipText || '');
             const safeBandwidthTooltip = escapeXml(bandwidthText || '');
-            const newTitle = `${safeName}\nIP: ${safeIp}\nGroup: ${safeGroup}${safeLatencyTooltip}${safeBandwidthTooltip}`;
+            const newTitle = `${safeName}\nIP: ${safeIp}\nGroup: ${safeGroup}${safeLatencyTooltip}${safeBandwidthTooltip}${d.obrEnabled ? escapeXml('\n' + describeObrStatus(statusData && statusData.obr).detail) : ''}`;
 
             // Diff check: only update nodesDataSet if SVG or tooltip has changed
             const cacheKey = d.ip;
@@ -7230,8 +7307,9 @@ document.addEventListener('DOMContentLoaded', () => {
         { key: 'snmpVersion', label: 'SNMPバージョン' },
         { key: 'snmpUser', label: 'SNMPユーザー' },
         { key: 'snmpAuthProto', label: 'SNMP認証方式' },
-        { key: 'snmpPrivProto', label: 'SNMP暗号化方式' }
-    ];
+        { key: 'snmpPrivProto', label: 'SNMP暗号化方式' },
+        { key: 'obrEnabled', label: 'OBR無線確認' }
+];
 
     // 1 項目を CSV の形にする。=,+,-,@ で始まる文字は Excel が数式として実行するので、先頭に ' を付けて防ぐ
     function toCsvCell(value) {
@@ -7297,14 +7375,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 else if (['無効', 'off', 'false', '0'].includes(flag)) item.enabled = false;
                 else { errors.push(`${lineNo}行目: 「監視」は 有効 / 無効 で指定してください (${item.enabled})`); return; }
             }
+            if (item.obrEnabled !== undefined) {
+                const flag = item.obrEnabled.toLowerCase();
+                if (flag === '') delete item.obrEnabled;
+                else if (['有効', 'on', 'true', '1'].includes(flag)) item.obrEnabled = true;
+                else if (['無効', 'off', 'false', '0'].includes(flag)) item.obrEnabled = false;
+                else { errors.push(`${lineNo}行目: 「OBR無線確認」は 有効 / 無効 で指定してください`); return; }
+            }
             if (item.checkType !== undefined) {
                 item.checkType = item.checkType.toLowerCase() || 'icmp';
                 if (!['icmp', 'tcp'].includes(item.checkType)) { errors.push(`${lineNo}行目: 「監視方式」は icmp / tcp で指定してください`); return; }
             }
             if (item.port !== undefined) {
-                const port = item.port === '' ? 0 : Number(item.port);
-                if (!Number.isInteger(port) || port < 0 || port > 65535) { errors.push(`${lineNo}行目: ポート番号が正しくありません (${item.port})`); return; }
-                item.port = port;
+                // 空欄は「変更しない」扱いにする (0 で上書きすると、登録済みの TCP 監視のポートが消えてしまう)
+                if (item.port === '') {
+                    delete item.port;
+                } else {
+                    const port = Number(item.port);
+                    if (!Number.isInteger(port) || port < 0 || port > 65535) { errors.push(`${lineNo}行目: ポート番号が正しくありません (${item.port})`); return; }
+                    item.port = port;
+                }
             }
             if (item.checkType === 'tcp' && !item.port) {
                 const current = devices.find(d => d.ip === item.ip);
@@ -7333,7 +7423,8 @@ document.addEventListener('DOMContentLoaded', () => {
             devices.forEach(d => {
                 lines.push(CSV_COLUMNS.map(c => {
                     if (c.key === 'enabled') return d.enabled === false ? '無効' : '有効';
-                    return toCsvCell(d[c.key]);
+                    if (c.key === 'obrEnabled') return d.obrEnabled ? '有効' : '無効';
+return toCsvCell(d[c.key]);
                 }).join(','));
             });
             // 先頭の BOM は、Excel が日本語を文字化けさせずに開くための印
@@ -7393,6 +7484,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const snmpv3Fields = document.getElementById('snmpv3-fields');
     const devSnmpPrivProto = document.getElementById('dev-snmp-priv-proto');
     const snmpv3PrivPassGroup = document.getElementById('snmpv3-priv-pass-group');
+
+    const devObrEnabled = document.getElementById('dev-obr-enabled');
+    if (devObrEnabled) {
+        devObrEnabled.addEventListener('change', () => {
+            const obrGroupEl = document.getElementById('dev-obr-group');
+            if (obrGroupEl) obrGroupEl.classList.toggle('hidden', !devObrEnabled.checked);
+        });
+    }
 
     if (devSnmpVersion && snmpv3Fields) {
         devSnmpVersion.addEventListener('change', () => {

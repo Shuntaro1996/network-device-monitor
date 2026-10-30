@@ -172,6 +172,7 @@ flowchart TB
 | **Runspace 3: SNMP Basic** | SNMPトラフィック（In/Out Octets）およびエラー（Errors/Discards）収集、バックオフ制御 | 設定間隔（5秒 〜 30秒） | バックグラウンド Runspace |
 | **Runspace 4: SNMP Detail** | インターフェースリンク速度、Wi-Fi周波数帯、CDP/LLDP隣接機器収集、トポロジー自動親子付け | 30秒固定周期 | バックグラウンド Runspace |
 | **Runspace 5: Syslog** | UDP 514 / 1514 ポートでの Syslog パケット受信、パース、キュー格納 | UDPパケット受信時（即時） | バックグラウンド Runspace |
+| **OBR Status** | OBR の無線接続状況の取得（`ObrStatus.psm1`）。状態ページを読めないときだけ `POST /index.htm`（`LOGIN_PASSWORD`）でログインし、`GET /public/stat/wlstast_main.htm?lang=en` の `stainfo` を読む。プロキシは使わない。パスワード誤り時は 5 分間隔に落とす | 機器ごとに 30 秒 | バックグラウンド Runspace |
 | **Runspace 1b: Disk Writer** | メモリ上のキューから CSV ログへの追記（10MB で世代交代）、統計チェックポイント `_checkpoint.json` の保存。ドライブの書き込みが止まっても Ping 監視を止めないよう分離 | CSV: 10秒 / チェックポイント: 60秒 | バックグラウンド Runspace |
 | **Runspace 6: Watchdog** | コンソールキー入力検知（Enterキー停止）、ブラウザハートビート監視（60秒無通信で自動保存＆終了） | 200ms 周期 | バックグラウンド Runspace |
 | **ThreadPool Workers** | IPレンジスキャン、Traceroute、SNMP詳細クエリ、Webhook送信、メール送信 | APIリクエスト時に動的生成 | .NET ThreadPool |
@@ -557,6 +558,12 @@ sequenceDiagram
 * **ポート**: `syslogPort`（既定 UDP 514）を開き、開けない場合は UDP 1514 で代わりに受信する。実際の受信ポートと失敗理由は `/api/syslog` の `listenPort` / `listenError` で返し、画面の「受信状態」に表示する。`syslogPort` を変更すると再起動なしで開き直す。
 * **リングバッファ**: メモリ内に最新 500 件のログを保持（古いログから自動破棄）。
 * **ファシリティ / セベリティ解析**: PRIヘッダ（`<134>`等）から Facility（`local0`, `auth` 等）および Severity（`Emergency`, `Alert`, `Critical`, `Error`, `Warning`, `Notice`, `Info`, `Debug`）を自動抽出。
+
+### 3.6.2 OBR 無線接続状況の確認
+機器ごとの設定 `obrEnabled` / `obrPassword`（DPAPI で暗号化して `devices.json` に保存）が有効な機器について、無線の接続状況を確認します。
+* **結果**: `/api/status` の各機器の `obr` に `state`（`Connected` / `Disconnected` / `LoginFailed` / `Unreachable` / `NoPassword` / `DecryptFailed`）、`ssid`、`bssid`、`channel`、`signalDbm`、`txBitrate`、`checkedAt` を返す。
+* **表示**: 機器カードと構成図のノード。構成図のノードでは通信量の表示位置に無線状況を出し、通信量はツールチップに残す。`Disconnected` は画面のアラートと音で通知する（Webhook・メールは送らない）。
+* **注意**: OBR との通信は平文の HTTP。ログイン回数を減らすため、状態ページを読めるあいだは再ログインしない。
 
 ### 3.6.1 SNMP Trap 受信エンジン
 機器から自発的に届く通知（SNMP Trap）を受信し、Syslog と同じ一覧（`SyslogQueue`、種類は `Kind = "Trap"`）に入れます。
