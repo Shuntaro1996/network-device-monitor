@@ -92,7 +92,7 @@ def start_test_server(port, project_root):
     patched_code = raw_code.replace("$port = 8081", f"$port = {port}")
     escaped_sys_dir = system_dir.replace("'", "''")
     wrapper = f"$PSScriptRoot = '{escaped_sys_dir}';\r\n{patched_code}"
-    temp_runner = os.path.join(project_root, "tests", "temp_ui_runner.ps1")
+    temp_runner = os.path.join(system_dir, "tests", "temp_ui_runner.ps1")
     with open(temp_runner, "w", encoding="utf-8-sig") as f:
         f.write(wrapper)
 
@@ -143,7 +143,7 @@ def run_ui_verification(port, headless=True, preferred_browser=None):
         print_fail("Playwright is not installed. Please install via: pip install playwright")
         return False
 
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     managed_proc = None
     test_results = {"total": 0, "passed": 0, "failed": 0}
 

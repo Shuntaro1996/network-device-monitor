@@ -10,7 +10,7 @@
 # ==============================================================================
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Resolve-Path (Join-Path $here "..")
+$projectRoot = Resolve-Path (Join-Path $here "..\..")
 $systemDir = Join-Path $projectRoot "system"
 $moduleDir = Join-Path $systemDir "modules"
 
@@ -420,9 +420,7 @@ Describe "4. Save-DevicesJson 並行書き込みストレステスト & スキ�
         $syncHash.X             = [hashtable]::Synchronized(@{})
         $syncHash.Y             = [hashtable]::Synchronized(@{})
         $syncHash.Mac           = [hashtable]::Synchronized(@{})
-        $syncHash.Location      = [hashtable]::Synchronized(@{})
         $syncHash.VendorContact = [hashtable]::Synchronized(@{})
-        $syncHash.TroubleMemo   = [hashtable]::Synchronized(@{})
         $syncHash.DeviceType    = [hashtable]::Synchronized(@{})
         $syncHash.WebUrl        = [hashtable]::Synchronized(@{})
         $syncHash.CheckType     = [hashtable]::Synchronized(@{})
@@ -445,9 +443,7 @@ Describe "4. Save-DevicesJson 並行書き込みストレステスト & スキ�
             $syncHash.X[$ip]             = 120 * $lastOctet
             $syncHash.Y[$ip]             = 180 * $lastOctet
             $syncHash.Mac[$ip]           = "AA:BB:CC:DD:EE:0$lastOctet"
-            $syncHash.Location[$ip]      = "ServerRoom-Rack-$lastOctet"
             $syncHash.VendorContact[$ip] = "support@network.local"
-            $syncHash.TroubleMemo[$ip]   = "Primary Gateway"
             $syncHash.DeviceType[$ip]    = "network"
             $syncHash.WebUrl[$ip]        = "http://$ip"
             $syncHash.CheckType[$ip]     = "icmp"
@@ -687,7 +683,6 @@ Describe "5. REST API コントラクト & スキーマ整合性検証 (F13)" {
             $sync = [hashtable]::Synchronized(@{
                 Status          = [hashtable]::Synchronized(@{})
                 Stats           = [hashtable]::Synchronized(@{})
-                Bandwidth       = [hashtable]::Synchronized(@{})
                 Traffic         = [hashtable]::Synchronized(@{})
                 Mac             = [hashtable]::Synchronized(@{})
                 SnmpDetail      = [hashtable]::Synchronized(@{})
@@ -717,7 +712,6 @@ Describe "5. REST API コントラクト & スキーマ整合性検証 (F13)" {
                 Outage5sCount    = 0
                 OutageEvents     = @()
             }
-            $sync.Bandwidth[$testIp] = "95.2 Mbps"
             $sync.Traffic[$testIp] = @{ tx = 12.5; rx = 82.7 }
             $sync.Mac[$testIp] = "00:11:22:33:44:55"
 
@@ -729,7 +723,6 @@ Describe "5. REST API コントラクト & スキーマ整合性検証 (F13)" {
                 checkType        = $sync.Status[$testIp].checkType
                 port             = $sync.Status[$testIp].port
                 timestamp        = $sync.Status[$testIp].timestamp
-                bandwidth        = $sync.Bandwidth[$testIp]
                 tx               = $sync.Traffic[$testIp].tx
                 rx               = $sync.Traffic[$testIp].rx
                 mac              = $sync.Mac[$testIp]
@@ -754,7 +747,6 @@ Describe "5. REST API コントラクト & スキーマ整合性検証 (F13)" {
             $devMetrics.packetLossRate | Should Be 0.0
             $devMetrics.jitter | Should Be 1.2
             $devMetrics.avgJitter | Should Be 1.2
-            $devMetrics.bandwidth | Should Be "95.2 Mbps"
             $devMetrics.tx | Should Be 12.5
             $devMetrics.rx | Should Be 82.7
             $devMetrics.mac | Should Be "00:11:22:33:44:55"
@@ -779,9 +771,7 @@ Describe "5. REST API コントラクト & スキーマ整合性検証 (F13)" {
                 X             = @{ "172.16.0.1" = 300 }
                 Y             = @{ "172.16.0.1" = 400 }
                 Mac           = @{ "172.16.0.1" = "11:22:33:44:55:66" }
-                Location      = @{ "172.16.0.1" = "Floor 2" }
                 VendorContact = @{ "172.16.0.1" = "cisco@example.com" }
-                TroubleMemo   = @{ "172.16.0.1" = "None" }
                 DeviceType    = @{ "172.16.0.1" = "switch" }
                 WebUrl        = @{ "172.16.0.1" = "https://172.16.0.1" }
                 CheckType     = @{ "172.16.0.1" = "icmp" }
@@ -808,9 +798,7 @@ Describe "5. REST API コントラクト & スキーマ整合性検証 (F13)" {
                     x             = $sync.X[$ip]
                     y             = $sync.Y[$ip]
                     mac           = $sync.Mac[$ip]
-                    location      = $sync.Location[$ip]
                     vendorContact = $sync.VendorContact[$ip]
-                    troubleMemo   = $sync.TroubleMemo[$ip]
                     deviceType    = $sync.DeviceType[$ip]
                     webUrl        = $sync.WebUrl[$ip]
                     checkType     = $sync.CheckType[$ip]
@@ -1011,7 +999,7 @@ Describe "5. REST API コントラクト & スキーマ整合性検証 (F13)" {
 # 6. ファイルエンコーディング & 整合性検証 (UTF-8 BOM Guardrail)
 # ==============================================================================
 Describe "6. ファイルエンコーディング & 整合性検証 (UTF-8 BOM Guardrail)" {
-    It "tests/ 配下の全 PowerShell スクリプト (.ps1) が UTF-8 BOM を保持していること" {
+    It "system/tests/ 配下の全 PowerShell スクリプト (.ps1) が UTF-8 BOM を保持していること" {
         $testScripts = Get-ChildItem -Path $here -Filter "*.ps1" -File | Where-Object {
             $_.FullName -notmatch '[\\/](temp_|backups|\.git)'
         }

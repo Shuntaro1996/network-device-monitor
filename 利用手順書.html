@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Device Monitor &amp; Diagnostic Tool 利用手順書</title>
+<style>
+:root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --text: #1c2430;
+    --muted: #5a6675;
+    --line: #dfe3e9;
+    --accent: #1d5fbf;
+    --code-bg: #eef1f5;
+    --quote-bg: #eef4fc;
+    --zebra: #f8f9fb;
+    color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #12161c;
+        --surface: #1a2028;
+        --text: #e4e8ee;
+        --muted: #a0abb9;
+        --line: #333c48;
+        --accent: #7fb2f5;
+        --code-bg: #252c36;
+        --quote-bg: #1c2a3c;
+        --zebra: #1f262f;
+        color-scheme: dark;
+    }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Yu Gothic UI", "Meiryo", "Hiragino Sans", sans-serif;
+    font-size: 16px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+}
+.cover {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 28px 32px;
+}
+.cover h1 { margin: 0; font-size: 1.7rem; line-height: 1.4; }
+.audience { margin: 8px 0 0; color: var(--muted); }
+.layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 32px;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 24px 32px 64px;
+}
+.toc { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow-y: auto; font-size: 0.875rem; line-height: 1.5; }
+.toc summary { cursor: pointer; font-weight: 700; padding: 4px 0 8px; }
+.toc ol { margin: 0; padding-left: 1.6em; }
+.toc li { margin: 6px 0; }
+.toc a { color: var(--text); text-decoration: none; }
+.toc a:hover, .toc a.current { color: var(--accent); text-decoration: underline; }
+.toc a.current { font-weight: 700; }
+main { min-width: 0; max-width: 960px; }
+main > hr { display: none; }
+h2 { margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--line); font-size: 1.4rem; line-height: 1.45; }
+main > h2:first-child { margin-top: 0; }
+h3 { margin: 32px 0 12px; font-size: 1.15rem; line-height: 1.5; }
+h4 { margin: 24px 0 8px; font-size: 1rem; line-height: 1.5; }
+a { color: var(--accent); }
+code { background: var(--code-bg); border-radius: 4px; padding: 0.1em 0.35em; font-family: "Cascadia Mono", Consolas, "MS Gothic", monospace; font-size: 0.88em; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; overflow-wrap: normal; white-space: pre; }
+blockquote { margin: 16px 0; padding: 10px 16px; background: var(--quote-bg); border-left: 4px solid var(--accent); border-radius: 0 6px 6px 0; }
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+.table-wrap { overflow-x: auto; margin: 16px 0; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: 0.92rem; line-height: 1.65; }
+th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); white-space: nowrap; }
+tbody tr:nth-child(even) { background: var(--zebra); }
+li { margin: 4px 0; }
+.to-top { position: fixed; right: 20px; bottom: 20px; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--text); font-size: 1.1rem; cursor: pointer; display: none; }
+.to-top.show { display: block; }
+@media (max-width: 900px) {
+    .cover { padding: 20px 16px; }
+    .cover h1 { font-size: 1.35rem; }
+    .layout { display: block; padding: 16px 16px 72px; }
+    .toc { position: static; max-height: none; margin-bottom: 24px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+    th { white-space: normal; }
+}
+@media print {
+    :root { --bg: #fff; --surface: #fff; --text: #000; --muted: #333; --line: #999; --accent: #000; --code-bg: #f2f2f2; --quote-bg: #f2f2f2; --zebra: #fff; color-scheme: light; }
+    .layout { display: block; padding: 0; max-width: none; }
+    .toc { position: static; max-height: none; overflow: visible; page-break-after: always; font-size: 0.95rem; }
+    .to-top { display: none !important; }
+    .cover { padding: 0 0 12px; }
+    main { max-width: none; }
+    h2 { page-break-before: always; margin-top: 0; }
+    h2, h3, h4 { page-break-after: avoid; }
+    pre, blockquote, tr { page-break-inside: avoid; }
+    pre { white-space: pre-wrap; }
+    pre code { white-space: pre-wrap; }
+}
+</style>
+</head>
+<body>
+<header class="cover">
+<h1 id="-network-device-monitor--diagnostic-tool-利用手順書">🚀 Network Device Monitor &amp; Diagnostic Tool 利用手順書</h1>
+<p class="audience"><strong>対象読者</strong>: 本システムを日常的に使用するネットワーク運用担当者・現場管理者の方</p>
+</header>
+<div class="layout">
+<nav class="toc" aria-label="目次">
+<details open>
+<summary>📋 目次</summary>
+<ol>
+<li><a href="#1-システムの全体構成とフォルダ設計操作部と内部実装の分離">システムの全体構成とフォルダ設計（操作部と内部実装の分離）</a></li>
+<li><a href="#2-システムの起動と終了">システムの起動と終了</a></li>
+<li><a href="#3-ダッシュボードの見方とリアルタイム監視切断検知バナー自動復旧含む">ダッシュボードの見方とリアルタイム監視（切断検知バナー・自動復旧含む）</a></li>
+<li><a href="#4--到達性ヒートマップタイムラインの活用">⏱ 到達性ヒートマップ（タイムライン）の活用</a></li>
+<li><a href="#5-機器の登録編集グループ管理デバイス管理--リモート操作設定">機器の登録・編集・グループ管理（デバイス管理 &amp; リモート操作設定）</a></li>
+<li><a href="#6-️-設定監視通知バックアップ保守">⚙️ 設定（監視・通知・バックアップ・保守）</a></li>
+<li><a href="#7-ネットワークトポロジー図system-topology">ネットワークトポロジー図（System Topology）</a></li>
+<li><a href="#8-詳細診断モーダルダブルクリックで起動---リモート操作">詳細診断モーダル（ダブルクリックで起動 ＆ 🔧 リモート操作）</a></li>
+<li><a href="#9-帯域計測iperf3-計測">帯域計測（Iperf3 計測）</a></li>
+<li><a href="#10-ログcsvサマリーレポート操作履歴audit-logの確認">ログ・CSVサマリーレポート・操作履歴（Audit Log）の確認</a></li>
+<li><a href="#11-自動テストの実行手順システムの品質保証健康診断">自動テストの実行手順（システムの品質保証・健康診断）</a></li>
+<li><a href="#12-専門用語のやさしい解説初心者運用者向け用語集">専門用語のやさしい解説（初心者・運用者向け用語集）</a></li>
+<li><a href="#13-よくある質問トラブルシューティング">よくある質問・トラブルシューティング</a></li>
+<li><a href="#14-エンタープライズ高信頼性自動復旧機能ui切断耐性">エンタープライズ高信頼性・自動復旧機能・UI切断耐性</a></li>
+</ol>
+</details>
+</nav>
+<main>
+<hr>
+<h2 id="1-システムの全体構成とフォルダ設計操作部と内部実装の分離">1. システムの全体構成とフォルダ設計（操作部と内部実装の分離）</h2>
+<p>本システムは、日々のネットワーク保守を担当される運用担当者・現場管理者の方が迷わず安全に操作できるよう、<strong>「日常的にユーザーが触る操作部」</strong> と <strong>「システムが動作するための内部実装部」</strong>、そして <strong>「品質を検査するための自動テスト検証部」</strong> の3つの領域に明確に分離して構成されています。</p>
+<pre><code>NetworkDeviceMonitor/
+│
+├── 📂 【ユーザー操作部】（プロジェクトルート）
+│   ├── Start-Monitor.bat              # 🚀 監視サーバー起動スクリプト（ダブルクリックで即座に開始）
+│   ├── 利用手順書.html                  # 📘 本手順書（運用管理者・一般ユーザー向け操作マニュアル）
+│   ├── README.md                      # 📖 システム概要・仕様・機能一覧ドキュメント
+│   └── LICENSE                        # 📄 ライセンス情報
+│
+├── 📂 【システム内部実装部】（system/ フォルダ）
+│   ├── Server.ps1                     # メインバックエンドHTTPサーバー＆監視コーディネーター
+│   ├── Watchdog.ps1                   # 監視サーバーの死活監視・自己治癒（自動再起動プロセス）
+│   ├── Check-Prerequisites.ps1        # 起動前モジュール診断＆自動インストール
+│   ├── Ensure-Utf8Bom.ps1             # 文字化け防止のための文字コード（UTF-8 BOM）検証ツール
+│   ├── config.json / devices.json     # システム設定・登録機器構成データ（自動保存）
+│   ├── modules/                       # 内部機能モジュール群
+│   │   ├── Common.psm1                # 共通処理・並行スレッド生成（Runspace）・設定JSON暗号化保存（DPAPI）
+│   │   ├── RemoteExec.psm1            # 🔧 リモート制御実行エンジン（SSH / WinRM / カスタム・安全タイムアウト管理）
+│   │   ├── PingEngine.psm1            # 高精度Ping死活監視・パケットロス・ジッター算出
+│   │   ├── SnmpService.psm1           # SNMP v2c/v3 トラフィック・インターフェース情報取得
+│   │   ├── ReportGenerator.psm1       # CSVセッション記録・点検報告書（HTML）生成
+│   │   ├── AlertManager.psm1          # Webhook通知・音声アラート・消音タイマー管理
+│   │   └── IperfRunner.psm1           # 帯域計測（iperf3）実行管理
+│   ├── backups/                       # 機器構成・設定の自動スナップショット退避先（最新20世代）
+│   ├── iperf3.18_64/                  # ネットワーク帯域計測用バイナリ
+│   └── public/                        # ブラウザ表示用フロントエンド画面アセット（SPA）
+│       ├── index.html                 # 監視ダッシュボード画面（リモート操作・二重確認モーダル搭載）
+│       ├── style.css                  # UIスタイル定義（レスポンシブ対応・警告バナー・ターミナルコンソール）
+│       ├── app.js                     # 画面制御・Chart.jsグラフ描画・リモート操作制御・通信制御
+│       ├── chart.js                   # グラフ描画ライブラリ
+│       └── vis-network.min.js         # トポロジー図描画エンジン
+│
+├── 📂 【自動テスト検証部】（system/tests/ フォルダ）
+│   ├── Run-Tests.bat                  # 🧪 自動テスト一括実行バッチ（ワンクリック実行）
+│   ├── Run-Tests.ps1                  # ⚙️ 自動テスト総合管理スクリプト（PowerShell実行用）
+│   ├── DeviceLog.Tests.ps1            # 📋 機器ログ取得テスト（プリセット・安全性・バッファ制限・API・監査）
+│   ├── Monitor.Tests.ps1              # 🔬 ユニットテスト（個別モジュール機能検証）
+│   ├── RemoteExec.Tests.ps1           # 🔧 リモート制御テスト（SSH/WinRM/カスタム実行・タイムアウト・DPAPI暗号化・監査ログ）
+│   ├── Runspace.Tests.ps1             # 🔄 Runspace統合テスト（並行スレッド動作・API契約検証）
+│   ├── E2E-Lifecycle.Tests.ps1        # 🚀 E2Eライフサイクル検証（起動→監視→終了→CSV生成の通し確認）
+│   └── ui_verification.py             # 🌐 ブラウザUI自動テスト（Playwright画面検証・切断バナー動作）
+│
+└── 📂 【レポート出力先】（Reports/ フォルダ）
+    ├── audit.log                      # 🛡️ 操作履歴・監査ログ（設定変更・リモート再起動・コマンド実行・ログ取得記録）
+    ├── device_logs/                   # 📋 取得した機器ログ保存先（{IP}_{timestamp}.log・ヘッダー付き自己記述形式）
+    └── sessions/ (起動日時)/          # 監視ログCSV、帯域計測ログ、点検報告書HTML（自動生成）
+</code></pre>
+<h3 id="-運用上の安心設計ポイント">💡 運用上の安心設計ポイント</h3>
+<ul>
+<li><strong>誤操作の防止</strong>:
+日常の点検作業では、ルートにある <strong><code>Start-Monitor.bat</code></strong> をダブルクリックするだけで起動できます。<code>system/</code> フォルダ内のソースコードや設定ファイルを誤って触ったり削除したりする心配がありません。</li>
+<li><strong>選択プロンプトの自動進行（デフォルト値「4」の適用）</strong>:
+システムのセットアップや各種確認プロンプトにおいて、都度の数値選択が求められる場面では、運用ルールに基づき原則として <strong>「4」</strong> を選択したものとして自動進行します（※OS設定の変更や重要データ削除など、破壊的変更を伴う操作を除く安全設計です）。</li>
+</ul>
+<hr>
+<h2 id="2-システムの起動と終了">2. システムの起動と終了</h2>
+<h3 id="起動手順">起動手順</h3>
+<ol>
+<li>本フォルダ内にある <strong><code>Start-Monitor.bat</code></strong> をダブルクリックします。</li>
+<li><strong>高速・前提モジュール自動診断（約0.3秒）</strong>:<ul>
+<li>起動直後に、文字コード整合性（UTF-8 BOM キャッシュ判定）および PowerShell バージョン・<strong>SNMP 通信モジュール</strong> の導入状態が超高速（約0.3秒）で自動検査されます。</li>
+<li>初めての PC や別端末にフォルダごとコピーした場合など、もし SNMP モジュールが未導入であれば <strong>「SNMP モジュールを今すぐ自動インストールしますか？ [Y/N]」</strong> と表示されます。そのまま [Enter] キーを押すだけで自動インストールが完了し、監視サーバーが立ち上がります。</li>
+</ul>
+</li>
+<li>黒いコマンド画面（PowerShell）が起動します。これは <strong>監視処理を行うバックグラウンドサーバー（Watchdog 自己治癒機能付き）</strong> です。<strong>監視中は閉じないでください。</strong></li>
+<li><strong>サーバー準備完了と連動したブラウザ自動起動</strong>:<ul>
+<li>Watchdog が 0.2秒間隔でサーバーの応答開始（<code>/api/health</code>）を確認し、<strong>Webサーバーの受け入れ準備が100%整った瞬間に自動でブラウザを立ち上げ</strong>、監視ダッシュボード（<code>http://localhost:8081</code>）を表示します（手動リロード不要で最初から確実に表示されます）。</li>
+</ul>
+</li>
+</ol>
+<blockquote>
+<p><strong>💡 ヒント</strong>: 以前に登録した機器情報や設定（表示位置・閾値・通知設定など）はすべて自動的に読み込まれます。</p>
+</blockquote>
+<h3 id="終了手順">終了手順</h3>
+<ol>
+<li><strong>画面から終了する場合（推奨）</strong>:<ul>
+<li>ダッシュボード上部の <strong>「🛑 監視終了＆報告書」</strong> ボタンをクリックします。</li>
+<li>確認ダイアログで「終了して報告書を開く」を押すと、<strong>最新の点検報告書（HTML/PDF）が別タブで自動的に開き、バックグラウンドサーバーが安全に停止</strong> します。</li>
+</ul>
+</li>
+<li><strong>コマンド画面から終了する場合</strong>:<ul>
+<li>バックグラウンドの黒いPowerShell画面で [Enter] キーを押すか、ウィンドウを閉じます（または Ctrl+C を入力すると安全に終了処理が実行されます）。</li>
+</ul>
+</li>
+<li>終了時に直近の監視セッションサマリー（稼働率・パケットロス率・ジッター・最大瞬断時間など）がCSVファイルに自動保存されます。</li>
+</ol>
+<h3 id="️-24時間365日の連続常時監視無人運用モードの設定手順">⏱️ 24時間365日の連続常時監視（無人運用モード）の設定手順</h3>
+<p>本システムには、パソコンの省電力と安全のため「<strong>画面（ブラウザ）を閉じたらサーバーも自動的に終了する親切設計（連動停止機能）</strong>」が標準で備わっています。
+これは、家電で例えると「<strong>テレビの電源を切ったら、連動してDVDレコーダーの電源も切れる仕組み</strong>」と同じです。</p>
+<p>しかし、「<strong>サーバールームの管理PCで、ブラウザ画面を閉じた状態でも24時間休まずネットワーク監視を続けさせたい</strong>」という無人連続運用の場合は、この連動機能をOFF（無効）に設定できます。</p>
+<h4 id="設定方法2通りの方法">設定方法（2通りの方法）</h4>
+<ol>
+<li><strong>設定ファイル（<code>config.json</code>）を編集する方法</strong>:<ul>
+<li><code>system/config.json</code> をメモ帳などで開き、以下の行を変更します：<pre><code class="language-json">&quot;autoShutdownOnDisconnect&quot;: false
+</code></pre>
+（※標準値は <code>true</code> です。これを <code>false</code> に変更して上書き保存します）</li>
+</ul>
+</li>
+<li><strong>環境変数で指定する方法</strong>:<ul>
+<li>サーバー起動前に環境変数 <code>NETWORK_MONITOR_AUTOSHUTDOWN=false</code> または <code>AUTOSHUTDOWN_ON_DISCONNECT=false</code> を設定することで、設定ファイル書き換えなしで無人モード起動が可能です。</li>
+</ul>
+</li>
+<li><strong>Web画面から変更する場合</strong>:<ul>
+<li>画面右上の <strong>「⚙️ 設定」</strong> モーダルを開き、連続稼働設定を変更（<code>/api/config</code> 経由で即座に反映）することも可能です。</li>
+</ul>
+</li>
+</ol>
+<blockquote>
+<p><strong>⚠️ 無人運用時の注意点</strong>:
+無人運用モード（<code>false</code>）にすると、ブラウザを閉じても監視プログラムはバックグラウンドで動き続けます。監視を完全に終了させたい場合は、黒いPowerShell画面で [Enter] キーを押すか、または画面上部の「🛑 監視終了＆報告書」ボタンから終了してください。</p>
+</blockquote>
+<hr>
+<h2 id="3-ダッシュボードの見方とリアルタイム監視切断検知バナー自動復旧含む">3. ダッシュボードの見方とリアルタイム監視（切断検知バナー・自動復旧含む）</h2>
+<p>ダッシュボードでは、登録された全機器の通信健全性をリアルタイムに一目で監視できます。</p>
+<h3 id="画面上部のユーティリティボタン">画面上部のユーティリティボタン</h3>
+<p>画面最上部には、日常の運用をスムーズにする便利なクイックボタンが配置されています。</p>
+<ul>
+<li><strong>🛑 監視終了＆報告書</strong>: 本日の監視をワンクリックで終了し、点検報告書（HTML）を保存・自動オープンします。</li>
+<li><strong>🔇 消音 (10分)</strong>: 障害発生時の警告音をワンクリックで <strong>10分間一時消音（カウントダウン表示）</strong> します。障害調査中のストレスを軽減し、再クリックでいつでも即時解除できます。</li>
+<li><strong>📌 障害優先表示 (ON/OFF)</strong>: 障害（赤）や警告（黄）が発生している機器を <strong>自動的にリストの最上部にピン留め</strong> します。スクロールせずに異常機器を瞬時に発見できます。</li>
+<li><strong>📄 点検報告書 (PDF/印刷)</strong>: 監視を継続したまま、現時点でのグラフ付き点検報告書を別タブでプレビュー確認・印刷できます。</li>
+</ul>
+<h3 id="-サーバー切断検知バナー自動再接続トースト高信頼性ui表示">📡 サーバー切断検知バナー＆自動再接続トースト（高信頼性UI表示）</h3>
+<p>本システムでは、ネットワークの一時的な瞬断やPC高負荷によってバックグラウンドサーバーとの通信が途切れた場合でも、画面がフリーズしたり真っ白になったりしない堅牢な保護機能（UIレジリエンス）を備えています。</p>
+<ol>
+<li><strong>🚨 切断検知バナー (<code>#network-offline-banner</code>)</strong>:<ul>
+<li>サーバーへのステータス取得が3回連続で失敗した場合、画面最上部に赤色固定の <strong>「⚠️ サーバーとの接続が途切れています（自動再試行中...）」</strong> 警告バナーが即座に表示されます。</li>
+<li>バナー右側には <strong>「⚡ 今すぐ再接続」</strong> ボタンが配置されており、自動再試行を待たずに手動で即座に再接続を促すことができます。</li>
+<li>切断中も直前の機器カードやトポロジー図の状態が保持され、画面の操作不能やレイアウト崩れを防ぎます。</li>
+</ul>
+</li>
+<li><strong>✅ 自動再接続トースト (<code>showToast</code>)</strong>:<ul>
+<li>ネットワークやサーバーが復旧し通信が再開すると、切断バナーは自動的に消去されます。</li>
+<li>同時に画面右上に <strong>「✅ サーバーとの再接続が完了しました」</strong> という緑色のトースト通知が表示され、通常のリアルタイム監視へシームレスに自動復帰します。</li>
+</ul>
+</li>
+<li><strong>⚡ 描画パフォーマンスの最適化（30 FPS制限 &amp; Chart.js即時描画）</strong>:<ul>
+<li>トポロジー図の粒子・波紋アニメーションは <strong>30 FPS（毎秒30コマ）に自動調整</strong> され、CPUやGPUの負荷を大幅に削減しています。</li>
+<li>また、毎秒更新される折れ線グラフはアニメーション補間をバイパス（<code>.update(&#39;none&#39;)</code>）して高速更新されるため、長時間の常時監視でもブラウザが重くならず快適に動作します。</li>
+</ul>
+</li>
+</ol>
+<h3 id="画面上部サイドバーのサマリーバッジ">画面上部・サイドバーのサマリーバッジ</h3>
+<p>サイドバー上部には、システム全体の稼働ステータスがリアルタイム集計されます。</p>
+<ul>
+<li>🟢 <strong>正常 ○台</strong>: 正常に応答（Ping成功）している機器数</li>
+<li>🟡 <strong>警告 ○台</strong>: 遅延超過または単発パケロスを検知した機器数</li>
+<li>🔴 <strong>障害 ○台</strong>: タイムアウト等で応答がない機器数</li>
+<li>⏸ <strong>停止 ○台</strong>: 監視を一時停止している機器数</li>
+</ul>
+<h3 id="各機器カードの表示項目">各機器カードの表示項目</h3>
+<pre><code>+---------------------------------------------------------------------------------------------------------+
+| [●] コアスイッチ (0.1s)      ↑ TX: 12.4 Mbps    ロス: 0.0%       1.2 ms (良好)             [🔍 詳細]    |
+|     192.168.1.1 / MAC: ...   ↓ RX: 45.8 Mbps    揺らぎ: 0.3ms    最大 4.5ms / 最小 0.8ms   [  ⏸  ]    |
+|                                                                  瞬断最大: なし / 600ms~: 0回           |
++---------------------------------------------------------------------------------------------------------+
+</code></pre>
+<div class="table-wrap"><table><thead><tr>
+<th align="left">表示項目</th>
+<th align="left">説明</th>
+<th align="left">健全性の目安</th>
+</tr>
+</thead><tbody><tr>
+<td align="left"><strong>ステータス点 [●]</strong></td>
+<td align="left">🟢 緑（正常） / 🟡 黄（注意・高遅延） / 🔴 赤（障害・オフライン） / ⏸ 灰（一時停止）</td>
+<td align="left">障害・警告時は自動アラート発報</td>
+</tr>
+<tr>
+<td align="left"><strong>機器名 / IP / レート</strong></td>
+<td align="left">機器名とIPアドレス。デュアルレート時は <code>0.1s</code>（超高頻度）または <code>5.0s</code> バッジを表示</td>
+<td align="left">-</td>
+</tr>
+<tr>
+<td align="left"><strong>TX / RX 通信量</strong></td>
+<td align="left">SNMPから取得したリアルタイムの送信（↑TX）/ 受信（↓RX）レート</td>
+<td align="left">帯域逼迫の早期発見</td>
+</tr>
+<tr>
+<td align="left"><strong>パケットロス率 (%)</strong></td>
+<td align="left">直近サンプリングにおけるパケット損失の割合</td>
+<td align="left"><strong>0.0% が理想</strong>。5%を超えると赤字警告</td>
+</tr>
+<tr>
+<td align="left"><strong>揺らぎ (ジッター ms)</strong></td>
+<td align="left">RFC 3550 規格に準拠した遅延のばらつき（パケット揺らぎ）</td>
+<td align="left"><strong>&lt; 10ms が良好</strong>。音声/映像通信の品質指標</td>
+</tr>
+<tr>
+<td align="left"><strong>遅延時間 (ms)</strong></td>
+<td align="left">現在のPing応答時間。設定した遅延閾値（例: 100ms）を超えると黄色・赤字に変化</td>
+<td align="left">ネットワーク混雑の検知</td>
+</tr>
+<tr>
+<td align="left"><strong>最大 / 最小 (ms)</strong></td>
+<td align="left">監視開始からのセッション内最小・最大遅延</td>
+<td align="left">スパイク発生の有無を確認</td>
+</tr>
+<tr>
+<td align="left"><strong>瞬断最大 / 瞬断中</strong></td>
+<td align="left">・正常時: 過去に発生した<strong>最大連続オフライン時間</strong>（例: <code>瞬断最大: 1.2秒</code>）<br>・障害中: 現在継続している停止時間（赤字で <code>瞬断中: 15.0秒</code>）</td>
+<td align="left">瞬断の深刻度を即座に判定</td>
+</tr>
+<tr>
+<td align="left"><strong>🔍 詳細ボタン</strong></td>
+<td align="left">クリック1回でポート通信量・MTR経路診断・24時間履歴の詳細診断モーダルを開く</td>
+<td align="left">機器カードのダブルクリックでも同様に開きます</td>
+</tr>
+<tr>
+<td align="left"><strong>一時停止 / 再開ボタン</strong></td>
+<td align="left">[⏸] / [▶] ボタンで機器ごとの監視を即座に一時停止・再開可能</td>
+<td align="left">メンテナンス時のアラート抑止</td>
+</tr>
+</tbody></table></div>
+<h3 id="-折れ線グラフの連携機能ホバーフォーカスハイライト">📈 折れ線グラフの連携機能（ホバーフォーカスハイライト）</h3>
+<ul>
+<li><strong>表示期間は約30秒分</strong>: 更新間隔（1秒・0.1秒など）にかかわらず、直近およそ30秒間の遅延の推移を表示します。</li>
+<li><strong>縦軸は自動調整</strong>: 実際の遅延の大きさに合わせて縦軸の目盛りが自動で伸び縮みします（例: 遅延が1〜3msなら0〜3ms程度の目盛り）。小さな遅延の変化も見やすくなります。</li>
+<li><strong>警告中も線を表示</strong>: 遅延や揺らぎで「警告（黄色）」になっている間も、応答が返ってきていれば値を描画します。線が途切れるのは「応答なし（タイムアウト）」のときだけです。</li>
+<li>機器カードの上にマウスカーソルを乗せると、右側の統合グラフで<strong>該当機器の折れ線以外がフェードアウト（半透明化）</strong>し、注目している機器の波形が一目で際立ちます。</li>
+<li>グラフ下部の凡例（レジェンド）をクリックすることで、特定の機器のみを表示/非表示に切り替えることも可能です。</li>
+</ul>
+<hr>
+<h2 id="4--到達性ヒートマップタイムラインの活用">4. ⏱ 到達性ヒートマップ（タイムライン）の活用</h2>
+<p>ダッシュボード上部に配置された <strong>「⏱ 稼働タイムライン (ヒートマップ)」</strong> では、各機器の直近の通信品質がカラーブロックで時系列表示されます。</p>
+<ul>
+<li>🟢 <strong>緑色ブロック</strong>: 正常通信（低遅延）</li>
+<li>🟡 <strong>黄色ブロック</strong>: 高遅延検知（閾値超過）</li>
+<li>🔴 <strong>赤色ブロック</strong>: パケット不達・障害発生（オフライン）</li>
+<li>⚪ <strong>灰色ブロック</strong>: 監視一時停止中 / データなし</li>
+</ul>
+<p>過去にどのような周期で遅延や瞬断が発生していたかをスクロールなしで直感的に俯瞰できます。</p>
+<hr>
+<h2 id="5-機器の登録編集グループ管理デバイス管理--リモート操作設定">5. 機器の登録・編集・グループ管理（デバイス管理 &amp; リモート操作設定）</h2>
+<p>左サイドバーの <strong>「デバイス管理」</strong> タブから新しい機器の追加や設定変更を行います。</p>
+<h3 id="機器の追加手順">機器の追加手順</h3>
+<ol>
+<li><strong>IP アドレス</strong>: 監視対象のIP（例: <code>192.168.10.1</code>）を入力（必須）</li>
+<li><strong>デバイス名</strong>: 表示名（例: <code>フロアスイッチ-2F</code>）を入力（必須）</li>
+<li><strong>監視方式 (Ping / TCPポート)</strong>:<ul>
+<li><strong>Ping (ICMP)</strong>: 通常の死活監視（相手が通信に応答するか）を行います。</li>
+<li><strong>TCPポート監視</strong>: Webサーバー（ポート80 / 443）やメールサーバー（ポート25）など、特定のサービスポートが開いているかを直接監視したい場合に指定します。</li>
+</ul>
+</li>
+<li><strong>グループ</strong>: 所属するグループを選択、または新規作成（例: <code>2Fオフィス</code>, <code>サーバー室</code>）</li>
+<li><strong>アイコン</strong>: 機器種別に応じたアイコン（Switch, Router, AP, Camera, PC 等）を選択</li>
+<li><strong>SNMP設定 (任意)</strong>:<ul>
+<li><strong>v2c</strong>: コミュニティ名（通常 <code>public</code>）を入力</li>
+<li><strong>v3</strong>: ユーザー名、認証プロトコル/パスワード、暗号化プロトコル/パスワードを入力</li>
+</ul>
+</li>
+<li><strong>リモート操作設定 (任意)</strong>:<ul>
+<li>対象機器に対して遠隔からの再起動やコマンド実行を行いたい場合は、フォーム内の「🔧 リモート管理を有効にする」を設定します（詳細は後述）。</li>
+</ul>
+</li>
+<li><strong>「機器を追加」</strong>（または編集時は「更新」）ボタンをクリックすると即座に監視および設定が反映されます。</li>
+</ol>
+<hr>
+<h3 id="-機器登録編集画面でのリモート操作設定sshwinrmカスタムdpapi暗号化">🔧 機器登録・編集画面でのリモート操作設定（SSH・WinRM・カスタム・DPAPI暗号化）</h3>
+<p>本システムでは、監視しているネットワーク機器やPCに対して、異常検知時の再起動や状態確認コマンドをブラウザから遠隔実行できる「リモート管理機能」を備えています。
+機器の新規登録時、または機器一覧の「編集」ボタン（鉛筆アイコン）を押して開く編集モーダルから設定できます。</p>
+<h4 id="1-リモート管理の有効化チェックボックス">1. リモート管理の有効化（チェックボックス）</h4>
+<ul>
+<li><strong>「🔧 リモート管理（再起動・コマンド実行）を有効にする」</strong> にチェックを入れます。</li>
+<li>チェックを入れると、プロトコル選択や認証情報の入力欄が自動展開されます。</li>
+<li>※不要な機器や遠隔操作を許可したくない機器では、このチェックを外したままにしておくことで、不用意なコマンド実行を元から防止できます。</li>
+</ul>
+<h4 id="2-接続プロトコル方式の選択と特徴">2. 接続プロトコル方式の選択と特徴</h4>
+<p>対象機器のOSやメーカー仕様に合わせて、最適な接続プロトコルをドロップダウンから選択します：</p>
+<div class="table-wrap"><table><thead><tr>
+<th align="left">接続プロトコル方式</th>
+<th align="left">主な対象機器</th>
+<th align="left">仕組みと選び方（噛み砕いた解説）</th>
+</tr>
+</thead><tbody><tr>
+<td align="left"><strong>SSH (Linux / ルーター / スイッチ)</strong></td>
+<td align="left">Linuxサーバー、ルーター（Cisco, Yamaha等）、L2/L3スイッチ</td>
+<td align="left"><strong>安全な鍵付きトンネル</strong>: 通信内容やパスワードがすべて暗号化される世界標準の遠隔操作プロトコルです。Windows標準のOpenSSHクライアント（<code>ssh.exe</code>）を使用して安全に接続します。</td>
+</tr>
+<tr>
+<td align="left"><strong>WinRM (Windows リモート / PowerShell)</strong></td>
+<td align="left">社内Windows PC、Windows Server</td>
+<td align="left"><strong>Windows公式の遠隔管理機能</strong>: PowerShellの遠隔実行（<code>Invoke-Command</code>）やWindows標準の再起動命令（<code>shutdown.exe</code>）を利用し、相手画面を占有することなく裏側から安全に制御します。</td>
+</tr>
+<tr>
+<td align="left"><strong>カスタムコマンド (ローカルスクリプト・外部CLI)</strong></td>
+<td align="left">独自管理スクリプト、専用CLI、外部ツール</td>
+<td align="left"><strong>自由な外部ツール連携</strong>: 自社開発のバッチファイルや独自のコマンドラインツールを本システムから直接呼び出して実行します。コマンド文字列内で <code>{ip}</code>, <code>{name}</code>, <code>{user}</code>, <code>{port}</code> などの変数が自動置換されます。</td>
+</tr>
+</tbody></table></div>
+<h4 id="3-接続先情報とポート番号">3. 接続先情報とポート番号</h4>
+<ul>
+<li><strong>ホスト名 / 接続IP</strong>: 接続先のアドレス（空欄の場合は、機器本体の登録IPアドレスが自動適用されます）。</li>
+<li><strong>ポート番号</strong>: 接続先サービスの通信ポート番号を指定します：<ul>
+<li>SSH の標準ポート: <code>22</code></li>
+<li>WinRM (HTTP) の標準ポート: <code>5985</code> / WinRM (HTTPS) は <code>5986</code></li>
+<li>独自ポートに変更している場合は、該当のポート番号を入力します。</li>
+</ul>
+</li>
+</ul>
+<h4 id="4-認証方式と-windows-dpapi-による安全なパスワード暗号化">4. 認証方式と Windows DPAPI による安全なパスワード暗号化</h4>
+<p>接続時に必要な認証方式を選択します：</p>
+<ul>
+<li><strong>パスワード認証</strong>:<ul>
+<li>ログインユーザー名とパスワードを入力します。</li>
+<li>SSH のパスワードに日本語などの全角文字が含まれていても、文字化けせずにそのまま送られます。</li>
+</ul>
+</li>
+<li><strong>秘密鍵認証 (SSH Key)</strong>:<ul>
+<li>パスワードを使わず、秘密鍵ファイルを使って接続する高度な認証方式です。</li>
+<li>「SSH 秘密鍵ファイルパス」に鍵ファイルのフルパス（例: <code>C:\Users\username\.ssh\id_rsa</code>）を入力し、パスフレーズがある場合はパスワード欄に入力します。</li>
+</ul>
+</li>
+<li><strong>現在のWindows資格情報</strong>:<ul>
+<li>ドメイン参加環境（Active Directory等）において、現在Windowsにログインしているユーザー権限（Kerberos / Negotiate）をそのまま流用して接続します。パスワードの保存が不要なため安全です。</li>
+</ul>
+</li>
+<li><strong>認証なし</strong>:<ul>
+<li>認証が不要な機器や、カスタムスクリプト側で独自に認証を行う場合に選択します。</li>
+</ul>
+</li>
+</ul>
+<blockquote>
+<p><strong>🔒 安心のセキュリティ機能（Windows DPAPI 暗号化保管）</strong>:
+入力されたパスワードは、設定ファイル（<code>devices.json</code>）内に平文のまま保存されることは絶対にありません。
+Windows OSが標準提供する強固な暗号化機構「<strong>DPAPI（Data Protection API）</strong>」によって自動的に暗号化（<code>enc:...</code> という暗号文字列）され、そのPCのログインユーザーしか復号できない金庫状態で安全に保管されます。
+万が一設定ファイルが第三者にコピーされたり流出したりした場合でも、パスワードが平文で漏洩するリスクはありません。</p>
+</blockquote>
+<blockquote>
+<p><strong>🛡️ 外部サイトからの「なりすまし操作」の遮断</strong>:
+監視画面と同じブラウザで別のWebサイトを開いていても、そのサイトが裏でこっそり再起動やコマンド実行を指示することはできません。
+ブラウザは「どのサイトからの依頼か」を自動で書き添えて送ってくるため、監視画面（<code>http://localhost:8081</code>）以外からの依頼はサーバーが門前払い（エラー <code>403</code>）します。
+また、入力したコマンドに <code>&quot;</code> や <code>}</code> などの記号が含まれていても、それが「監視しているこのPC上での命令」として誤って実行されることはなく、必ず相手の機器へコマンドとしてそのまま届けられます。
+※ プロトコル「カスタム」は、仕様上このPC上でコマンドを実行する方式です。信頼できるコマンドだけを登録してください。</p>
+</blockquote>
+<h4 id="5-再起動コマンドの指定-reboot-command">5. 再起動コマンドの指定 (Reboot Command)</h4>
+<ul>
+<li>ワンクリック再起動ボタンを押した際に発行される再起動コマンドを指定します。</li>
+<li><strong>空欄のままでも安心</strong>: 空欄の場合は、選択したプロトコルの標準コマンドが自動的に使用されます：<ul>
+<li>SSH: <code>sudo reboot</code></li>
+<li>WinRM: パスワード認証を設定していれば、そのユーザー名・パスワードで <code>Restart-Computer -Force</code> を実行します。認証を設定していない場合は、このPCにログインしている人の権限で <code>shutdown.exe /m \\&lt;IP&gt; /r /t 0 /f</code> を実行します。</li>
+<li>カスタム: 機器固有の再起動コマンドを入力（例: <code>restart-device.bat {ip}</code>）</li>
+</ul>
+</li>
+<li>WinRM で再起動コマンドを入力した場合は、そのコマンドが（設定したユーザー名・パスワードで）相手のPC上で実行されます。</li>
+<li>カスタムで使える置き換え文字は <code>{ip}</code>, <code>{name}</code>, <code>{user}</code>, <code>{port}</code> の4つです。</li>
+<li>コマンドの実行やログ取得に時間がかかっても、監視画面の更新は止まりません（裏側の別の作業場所で実行されます）。</li>
+</ul>
+<h4 id="6-登録カスタムコマンド一覧プリセットコマンドの管理">6. 登録カスタムコマンド一覧（プリセットコマンドの管理）</h4>
+<p>日々の点検やトラブルシューティングで頻繁に使用するコマンドを「プリセット（お気に入り）」として登録しておけます：</p>
+<ul>
+<li><strong>表示名</strong>: 一覧に表示される分かりやすい名称（例: <code>稼働時間確認</code>, <code>ルーティングテーブル表示</code>, <code>Webサービス再起動</code>）</li>
+<li><strong>説明</strong>: コマンドの用途や注意書き（例: <code>uptimeを表示します</code>）</li>
+<li><strong>実行コマンド</strong>: 実際に送信するコマンド文字列（例: <code>uptime</code>, <code>show ip route</code>, <code>systemctl restart nginx</code>）</li>
+<li><strong>「追加」ボタン</strong>: クリックするとリストに即時追加されます。不要になったコマンドは右端の赤い「🗑 削除」ボタンでいつでも削除できます。</li>
+<li>ここで登録したコマンドは、後述の「詳細診断画面（🔧 リモート操作タブ）」のドロップダウンからワンクリックで選択して実行できます。</li>
+</ul>
+<hr>
+<h2 id="6-️-設定監視通知バックアップ保守">6. ⚙️ 設定（監視・通知・バックアップ・保守）</h2>
+<p>設定画面では、監視パラメータ・通知・バックアップ・保守の管理を行えます。</p>
+<h3 id="①-監視閾値タブ">① 監視・閾値タブ</h3>
+<ul>
+<li><strong>基本ポーリング間隔 (ms)</strong>: 通常監視の実行間隔（デフォルト: <code>1000ms</code>）。</li>
+<li><strong>0.1s 超高頻度デュアルレート監視</strong>:<ul>
+<li><code>100ms</code> を選択すると、<strong>最重要ターゲット最大2台を0.1秒間隔、その他の機器を5.0秒間隔</strong> で並行監視するデュアルレートモードが発動します。</li>
+<li>対象機器①・②をドロップダウンから選択します。</li>
+<li>※ Ping自体は0.1秒ごとに行われ、ロス率・瞬断の判定も0.1秒単位ですが、<strong>画面の表示更新は0.2秒ごと</strong> に抑えています（サーバーへの問い合わせが混み合って画面が止まるのを防ぐため）。</li>
+<li>※ 対象外の機器（5秒間隔）の応答待ちで0.1秒監視が止まらないよう、対象外機器の結果は届いたものから順に反映されます。</li>
+<li>※ ダッシュボードの「遅延推移」グラフには、対象外の機器（5秒間隔）も <strong>点線</strong> で表示されます。凡例の名前の後ろに <code>(5.0s)</code> と付きます。値は5秒ごとに更新されるため、線は階段状になります。（ダッシュボードの機器カードには、対象機器だけが表示されます）</li>
+</ul>
+</li>
+<li><strong>Ping 送信データサイズ (bytes)</strong>: ICMP Echo ペイロードサイズ（デフォルト: <code>1 byte</code>、最大: <code>65,500 bytes</code>）。</li>
+<li><strong>遅延アラート閾値 (ms)</strong>: 警告を発するPing遅延時間（デフォルト: <code>100ms</code>）。</li>
+<li><strong>瞬断判定閾値① / ② (ms)</strong>: 瞬断回数をカウントする判定閾値（デフォルト: <code>600ms</code> / <code>5000ms</code>）。</li>
+</ul>
+<h3 id="②-通知音声タブ">② 通知・音声タブ</h3>
+<ul>
+<li><strong>🔊 Web Audio 音声アラート</strong>:<ul>
+<li>障害検知時（オフライン化・高遅延時）にブラウザ上で警告音（ビープ音/チャイム）を自動生成して鳴らします。</li>
+<li>音量スライダーで音量を調節し、「🔊 テスト再生」で事前に確認できます。</li>
+</ul>
+</li>
+<li><strong>🔔 Webhook 外部通知</strong>:<ul>
+<li>Slack, Microsoft Teams, Discord 等の Incoming Webhook URL を登録することで、障害発生・復旧時に自動で通知メッセージを送信します。</li>
+<li>「🔔 テスト送信」ボタンで、URLの疎通確認が可能です。</li>
+</ul>
+</li>
+</ul>
+<h3 id="③-バックアップ復元タブ">③ バックアップ・復元タブ</h3>
+<ul>
+<li><strong>📥 設定バックアップのダウンロード</strong>:<ul>
+<li>登録されたすべての機器情報（IP、名前、グループ、SNMP設定、トポロジー座標）とシステムパラメータを1つの <code>.json</code> ファイルとしてダウンロードします。</li>
+</ul>
+</li>
+<li><strong>📤 バックアップから復元</strong>:<ul>
+<li>バックアップ <code>.json</code> ファイルを選択して「適用・復元」を押すだけで、別PCへの移行や過去の構成への復元が1クリックで完了します。</li>
+</ul>
+</li>
+</ul>
+<h3 id="④-ログ保守タブ">④ ログ保守タブ</h3>
+<ul>
+<li><strong>ログ自動クリーンアップ保持日数</strong>:<ul>
+<li>指定した日数（例: <code>30日</code>）を超過した古いセッションログフォルダーを自動的に安全削除し、ストレージ容量の逼迫を防ぎます。</li>
+<li>削除は起動時・終了時に加えて、<strong>動作中も6時間ごと</strong>に行います（無人運用で長期間動かし続けても溜まり続けません）。同じタイミングで、<code>system\debug.log</code> が 5MB を超えていれば <code>debug_1.log</code> に切り替えます。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="7-ネットワークトポロジー図system-topology">7. ネットワークトポロジー図（System Topology）</h2>
+<p>左サイドバーの <strong>「🌐 システム構成図」</strong> タブでは、ネットワーク全体の機器接続やデータ通信の様子を、リアルタイムかつグラフィカルに可視化・管理できます。</p>
+<h3 id="-描画強化機能ビジュアル監視">🌟 描画強化機能（ビジュアル監視）</h3>
+<p>ネットワークの健全性やデータの流れが一目でわかる5つのビジュアル機能が備わっています。</p>
+<ol>
+<li><p><strong>🌊 リアルタイム通信量・彗星パケット粒子アニメーション</strong>:</p>
+<ul>
+<li>機器間の接続線上を、実際の通信速度（Mbps：メガビット毎秒＝1秒間に送受信されたデータ量）に合わせて、尾を引く光の粒（パケット彗星）が滑らかに流れます。</li>
+<li><strong>双方向の流れ</strong>: 端末から親機器への「上り送信（↑TX）」と、親機器からの「下り受信（↓RX）」のデータがそれぞれの方向に流れるため、どちら向きに通信が発生しているかが直感的に把握できます。</li>
+<li>通信量が多い回線ほど粒子の移動速度が速く、数も多くなり、回線が切断（オフライン）した場合は自動でパケットが止まります。</li>
+</ul>
+</li>
+<li><p><strong>🫀 障害・警告ノードの脈動レーダー波紋（Radar Ripple Rings）</strong>:</p>
+<ul>
+<li>応答が途絶えた <strong>「障害（赤色）」</strong> や、遅延・パケットロスが増加した <strong>「警告（黄色）」</strong> の機器の周囲に、ソナー・レーダーのような光の波紋リングが外側へ脈動して広がり続けます。</li>
+<li>多数の機器が並ぶ大規模なネットワーク図でも、どの機器でトラブルが起きているかが遠目からでも一瞬で判別できます。</li>
+</ul>
+</li>
+<li><p><strong>🎨 動的トラフィックヒートマップ＆中央スループットバッジ</strong>:</p>
+<ul>
+<li>接続線の色が、流れているデータの通信量（負荷）に応じてリアルタイムに変化します：<ul>
+<li><strong>青 / シアン（水色）</strong>: 低負荷・アイドル通信（5 Mbps未満）</li>
+<li><strong>緑色</strong>: 通常通信（5 ～ 25 Mbps）</li>
+<li><strong>オレンジ色</strong>: 中〜高負荷通信（25 ～ 75 Mbps）</li>
+<li><strong>ネオン赤紫（マゼンタ発光）</strong>: 帯域逼迫・大容量通信（75 Mbps以上）</li>
+<li><strong>赤色破線</strong>: 障害・回線断線</li>
+</ul>
+</li>
+<li>接続線の中央には <strong>「↑12.4M / ↓45.8M」</strong> のように、現在の送信・受信速度をコンパクトに表示するピルバッジ（数値タグ）が常時表示されます。</li>
+</ul>
+</li>
+<li><p><strong>📐 ワンクリック「階層ツリー自動整列」</strong>:</p>
+<ul>
+<li>操作バーの <strong>「📐 階層ツリー整列」</strong> ボタンをクリックすると、機器の役割や親子接続関係を自動解析し、以下の綺麗な階層（ツリー型）へ自動的に再配置します：<ul>
+<li><strong>最上段（Tier 0）</strong>: インターネット / ゲートウェイルーター</li>
+<li><strong>第2段（Tier 1）</strong>: コアスイッチ / ブリッジ装置</li>
+<li><strong>第3段（Tier 2）</strong>: エッジスイッチ / Wi-Fiアクセスポイント</li>
+<li><strong>第4段（Tier 3）</strong>: 各種端末・カメラ・サーバー・デコーダー・PC</li>
+</ul>
+</li>
+<li>整列後の座標は自動保存されるため、次回起動時も美しいレイアウトがそのまま維持されます。</li>
+</ul>
+</li>
+<li><p><strong>🌐 CADテック背景グリッド ＆ 🖥️ シアターモード ＆ ⚡ アニメーションFX切替</strong>:</p>
+<ul>
+<li><strong>サイバーパンク/CADテック背景グリッド</strong>: ネットワーク運用センター（NOC）のモニターを模した精密な方眼グリッドと照準十字が背景に描画され、マウスによる拡大・縮小（ズーム）や画面移動（パン）にリアルタイムで追従します。</li>
+<li><strong>🖥️ シアターモード</strong>: 構成図を画面いっぱいに最大化表示します。大型ディスプレイや監視モニターに常時映し出す際に最適です。[Esc] キーまたは「🖥️ 通常表示」ボタンでいつでも元の画面に戻せます。</li>
+<li><strong>⚡ アニメーションFX切替</strong>: 光の粒子や波紋アニメーションの ON / OFF をワンクリックで切り替えます。PCへの負荷を最小限に抑えたい環境や、静止した図面として確認したい場合に活用できます（設定は自動保存されます）。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="8-詳細診断モーダルダブルクリックで起動---リモート操作">8. 詳細診断モーダル（ダブルクリックで起動 ＆ 🔧 リモート操作）</h2>
+<p>ダッシュボード上の機器カードを <strong>ダブルクリック</strong>（または機器カード右端の「🔍 詳細」ボタンをクリック）すると、エンジニア向けの詳細診断画面が開きます。</p>
+<ol>
+<li><strong>📊 ポート・トラフィック詳細</strong>:<ul>
+<li>各ネットワークポートの通信速度（Mbps）、エラーパケット数、破棄パケット数をリアルタイム監視。</li>
+</ul>
+</li>
+<li><strong>📍 経路診断（MTR）</strong>:<ul>
+<li>対象機器までのルーティングホップを自動追跡し、各ルーターでの遅延とパケットロス率を診断。</li>
+</ul>
+</li>
+<li><strong>📈 24時間 履歴トレンド</strong>:<ul>
+<li>過去24時間の遅延・通信量の推移をグラフで遡って確認（日本語・英語ヘッダーのログを自動認識して綺麗に描画されます）。</li>
+</ul>
+</li>
+<li><strong>🔧 リモート操作タブ（ワンクリック再起動・コマンド実行・安全二重確認）</strong>:<ul>
+<li>対象機器に対する遠隔再起動や任意のコマンド実行を、安全な二重確認ダイアログとリアルタイム出力コンソール付きで行える強力なメンテナンス機能です（詳細は以下で詳しく解説します）。</li>
+</ul>
+</li>
+<li><strong>📋 機器ログタブ（機器のカルテ取得・リアルタイム検索・ダウンロード・過去ログ履歴）</strong>:<ul>
+<li>ルーターやサーバーなどの機器から内部システムログ（健康状態を記録した「カルテ・健康日記」）をワンクリックで遠隔取得し、検索ハイライトやローカル保存、過去ログの再ダウンロードを行えるトラブルシューティング機能です（詳細は後述）。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h3 id="-リモート操作タブの使い方と安全機能">🔧 「リモート操作」タブの使い方と安全機能</h3>
+<p>詳細診断画面の上部タブバーにある <strong>「🔧 リモート操作」</strong> をクリックすると、対象機器の遠隔操作パネルが表示されます。
+（※対象機器のリモート管理設定が無効になっている場合は、「現在、この機器のリモート管理機能は無効です」という注意文と「⚙️ 機器設定を開く」ボタンが表示されます）</p>
+<h4 id="①-対象機器情報サマリーカード">① 対象機器情報サマリーカード</h4>
+<p>画面最上部に対象機器の現在の接続パラメータが一目でわかるサマリーが表示されます：</p>
+<ul>
+<li><strong>機器名 / IPアドレス</strong>: 操作対象の機器名と接続先IP</li>
+<li><strong>接続プロトコル</strong>: SSH / WinRM / Custom などの接続方式</li>
+<li><strong>ポート番号 / ユーザー名</strong>: 通信に使用するポート番号とログインアカウント名</li>
+<li><strong>ステータス</strong>: リモート管理機能が有効（有効）かどうかの表示</li>
+</ul>
+<h4 id="②-ワンクリック機器を再起動-rebootボタン">② ワンクリック「機器を再起動 (Reboot)」ボタン</h4>
+<ul>
+<li>赤色グラデーションの <strong>「🔄 機器を再起動 (Reboot)」</strong> ボタンが目立つ位置に配置されています。</li>
+<li>ルーターの通信不調やPCのフリーズ時など、遠隔から機器を再起動したい場合にクリックします。</li>
+<li>ボタンには <strong>「⚠️ 要確認」</strong> バッジが付いており、誤ってクリックしても後述の「二重確認ダイアログ」が必ず表示されるため、不意に即座再起動されてしまう心配はありません。</li>
+</ul>
+<h4 id="③-登録コマンドプリセットの選択実行">③ 登録コマンド（プリセット）の選択・実行</h4>
+<ul>
+<li>事前に機器登録・編集画面で登録しておいた「カスタムコマンド（プリセット）」が、ドロップダウンメニューに一覧表示されます。</li>
+<li>例: <code>-- 実行するコマンドを選択してください --</code> から「稼働時間確認」などを選び、右隣の <strong>「▶️ コマンド実行」</strong> ボタンをクリックします。</li>
+</ul>
+<h4 id="④-任意のワンオフコマンド実行">④ 任意のワンオフコマンド実行</h4>
+<ul>
+<li>プリセットに登録していない一時的な確認コマンドを実行したい場合は、下部の <strong>「任意のワンオフ実行コマンドを入力」</strong> 欄に直接コマンドを入力します（例: <code>uptime</code>, <code>ip a</code>, <code>systemctl status apache2</code> 等）。</li>
+<li>入力後、右側の <strong>「⚡ 任意実行」</strong> ボタンをクリックします。</li>
+</ul>
+<h4 id="️-安全機能二重確認ダイアログ誤操作通信断の防止">🛡️ 安全機能：二重確認ダイアログ（誤操作・通信断の防止）</h4>
+<p>ネットワーク機器の再起動や設定変更コマンドは、対象機器を間違えると社内業務や現場カメラの録画が止まるなど重大な通信事故につながるリスクがあります。
+本システムでは、人的ミスによる誤操作を徹底的に防止するため、<strong>「車のサイドブレーキ＋確認指差し喚呼」</strong> のような二重確認機構を義務付けています：</p>
+<ol>
+<li><strong>二重確認モーダルの強制ポップアップ</strong>:<ul>
+<li>「再起動」または「コマンド実行」ボタンをクリックすると、画面全体が暗転し、赤枠で警告された <strong>「⚠️ リモート操作の実行確認」</strong> ダイアログが最前面に表示されます。</li>
+</ul>
+</li>
+<li><strong>対象機器名・IPアドレスの巨大明示</strong>:<ul>
+<li>ダイアログ内に、対象となる <strong>「機器名（例: コアルーター）」</strong> と <strong>「IPアドレス（例: 192.168.1.1）」</strong>、および <strong>「実行動作（例: 再起動 (Reboot) または 実行コマンド名）」</strong> が大きく強調表示されます。</li>
+<li>「本当にこの機器に対して実行してよいか」を落ち着いて最終確認できます。</li>
+</ul>
+</li>
+<li><strong>通信影響への注意喚起とチェックボックス</strong>:<ul>
+<li>「再起動中は対象機器およびその配下の通信が一時的に切断され、業務に影響を与える可能性があります」という警告文が表示されます。</li>
+<li>「上記の対象機器および通信影響を確認しました」チェックボックスの確認を促します。</li>
+<li>このチェックは確認画面を開くたびに外れた状態から始まります。自分でチェックを入れるまで「⚡ 実行する」ボタンは押せません（うっかりクリックによる誤操作防止）。</li>
+</ul>
+</li>
+<li><strong>キャンセルによる安全中断</strong>:<ul>
+<li>対象機器を間違えた場合や、実行を取りやめたい場合は、左下の <strong>「キャンセル」</strong> ボタン、右上の <strong>「×」</strong> ボタン、またはキーボードの <strong>[Esc]</strong> キーを押すことで、<strong>一切の通信を行わずに即座に安全中断</strong> されます。</li>
+</ul>
+</li>
+</ol>
+<h4 id="️-実行結果標準出力コンソールの見方">🖥️ 実行結果・標準出力コンソールの見方</h4>
+<p>確認ダイアログで「⚡ 実行する」をクリックすると、バックエンドサーバー経由で安全にコマンドが送出され、診断画面下部の <strong>「実行結果・標準出力コンソール（黒いターミナル画面）」</strong> にリアルタイムで結果が出力されます：</p>
+<ul>
+<li><strong>ステータス表示点 (<code>remote-exec-status-dot</code>)</strong>:<ul>
+<li>🟢 <strong>緑色点</strong>: コマンドが正常に完了しました（Status: <code>COMPLETED</code>）</li>
+<li>🔴 <strong>赤色点</strong>: コマンド実行が失敗、またはタイムアウトしました（Status: <code>FAILED</code>, <code>TIMEOUT</code>, <code>ERROR</code>）</li>
+</ul>
+</li>
+<li><strong>終了コード (Exit Code)</strong>:<ul>
+<li>相手OSから返された終了ステータス番号です。一般的に <code>0</code> であれば正常終了、それ以外の数値は異常終了を表します。</li>
+</ul>
+</li>
+<li><strong>処理時間 (Duration)</strong>:<ul>
+<li>コマンド送信から応答完了までにかかった時間（例: <code>240ms</code>）。</li>
+</ul>
+</li>
+<li><strong>標準出力 (stdout) / 標準エラー出力 (stderr)</strong>:<ul>
+<li>コマンドが画面に出力したテキスト内容がそのまま表示されます。設定内容の確認結果や、エラー発生時の詳細メッセージを正確に読み取ることができます。</li>
+</ul>
+</li>
+<li><strong>コンソール操作ボタン</strong>:<ul>
+<li><strong>📋 コピー</strong>: コンソール内のログ全文をクリップボードにコピーします。作業日報や障害報告メールへの転記がスムーズに行えます。</li>
+<li><strong>🗑 ログ消去</strong>: 画面のコンソール表示をクリアし、待機中状態に戻します。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h3 id="-機器ログタブの使い方とカルテ閲覧機能">📋 「機器ログ」タブの使い方とカルテ閲覧機能</h3>
+<p>詳細診断画面の上部タブバーにある <strong>「📋 機器ログ」</strong> をクリックすると、対象機器のシステムログ取得・閲覧パネルが開きます。
+（※対象機器のリモート管理設定が無効になっている場合は、「現在、この機器のリモート管理機能は無効です」と注意文が表示され、誤操作を防ぎます）</p>
+<h4 id="-なぜ機器ログが必要なのか日常生活の例え">💡 なぜ「機器ログ」が必要なのか？（日常生活の例え）</h4>
+<p>ネットワーク機器（ルーターやスイッチ、サーバー等）は、人間で言えば病院の患者さんのようなものです。
+外からPingを送って応答があるかどうかを確かめるのは <strong>「脈拍を測る（生きているかの確認）」</strong> にすぎません。
+「なぜか時々ネットが遅くなる」「特定の時間だけ接続が切れる」といった原因を探るには、機器の体の中で何が起きていたのかを記録した <strong>「電子カルテ・健康日記（システムログ）」</strong> を直接めくって調べる必要があります。
+本機能は、わざわざ専用の黒い画面（SSHクライアントやTeraterm等）を立ち上げることなく、<strong>ブラウザ上から安全なホットライン（暗号化通信）を通じてワンクリックで最新のカルテを取得・診断できる</strong> ように設計されています。</p>
+<h4 id="①-コマンドプリセットの選択機器種別ごとの最適コマンド">① コマンドプリセットの選択（機器種別ごとの最適コマンド）</h4>
+<p>画面上部の <strong>「📋 取得コマンド」</strong> ドロップダウンメニューから、対象機器のOS・メーカーに合わせた最適なログ取得コマンドを選択できます。
+本システムには、主要な機器用の安全なプリセット（規定コマンド）があらかじめ登録されています：</p>
+<div class="table-wrap"><table><thead><tr>
+<th align="left">カテゴリ</th>
+<th align="left">プリセット名</th>
+<th align="left">実行コマンドの例</th>
+<th align="left">取得できる内容</th>
+</tr>
+</thead><tbody><tr>
+<td align="left"><strong>ネットワーク機器</strong></td>
+<td align="left">Cisco (IOS / IOS-XE)</td>
+<td align="left"><code>show logging</code></td>
+<td align="left">Ciscoルーター・スイッチのインターフェース切断やシステムエラー履歴</td>
+</tr>
+<tr>
+<td align="left"><strong>ネットワーク機器</strong></td>
+<td align="left">Yamaha (RTXシリーズ等)</td>
+<td align="left"><code>show log</code></td>
+<td align="left">YamahaルーターのVPN接続確立・切断、フィルタリング拒否ログ</td>
+</tr>
+<tr>
+<td align="left"><strong>Linuxサーバー</strong></td>
+<td align="left">Linux systemd (journalctl)</td>
+<td align="left"><code>journalctl -n 200 --no-pager</code></td>
+<td align="left">直近200件のシステム起動・デーモン動作ログ（※デーモン：建物の裏で24時間休まず働く自動設備・見回りロボットのような常駐プログラム。ページャー停止保護付き）</td>
+</tr>
+<tr>
+<td align="left"><strong>Linuxサーバー</strong></td>
+<td align="left">Linux カーネルリングバッファ</td>
+<td align="left"><code>dmesg -T | tail -n 200</code></td>
+<td align="left">ハードウェア認識・リンクアップ/ダウン、メモリ等のカーネル直近ログ</td>
+</tr>
+<tr>
+<td align="left"><strong>Linuxサーバー</strong></td>
+<td align="left">Linux システム標準ログ</td>
+<td align="left"><code>tail -n 200 /var/log/syslog 2&gt;/dev/null || tail -n 200 /var/log/messages</code></td>
+<td align="left">Ubuntu/Debian/RHEL系の標準システムイベントログ最新200件</td>
+</tr>
+<tr>
+<td align="left"><strong>Windows PC</strong></td>
+<td align="left">Windows システムイベント</td>
+<td align="left"><code>Get-WinEvent -LogName System -MaxEvents 100 | Out-String -Width 4096</code></td>
+<td align="left">OSの再起動、ドライバーエラー、ネットワークアダプタの障害履歴</td>
+</tr>
+<tr>
+<td align="left"><strong>Windows PC</strong></td>
+<td align="left">Windows アプリケーション</td>
+<td align="left"><code>Get-WinEvent -LogName Application -MaxEvents 100 | Out-String -Width 4096</code></td>
+<td align="left">業務アプリのクラッシュやデータベース等の警告ログ</td>
+</tr>
+<tr>
+<td align="left"><strong>Windows PC</strong></td>
+<td align="left">Windows wevtutil (軽量版)</td>
+<td align="left"><code>wevtutil qe System /c:100 /rd:true /f:text</code></td>
+<td align="left">古いWindows環境でも超高速に取得できるシステムイベント最新100件</td>
+</tr>
+<tr>
+<td align="left"><strong>任意入力</strong></td>
+<td align="left">✏️ カスタムコマンド入力</td>
+<td align="left">（自由入力欄）</td>
+<td align="left">現場固有の調査コマンド（例: <code>cat /var/log/nginx/error.log</code> 等）を直接入力</td>
+</tr>
+</tbody></table></div>
+<blockquote>
+<p><strong>安心の安全設計（コマンドフリーズ防止）</strong>:
+Linuxの <code>journalctl</code> などのコマンドは、通常そのまま叩くと「画面が止まってキー入力を待つ状態（ページャー）」になり、通信がハングアップしてしまう罠があります。本システムのプリセットには <code>--no-pager</code> や行数制限（<code>tail -n 200</code>）があらかじめ組み込まれており、機器側を固まらせることなく安全にログの末尾だけを回収します。</p>
+</blockquote>
+<h4 id="②--今すぐログを取得ボタンと取得待機アニメーション">② 「📄 今すぐログを取得」ボタンと取得待機アニメーション</h4>
+<ul>
+<li>コマンドを選択（またはカスタム入力）したら、右側の <strong>「📄 今すぐログを取得」</strong> ボタンをクリックします。</li>
+<li>取得処理が始まると、ボタン内に <strong>青いローディングスピナー（くるくる回る歯車アニメーション）</strong> が表示され、ボタンが自動的に無効化（二重連打防止）されます。</li>
+<li>バックグラウンドのサーバーが安全な暗号化ホットライン（SSH / WinRM）で機器に接続し、ログを回収します。</li>
+<li>取得が完了すると、最新ログが画面のコンソールに即座に展開されます。</li>
+</ul>
+<h4 id="③-黒いコンソール画面ダークテーマ等幅ログビューアー">③ 黒いコンソール画面（ダークテーマ・等幅ログビューアー）</h4>
+<ul>
+<li>画面中央の大きな黒いコンソールエリア（<code>device-log-viewer</code>）に、取得したログが綺麗に表示されます。</li>
+<li><strong>等幅フォント（Monospace）</strong> を採用しているため、ルーターのテーブル表示や日時の桁数が綺麗に揃い、視認性が抜群です。</li>
+<li>上部には <strong>「機器名 (IPアドレス)」「取得日時」「行数」「データサイズ（バイト数）」「所要時間（ミリ秒）」</strong> をまとめたヘッダーが自動付与されます。</li>
+</ul>
+<h4 id="④-リアルタイムキーワード検索と一致行のみ絞り込み機能">④ リアルタイムキーワード検索と「一致行のみ絞り込み」機能</h4>
+<p>何百行・何千行にも及ぶログから、トラブルの手がかりを見つけ出すための強力な2重検索ツールが備わっています：</p>
+<ol>
+<li><strong>🔍 リアルタイム・ハイライト検索</strong>:<ul>
+<li>検索ボックスに <code>error</code>, <code>down</code>, <code>fail</code>, <code>warn</code> などのキーワードを入力すると、ログ内の該当単語が <strong>黄色い蛍光ペン（<code>&lt;mark&gt;</code> タグ）</strong> でリアルタイムに光ってハイライト表示されます。</li>
+</ul>
+</li>
+<li><strong>🔘 一致行のみ絞り込みスイッチ</strong>:<ul>
+<li>検索ボックス右側の <strong>「一致行のみ絞り込み表示」</strong> スイッチ（トグルボタン）を ON にすると、正常なログ行を一時的に隠し、<strong>キーワードを含む問題の行だけを抜き出してリストアップ</strong> します。</li>
+<li>大量の正常ログに埋もれた「回線切断」や「認証失敗」の兆候を一瞬で浮き彫りにできます。</li>
+</ul>
+</li>
+</ol>
+<h4 id="⑤-ログの転記ローカル保存クリップボード--ダウンロード">⑤ ログの転記・ローカル保存（クリップボード ＆ ダウンロード）</h4>
+<p>取得したログは、現場での報告やメーカーへの問い合わせ用に簡単に持ち出せます：</p>
+<ul>
+<li><strong>📋 クリップボードにコピー</strong>:<ul>
+<li>ボタンをクリックすると、現在画面に表示されているログ全文が一瞬でPCのクリップボードにコピーされます。Slack、Teams、メールへの貼り付けがスムーズです。</li>
+</ul>
+</li>
+<li><strong>💾 ログ保存 (.log)</strong>:<ul>
+<li>ボタンをクリックすると、<code>{IPアドレス}_{取得日時}.log</code> という分かりやすい名前のテキストファイルとして、お使いのパソコンの「ダウンロード」フォルダに直接保存されます。</li>
+</ul>
+</li>
+</ul>
+<h4 id="⑥-過去ログ履歴一覧カードいつでも再ダウンロード可能">⑥ 過去ログ履歴一覧カード（いつでも再ダウンロード可能）</h4>
+<ul>
+<li>画面下部の <strong>「📁 過去の取得ログ一覧」</strong> エリアには、過去に対象機器から取得されたログファイルが時系列で一覧表示されます。</li>
+<li><strong>表示項目</strong>: 「取得日時」「実行コマンド」「ログ行数」「ファイルサイズ（KB）」</li>
+<li>各行の右端にある <strong>「📥 再ダウンロード」</strong> ボタンをクリックすれば、過去のトラブル発生時のログファイルをいつでも即座に手元のPCへ再ダウンロードできます。</li>
+</ul>
+<h4 id="️-堅牢な安全ガード機構1mb--5mb-バッファディスク保護">🛡️ 堅牢な安全ガード機構（1MB / 5MB バッファ＆ディスク保護）</h4>
+<p>機器ログの取得では、時に数十メガバイトに及ぶ巨大なログが吐き出され、ブラウザが固まったりPCのハードディスクが一杯になってしまうリスクがあります。本システムでは2重の防護壁を設けています：</p>
+<ol>
+<li><strong>1MB stdout レスポンス保護（画面フリーズ防止）</strong>:<ul>
+<li>画面へ返却するログテキストが 1,000,000 文字（約1MB）を超えた場合、ブラウザ画面のクラッシュを防ぐため、画面表示を1MBで安全に切り詰めます（末尾に <code>[TRUNCATED: 出力サイズが1MBを超過したため画面表示を切り詰めました...]</code> という親切な案内が表示されます）。</li>
+<li><strong>サーバー側には全量保存</strong>: 画面表示が切り詰められた場合でも、サーバーのディスク（<code>Reports/device_logs/</code>）には省略なしの完全なログファイルが丸ごと保存されているため、後から全量を安全に確認・ダウンロードできます。</li>
+</ul>
+</li>
+<li><strong>5MB ディスク保存上限ガード（ストレージ溢れ防止）</strong>:<ul>
+<li>万が一、機器から際限なくログが出力され続けた場合でも、サーバー側ファイル保存時に 5MB（約524万文字）で強制的に書き込みを制限し、ディスク容量の圧迫事故を未然に防止します。</li>
+</ul>
+</li>
+<li><strong>プロセス強制終了（Timeout Kill）</strong>:<ul>
+<li>相手先機器のフリーズやネットワーク遅延により応答が返ってこない場合、設定秒数（標準20秒）が経過すると内部プロセス（<code>proc.Kill()</code>）が即座に起動し、処理を安全に自動中断します。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="9-帯域計測iperf3-計測">9. 帯域計測（Iperf3 計測）</h2>
+<p>回線の実効通信速度（スループット）を測定するツールです。</p>
+<ol>
+<li>サイドバーの <strong>「Iperf3 計測」</strong> タブを開きます。</li>
+<li>対象PCを選択するか、「カスタム入力」でIPアドレスを指定します。</li>
+<li>計測秒数（例: 10秒）を指定して <strong>「計測開始」</strong> をクリックします。</li>
+<li>1秒ごとのスループットグラフとコンソール出力がリアルタイムに表示され、完了時に <code>Reports/</code> フォルダへログが自動保存されます。</li>
+</ol>
+<blockquote>
+<p><strong>【安全設計（帯域負荷防止）】</strong></p>
+<ul>
+<li>Iperf3 による実パケット送受信は、画面上の <strong>「計測開始」ボタンを押したときのみ</strong> 実行されます。</li>
+<li>通常の常時バックグラウンド監視で iperf が勝手に実行されることはありません。ダッシュボードと構成図の通信量（Mbps）は、SNMP（機器から通信量を読み取る仕組み）で取得できる機器だけに表示され、取得できない機器は「-」になります。</li>
+<li>以前の版では Ping の応答時間から計算した値を「BW: ○○ Mbps」と表示していましたが、実際の通信量とは関係がないため廃止しました。OBR のように SNMP がない機器は、電波の強さと通信速度で「つながり方の品質」を確認してください（通信速度は接続の上限の速さで、実際に流れている量ではありません）。</li>
+</ul>
+</blockquote>
+<hr>
+<h2 id="10-ログcsvサマリーレポート操作履歴audit-logの確認">10. ログ・CSVサマリーレポート・操作履歴（Audit Log）の確認</h2>
+<p>監視中のデータおよび操作記録はすべて <code>Reports/</code> フォルダ内に自動整理されて保存されます。</p>
+<h3 id="自動出力されるファイル">自動出力されるファイル</h3>
+<ol>
+<li><p><strong><code>&lt;IPアドレス&gt;.csv</code></strong> (<code>Reports/sessions/&lt;起動日時&gt;/</code> 配下):</p>
+<ul>
+<li>監視中の全Ping結果（タイムスタンプ、遅延ms、送受信帯域、瞬断継続秒数、ジッターms）が記録されます。送受信帯域は SNMP で取得できる機器のみで、帯域_Mbps 列は常に「-」です（過去の CSV と列の並びをそろえるために残しています）。</li>
+<li><strong>長時間・高頻度（100ms）稼働を支える高速・安全設計</strong>:<ul>
+<li><strong>10秒ごとの一括ディスク書き込み</strong>: メモリ上のキューから10秒ごとにまとめてCSV末尾へ追記（Append）するため、0.1秒（100ms）の超高頻度監視でもディスク負荷を最小限に抑えます。</li>
+<li><strong>60秒ごとの軽量チェックポイント保存（<code>_checkpoint.json</code>）</strong>: 1分ごとにメモリ上の最新統計カウンタのみを瞬時（1ミリ秒未満）に保存するため、万が一のPC強制終了時も集計値が保護され、何時間・何日計測してもPing間隔が遅延しません。</li>
+<li><strong>10MB自動ログローテーション &amp; 自動結合レポート</strong>: CSVファイルが10MB（100ms計測で約3時間分）に達すると、自動的に <code>&lt;IP&gt;_1.csv</code>, <code>&lt;IP&gt;_2.csv</code> ...（最大10世代・約110MB）へ世代交代します。点検報告書（<code>report.html</code>）や詳細診断の履歴グラフ表示時には、分割された過去CSVと最新CSVを時系列順に自動結合し、生テキスト段階で最大1,200点へ事前間引き（ダウンサンプリング）することで、数十万行の長時間データでも数ミリ秒でグラフ化します。</li>
+<li><strong>バックグラウンド・Web Worker ハートビート</strong>: ブラウザを最小化したり別タブを前面にして長時間・夜間放置した場合でも、ブラウザの省電力タイマー制限（1分制限）を受けない専用ワーカー通信により、監視セッションが途切れることなく継続されます。</li>
+</ul>
+</li>
+<li><strong>セッション終了時に日本語サマリーブロックが末尾に自動追記</strong> されます：<pre><code class="language-csv">--- 計測サマリー ---
+IPアドレス,192.168.10.1
+監視頻度（Ping間隔）,1.0s (1秒)
+総Ping送信数（試行回数）,3600
+成功数（応答あり）,3598
+失敗数（応答なし・タイムアウト）,2
+到達率 / 接続性 (%),99.94
+パケット損失率 (%),0.06
+平均ジッター (ms),0.42
+最小遅延 (ms),1.1
+最大遅延 (ms),12.4
+平均遅延 (ms),1.8
+最大瞬断時間（最大通信停止時間） (ms),1200
+600ms以上の瞬断回数（断が発生した回数）,1
+5s以上の瞬断回数（断が発生した回数）,0
+備考（瞬断回数の集計について）,オフラインからオンラインに復帰した時点でカウント。セッション終了時点で継続中の瞬断は含みません
+
+--- 瞬断・通信切断 発生履歴明細 ---
+No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
+1,2026-08-17 19:15:20,2026-08-17 19:15:21,1200,600ms以上
+</code></pre>
+</li>
+</ul>
+</li>
+<li><p><strong><code>iperf_&lt;IPアドレス&gt;.log</code></strong> (<code>Reports/sessions/&lt;起動日時&gt;/</code> 配下):</p>
+<ul>
+<li>Iperf3帯域計測の実行ログ。</li>
+<li><strong>計測終了時にモード（TCP / UDP）に応じた統計サマリーが自動追記</strong> されます：<ul>
+<li><strong>TCPモード時</strong>: データ転送量、平均/最大/最小帯域、中央値、標準偏差、<strong>TCP再送パケット数</strong>、閾値達成率、品質評価。</li>
+<li><strong>UDPモード時</strong>: データ転送量、平均/最大/最小帯域、<strong>平均/最大ジッター(ms)</strong>、<strong>パケット損失数・損失率(%)</strong>、閾値達成率、リアルタイム通信向け品質評価。</li>
+</ul>
+</li>
+<li><strong>点検報告書（HTML/PDF）連携 &amp; ワンクリック印刷</strong>:<ul>
+<li>セッション中に実行された Iperf3 計測結果は、<strong>点検報告書（<code>report.html</code>）の「6. Iperf3 帯域計測・スループット診断結果」セクションに時系列スループット推移グラフ（およびUDPジッター推移）として自動描画</strong> されます。</li>
+<li>報告書右上の <strong>「🖨️ A4横向きで印刷 / PDF保存」</strong> ボタンをクリックするだけで、用紙余白や改ページがA4横向きに自動最適化された状態で、印刷ダイアログやPDF保存が1クリックで起動します。</li>
+</ul>
+</li>
+<li><strong>コネクションエラーの自動削除・クリーンアップ</strong>:<ul>
+<li>相手先サーバーの停止や通信不通（<code>Connection refused</code>, <code>Timed out</code>, <code>unable to connect</code> 等）により計測に失敗した試行のログは、<strong>ログファイル（<code>iperf_&lt;IP&gt;.log</code>）および点検報告書から自動的に除外・削除（ロールバック）</strong> され、正常に測定できたログのみが綺麗に保存されます。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong><code>{IPアドレス}_{タイムスタンプ}.log</code></strong> (<code>Reports/device_logs/</code> 配下):</p>
+<ul>
+<li>詳細診断画面の「📋 機器ログ」タブから取得されたシステムログファイル。</li>
+<li><strong>自己記述型ヘッダー付き保存</strong>: ファイル先頭に、後からログ単体を開いても「いつ・誰が・どの機器から・どんなコマンドで取得したか」が完全にわかるように、以下のメタ情報ヘッダーが自動記録されます：<pre><code class="language-text">================================================================================
+ Network Device Monitor - Remote Device Log
+ Device: コアルーター (192.168.1.1)
+ Protocol: ssh
+ Command: show logging
+ Timestamp: 2026-10-24 14:00:00
+ Status: COMPLETED | ExitCode: 0 | Duration: 240ms
+ Lines: 150 | Size: 12450 bytes
+================================================================================
+[OUTPUT]
+(ここに実際の機器ログ本文が記録されます)
+</code></pre>
+</li>
+<li><strong>🛡️ 過去レポート自動パージに対する非破壊保護</strong>:<ul>
+<li>定期保守機能（<code>Invoke-PurgeOldReports</code>）で古い監視セッションやCSVが整理・削除される場合でも、<strong><code>Reports/device_logs/</code> フォルダおよび機器ログファイルは「重要な証跡・カルテ」として保護され、絶対に削除されません</strong>。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong><code>audit.log</code>（操作履歴・監査ログ - <code>Reports/audit.log</code>）</strong>:</p>
+<ul>
+<li>本システム上で行われたすべての「設定変更」「機器削除」、および「リモート再起動」「コマンド実行」「機器ログ取得」が、改ざん防止の監査証跡として <code>Reports/audit.log</code> に自動記録されます。</li>
+<li>Windows OS の名前付きミューテックス（<code>Local\NDM_AuditLog_Mutex</code>）による排他制御を備えており、複数人が同時に操作したり高負荷がかかったりしてもログの書き込み競合（文字化けやファイル破損）が絶対に起きないスレッドセーフ設計です。</li>
+<li>日常生活で例えると <strong>「入退室管理記録簿」や「防犯カメラのタイムスタンプ記録」</strong> に相当する機能です。</li>
+<li><strong>記録フォーマット</strong>:<pre><code>[YYYY-MM-DD HH:mm:ss] [操作元IP] [Action: 操作種別] [Target: 対象機器IP] 詳細メッセージ
+</code></pre>
+</li>
+<li><strong>記録される主なアクション（Action種別）</strong>:<ul>
+<li><code>LOG_RETRIEVAL</code>: 遠隔からの機器ログ取得（対象機器名、IP、実行コマンド、ステータス、終了コード、行数、サイズ、保存ファイル名、処理時間）</li>
+<li><code>REMOTE_REBOOT</code>: 遠隔からの機器再起動（対象機器名、IP、実行コマンド、終了コード、処理時間）</li>
+<li><code>REMOTE_EXEC</code>: 遠隔からのコマンド実行（対象機器名、IP、実行コマンド、終了コード、処理時間）</li>
+<li><code>REMOTE_ERROR</code>: リモート実行時の接続エラーや例外メッセージ</li>
+<li><code>DEVICE_ADD</code>, <code>DEVICE_UPDATE</code>, <code>DEVICE_DELETE</code>: 機器の追加・設定変更・削除</li>
+<li><code>CONFIG_UPDATE</code>: システム監視閾値や通知設定の変更</li>
+</ul>
+</li>
+<li><strong>画面上での確認手順（操作履歴モーダル）</strong>:<ol>
+<li>ダッシュボード最上部のユーティリティバーにある <strong>「🛡️ 操作履歴 (Audit Log)」</strong> ボタンをクリックします。</li>
+<li>ポップアップ画面が開き、直近200件の操作ログが時系列で綺麗に一覧表示されます。</li>
+<li>各行には「操作日時」「操作タグ（<code>LOG_RETRIEVAL</code>, <code>REMOTE_REBOOT</code>, <code>REMOTE_EXEC</code> など）」「対象機器」「実行コマンドや結果」が色分けされて表示されるため、誰がいつどんな操作を行ったかを直感的に点検・監査できます。</li>
+<li>「閉じる」ボタンでいつでも通常の監視画面に戻れます。</li>
+</ol>
+</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="11-自動テストの実行手順システムの品質保証健康診断">11. 自動テストの実行手順（システムの品質保証・健康診断）</h2>
+<p>本システムには、ネットワーク監視やデータ記録、画面制御が常に正しく動作しているかを保証するための「自動テスト（総合健康診断）スイート」が標準装備されています。
+システムのバージョンアップ後や運用前の定期点検として、誰でも簡単にワンクリックで全機能のテストを実行できます。</p>
+<h3 id="1-テストの実行方法">1. テストの実行方法</h3>
+<p>以下のいずれかの方法で簡単にテストを実行できます。</p>
+<ul>
+<li><strong>方法A: ワンクリックで実行する（推奨・一番簡単）</strong>:<ul>
+<li><code>system\tests</code> フォルダ内の <strong><code>Run-Tests.bat</code></strong> をダブルクリックします。</li>
+<li>コマンドプロンプト画面が開き、全自動で全テストが順番に実行されます。</li>
+<li>すべてのテストに合格すると <code>[OK] すべての自動テストに正常合格しました。</code> と表示され、キーを押すと画面が安全に閉じます。</li>
+</ul>
+</li>
+<li><strong>方法B: PowerShell からコマンドで実行する</strong>:<ul>
+<li>PowerShell を開き、以下のコマンドを実行します：<pre><code class="language-powershell">powershell.exe -ExecutionPolicy Bypass -File .\system\tests\Run-Tests.ps1
+</code></pre>
+</li>
+<li>より詳細な実行結果（各テスト項目の合否）を画面で確認したい場合は、<code>-VerboseOutput</code> オプションを付けて実行できます：<pre><code class="language-powershell">powershell.exe -ExecutionPolicy Bypass -File .\system\tests\Run-Tests.ps1 -VerboseOutput
+</code></pre>
+</li>
+</ul>
+</li>
+</ul>
+<h3 id="2-実行されるテストスイート検査内容の内訳">2. 実行されるテストスイート（検査内容）の内訳</h3>
+<p>本システムでは、6つの異なる階層から総合的な品質検証を行っています。</p>
+<div class="table-wrap"><table><thead><tr>
+<th align="left">テスト種別</th>
+<th align="left">対象ファイル</th>
+<th align="left">テスト数</th>
+<th align="left">主な検証内容</th>
+</tr>
+</thead><tbody><tr>
+<td align="left"><strong>📋 機器ログ取得テスト</strong></td>
+<td align="left"><code>system/tests/DeviceLog.Tests.ps1</code></td>
+<td align="left">32テスト</td>
+<td align="left">機器ログ遠隔取得機能・安全性・バッファ制限・API検証（Cisco/Yamaha/Linux/Windows各プリセット整合性、タイムアウト強制終了、1MB画面切り詰め・5MBディスク保存ガード、監査ログ連携、パストラバーサル遮断）</td>
+</tr>
+<tr>
+<td align="left"><strong>🚀 E2Eライフサイクル検証</strong></td>
+<td align="left"><code>system/tests/E2E-Lifecycle.Tests.ps1</code></td>
+<td align="left">9テスト</td>
+<td align="left">サーバー起動から監視・終了・CSV出力までの一連の動作検証（テスト用ポートでの起動、死活監視確認、安全なシャットダウン、レポート出力確認）</td>
+</tr>
+<tr>
+<td align="left"><strong>🔬 ユニットテスト</strong></td>
+<td align="left"><code>system/tests/Monitor.Tests.ps1</code></td>
+<td align="left">29テスト</td>
+<td align="left">コアモジュールの個別機能検証（DPAPI暗号化、遅延・パケットロス閾値判定、TCPポート監視、サマリー集計、古いログの自動削除、静的アセット存在確認）</td>
+</tr>
+<tr>
+<td align="left"><strong>🔧 リモート制御テスト</strong></td>
+<td align="left"><code>system/tests/RemoteExec.Tests.ps1</code></td>
+<td align="left">18テスト</td>
+<td align="left">リモート制御エンジンの個別機能・安全機構検証（SSH/WinRM/カスタム実行、タイムアウトによるプロセス強制終了、DPAPIパスワード暗号化保存、二重確認・入力バリデーション、監査ログ出力）</td>
+</tr>
+<tr>
+<td align="left"><strong>🔄 Runspace統合テスト</strong></td>
+<td align="left"><code>system/tests/Runspace.Tests.ps1</code></td>
+<td align="left">25テスト</td>
+<td align="left">マルチスレッド並行動作・競合耐性・API契約・24時間連続稼働耐障害性検証（6大ヘルパーモジュールの並行読み込み、高負荷状態でのデータ共有排他制御、REST APIスキーマ検証、ホスト瞬断復旧、例外生存性、無人運用モード）</td>
+</tr>
+<tr>
+<td align="left"><strong>🌐 ブラウザUI自動テスト</strong></td>
+<td align="left"><code>system/tests/ui_verification.py</code></td>
+<td align="left">—</td>
+<td align="left">画面描画と切断・再接続バナーの動作検証（Playwrightを用いたヘッドレスブラウザでの画面要素描画、ボタンクリック操作、ネットワーク切断・再接続時のバナー挙動検証）</td>
+</tr>
+<tr>
+<td align="left"><strong>合計 (Pester)</strong></td>
+<td align="left"><strong>全5スイート</strong></td>
+<td align="left"><strong>計113テスト</strong></td>
+<td align="left"><strong>すべてのテストスイートで100%合格保証（失敗0件）</strong></td>
+</tr>
+</tbody></table></div>
+<h4 id="各テストスイートの詳細解説">各テストスイートの詳細解説</h4>
+<ol>
+<li><strong>📋 機器ログ取得テスト (<code>DeviceLog.Tests.ps1</code>)</strong>:<ul>
+<li>遠隔から機器カルテ（ログ）を安全に回収する機能全体を網羅的に検証します（全32テスト）。</li>
+<li><strong>セクション1（プリセット整合性）</strong>: Cisco、Yamaha、Linux（journalctl/dmesg/syslog）、Windows（System/App/wevtutil）、カスタムの全8種以上のプリセットが定義され、行数制限やページャー抑止オプションが正しく付加されているかを検証します。</li>
+<li><strong>セクション2（実行エンジン・バッファ保護・監査）</strong>: 有効なコマンド実行、リモート無効時の安全遮断（<code>REMOTE_DISABLED</code>）、1MB超過時のstdoutレスポンス切り詰め警告、5MB超過時のディスク保存ガード、プロセスハング時のタイムアウト強制終了（<code>proc.Kill()</code>）、自己記述型ヘッダー付きファイル保存、名前付きミューテックス（<code>Local\NDM_AuditLog_Mutex</code>）を経由した <code>Reports/audit.log</code> への <code>LOG_RETRIEVAL</code> 記録、および定期パージに対する非破壊保護（ログフォルダが消去されないこと）を検証します。</li>
+<li><strong>セクション3（HTTP REST API ＆ セキュリティ検証）</strong>: エフェメラル（一時）Webサーバーを立て、<code>/api/device/fetch-log</code>、<code>/api/device/logs</code>、<code>/api/device/log-download</code>、<code>/api/device/log-presets</code> の各エンドポイントが正しいステータスコード（200 / 400 / 404 / 500）を返すこと、および <code>../</code> によるパストラバーサル攻撃や不正拡張子（<code>.exe</code>, <code>.bat</code> 等）の要求が確実に遮断されることを検証します。</li>
+</ul>
+</li>
+<li><strong>🔬 ユニットテスト (<code>Monitor.Tests.ps1</code>)</strong>:<ul>
+<li>各機能モジュール（部品）が単体で正しく動くかを検査します。</li>
+<li>パスワード等の秘密情報が Windows 標準の暗号化（DPAPI）で安全に保護されるか、設定した閾値を超えた際に正しく警告判定が下されるか、保持期間を過ぎた古いセッションログが自動クリーンアップされるか等を精密に検査します（全29テスト）。</li>
+</ul>
+</li>
+<li><strong>🔧 リモート制御テスト (<code>RemoteExec.Tests.ps1</code>)</strong>:<ul>
+<li>遠隔操作エンジンの安全性と制御ロジックを網羅的に検査します。</li>
+<li>リモート無効時のブロック、存在しないコマンドや不備のあるパラメータの拒否、カスタムコマンドの変数展開（<code>{ip}</code>, <code>{name}</code> 等）、長時間実行プロセスのタイムアウト強制終了（Timeout Kill）、DPAPI暗号化によるパスワード保護、および <code>Reports/audit.log</code> への操作履歴記録が正しく行われるかを厳密に検証します（全18テスト）。</li>
+</ul>
+</li>
+<li><strong>🔄 Runspace統合テスト (<code>Runspace.Tests.ps1</code>)</strong>:<ul>
+<li>複数の作業員（Runspace）がバックグラウンドで同時に並行処理を行っても、データの衝突や不整合が起きないかを検査します。</li>
+<li>6つの主要ヘルパーモジュール（Ping、SNMP、レポート、アラート、帯域計測、共通処理）が並行スレッドで確実にロードされるか、多数のスレッドが同時にステータス更新や設定保存を行ってもデッドロック（処理停止）が起きないかを高負荷ストレステストで検証します。</li>
+<li>また、Web画面が利用する REST API（<code>/api/health</code>, <code>/api/status</code>, <code>/api/devices</code>, <code>/api/syslog</code>, <code>/api/shutdown</code>）が仕様通りの正しい形式でデータを返しているか（API契約）を検証します。</li>
+<li>さらに、<strong>24時間365日の連続稼働を支える耐障害性（レジリエンス）</strong> として、機器の一時的な瞬断から復旧までのステータス遷移（連続失敗回数・瞬断継続秒数・最大瞬断秒数・瞬断明細記録）、ソケット切断例外発生時のRunspace生存性、並行状態アクセスのスレッドセーフティ、そしてブラウザ不在時の24時間無人モード（<code>autoShutdownOnDisconnect = false</code>）の挙動を厳密に検証します（全25テスト）。</li>
+</ul>
+</li>
+<li><strong>🚀 E2Eライフサイクル検証 (<code>E2E-Lifecycle.Tests.ps1</code>)</strong>:<ul>
+<li>実際のサーバー起動から終了までの一連の流れ（最初から最後まで＝End-to-End）を通しで検証します。</li>
+<li>テスト用ポートでサーバープロセスを起動し、死活監視ループが回転していること（<code>pingAgeSec &lt; 5.0</code>）、各機器の監視データが取得できること、シャットダウン要求で安全に停止し、セッション終了後にサマリー付きCSVログが確実に書き出されることを保証します（全9テスト）。</li>
+</ul>
+</li>
+<li><strong>🌐 ブラウザUI自動テスト (<code>ui_verification.py</code>)</strong>:<ul>
+<li>運用担当者が操作するWeb画面が崩れず正しく表示・動作するかを、自動ブラウザ（Playwright）を用いて検証します。</li>
+<li>ダッシュボードやトポロジー図、グラフコンテナがスクリプトエラーなく正常に描画されるか、消音ボタンやツリー整列ボタン等のクリックイベントが正しく反応するか、そして通信切断時に切断警告バナーが表示され、復旧時に自動で消滅・トースト表示されるかを検証します。</li>
+</ul>
+</li>
+</ol>
+<h3 id="3-テスト結果の見方と合格判定">3. テスト結果の見方と合格判定</h3>
+<p>テスト実行完了後、画面の最下部にサマリーが表示されます：</p>
+<pre><code>==========================================================
+  Test Suite Summary (Pester 3.4.0)
+==========================================================
+  Total:   113
+  Passed:  113
+  Failed:  0
+==========================================================
+[OK] すべての自動テストに正常合格しました。
+</code></pre>
+<ul>
+<li><strong>Passed（合格数）</strong>: 正常にパスしたテスト項目の数です（全113テスト100%合格保証）。</li>
+<li><strong>Failed（失敗数）</strong>: <code>0</code> であればシステム全体の健全性が完全に保証されています。</li>
+<li>万が一 <code>Failed</code> が 1 以上になった場合は、エラーメッセージに対象のテスト名や原因が表示されます。</li>
+</ul>
+<hr>
+<h2 id="12-専門用語のやさしい解説初心者運用者向け用語集">12. 専門用語のやさしい解説（初心者・運用者向け用語集）</h2>
+<p>現場の運用担当者や管理者が本システムをより直感的に理解できるよう、専門用語を日常生活のわかりやすい例えを交えて平易に解説します。</p>
+<div class="table-wrap"><table><thead><tr>
+<th align="left">専門用語</th>
+<th align="left">日常生活に例えると</th>
+<th align="left">噛み砕いた解説</th>
+</tr>
+</thead><tbody><tr>
+<td align="left"><strong>Runspace<br>(ランスペース)</strong></td>
+<td align="left">ひとつの会社の中で働く<br>「複数の専任作業員（個室）」</td>
+<td align="left">パソコンの中で同時に複数の仕事をこなす仕組みです。「画面を表示する係」「0.1秒ごとにPingを飛ばす係」「SNMPでトラフィックを測る係」「レポートを書く係」など、独立した作業員（Runspace）が分担して同時に働くため、大量の通信を行っても画面が固まらず滑らかに動作します。</td>
+</tr>
+<tr>
+<td align="left"><strong>Pester<br>(ペスター)</strong></td>
+<td align="left">工場の出荷前チェックを行う<br>「厳格な自動検査官」</td>
+<td align="left">Windows の PowerShell で作られたプログラムが仕様通りに正しく動いているかを、自動で一斉点検する仕組みです。人間が一つひとつボタンを押して確認しなくても、何十項目ものテストを数秒間で自動実行し、合格・不合格を判定してくれます。</td>
+</tr>
+<tr>
+<td align="left"><strong>ジッター<br>(Jitter / 揺らぎ)</strong></td>
+<td align="left">電車の到着時刻の<br>「ばらつき（ダイヤの乱れ）」</td>
+<td align="left">通信データの小包（パケット）が相手に届くまでの時間（Ping応答時間）の「ばらつき具合」を表す数値です（RFC 3550という国際規格に準拠して計算）。常に安定して届いていればジッターはほぼ「0」ですが、遅れたり早かったり乱れるとジッターが大きくなります。Web会議の音声途切れや監視カメラの映像カクつきの予兆を発見できます。</td>
+</tr>
+<tr>
+<td align="left"><strong>E2E<br>(End-to-End)</strong></td>
+<td align="left">車の製造ラインで完成車を<br>「実際に走らせてみる試運転」</td>
+<td align="left">端から端まで（最初から最後まで）通しで動かすテスト手法です。「サーバー起動 → 機器監視 → 画面表示 → サーバー終了 → レポート保存」という実際の運用と同じ一連の流れがすべて正常に通るかを丸ごと確認します。</td>
+</tr>
+<tr>
+<td align="left"><strong>AST構文解析<br>(構文木チェック)</strong></td>
+<td align="left">本を出版する前の<br>「プロ校閲者による文法検査」</td>
+<td align="left">プログラムを実行する前に、コードの文章構造（構文木）を細かく分解して、文法ミスやカッコの閉じ忘れ、不適切な書き方がないかをコンピューターが機械的にチェックする健康診断です。実行中の突然のエラーや誤作動を未然に防ぎます。</td>
+</tr>
+<tr>
+<td align="left"><strong>SNMP<br>(エス・エヌ・エム・ピー)</strong></td>
+<td align="left">機器が持っている<br>「健康診断用カルテの読み取り機」</td>
+<td align="left">ルーターやスイッチなどのネットワーク機器から、現在の通信速度（トラフィック）やポートの状態などの内部情報を、機器に特別なソフトを入れずに直接聞き出す標準的な通信規格です。</td>
+</tr>
+<tr>
+<td align="left"><strong>パケット &amp; ロス率<br>(Packet &amp; Packet Loss)</strong></td>
+<td align="left">荷物を小分けにして送る「小包」と<br>「配達トラブル率」</td>
+<td align="left">インターネット上ではデータは小さな塊（パケット）に分割されて送られます。回線の混雑やケーブル不良で相手に届かず消えてしまった小包の割合を「パケットロス率」と呼びます（0.0% が理想）。</td>
+</tr>
+<tr>
+<td align="left"><strong>ポート<br>(TCPポート)</strong></td>
+<td align="left">ひとつの建物（IP）の中にある<br>「たくさんの専用窓口（部屋番号）」</td>
+<td align="left">1台のサーバーの中でも、「Webページを見せる窓口（80番/443番）」「メールを受け取る窓口（25番）」のように役割ごとに番号が分かれています。本システムでは、Pingだけでなく特定の窓口が開いているかを監視することも可能です。</td>
+</tr>
+<tr>
+<td align="left"><strong>SSH<br>(Secure Shell / セキュアシェル)</strong></td>
+<td align="left">強固な暗号化の鍵が付いた<br>「専用の安全な通信トンネル」</td>
+<td align="left">離れた場所にあるLinuxサーバーやルーター、スイッチなどの機器と安全に通信し、遠隔操作を行うための世界標準規格です。やり取りされるデータやパスワードはすべて暗号化されるため、途中で盗聴されたり改ざんされたりする心配がありません。</td>
+</tr>
+<tr>
+<td align="left"><strong>WinRM<br>(Windows Remote Management)</strong></td>
+<td align="left">社内Windows PCの裏口にある<br>「専用の受付管理窓口」</td>
+<td align="left">社内のWindows PCやWindows Serverを遠隔から管理するためのMicrosoft公式の仕組みです。操作される側のパソコン画面を奪ったり作業を邪魔したりすることなく、裏側から静かにコマンド（PowerShell）を実行したり再起動を行ったりできます。</td>
+</tr>
+<tr>
+<td align="left"><strong>DPAPI<br>(Data Protection API)</strong></td>
+<td align="left">Windows自身が厳重管理する<br>「ログイン者専用の金庫」</td>
+<td align="left">パスワードなどの秘密情報を保存する際、Windows OSがそのパソコンのログインユーザー専用の鍵を使って自動で暗号化する強固なセキュリティ技術です。設定ファイル（<code>devices.json</code>）を別のパソコンにコピーしても開くことができず、パスワード漏洩を防止します。</td>
+</tr>
+<tr>
+<td align="left"><strong>監査ログ<br>(Audit Log / オーディット・ログ)</strong></td>
+<td align="left">操作のすべてを時系列で残す<br>「防犯カメラと公式記録簿」</td>
+<td align="left">「いつ・誰が・どの機器に対して・どのような操作（設定変更や再起動、コマンド実行など）」を行ったかを改ざんできない形で順番に記録した公的な証跡記録（<code>Reports/audit.log</code>）です。障害発生時の原因究明や誤操作防止に役立ちます。</td>
+</tr>
+<tr>
+<td align="left"><strong>終了コード<br>(Exit Code / リターンコード)</strong></td>
+<td align="left">仕事が終わった作業員からの<br>「完了スタンプ（合否番号）」</td>
+<td align="left">プログラムやコマンドが実行を終えたときに、正常に終わったかどうかを番号で知らせる仕組みです。一般的に「<code>0</code>」は「大成功・問題なし」を表し、<code>1</code> 以上の数字は「何らかのエラーや警告が発生した」ことを示します。</td>
+</tr>
+<tr>
+<td align="left"><strong>標準出力 / 標準エラー<br>(stdout / stderr)</strong></td>
+<td align="left">「普通のお返事の手紙（白）」と<br>「トラブル連絡の赤手紙」</td>
+<td align="left">コマンドを実行した際に出てくるメッセージの通り道です。正常な計算結果や案内メッセージは「標準出力（stdout）」から、警告や失敗の原因メッセージは「標準エラー（stderr）」からそれぞれ返ってきます。</td>
+</tr>
+<tr>
+<td align="left"><strong>機器ログ<br>(Device Log / 機器カルテ)</strong></td>
+<td align="left">お医者さんが書く<br>「患者さんの健康カルテ・日記」</td>
+<td align="left">ルーターやサーバーなどの機器自身が、「何時何分にどんな異常が起きたか」「どの通信回線が切れたか」を内部に書き溜めている公式の日記帳です。現地に行って画面を開かなくても、本システムから遠隔で安全に手元へ取り寄せることができます。</td>
+</tr>
+<tr>
+<td align="left"><strong>syslog / journalctl<br>(シスログ / ジャーナル)</strong></td>
+<td align="left">Linuxサーバーの<br>「時系列の日記帳・航海日誌」</td>
+<td align="left">Linuxやネットワーク機器が動いている間に起きたすべての出来事（起動、ログイン、通信切断、プログラムのエラーなど）を秒単位で順番に書き記している標準的な記録台帳です。トラブルが起きた際、原因を突き止めるための最も重要な証拠になります。</td>
+</tr>
+<tr>
+<td align="left"><strong>イベントログ<br>(Windows Event Log)</strong></td>
+<td align="left">Windowsパソコンの<br>「システム活動記録簿」</td>
+<td align="left">Windows OSが自動で記録している内部出来事の台帳です。「電源が落ちた」「ドライバーがクラッシュした」「ネットワークが切断された」などのシステム障害から、業務アプリのエラーまで詳細に記録されています。</td>
+</tr>
+<tr>
+<td align="left"><strong>ログローテーション<br>(Log Rotation)</strong></td>
+<td align="left">古い日記帳を箱にしまい<br>「新しいノートに取り替える作業」</td>
+<td align="left">機器のログが際限なく増えてハードディスクをパンクさせないよう、一定の日数やファイルサイズごとに古いログを圧縮・退避し、常に最新の記録用のノートを用意する自動お掃除・世代管理の仕組みです。</td>
+</tr>
+<tr>
+<td align="left"><strong>パストラバーサル<br>(Path Traversal / 横断攻撃)</strong></td>
+<td align="left">立ち入り禁止の看板をすり抜けて<br>「裏口から侵入する不正な抜け道」</td>
+<td align="left">ファイルをダウンロードする際に、<code>../../</code> のようにファイルパスを遡る特殊な文字を悪用して、本来公開してはならない重要なシステムファイルや他人のデータを盗み見ようとするサイバー攻撃の手法です。本システムではこの抜け道を完全に遮断（ブロック）しています。</td>
+</tr>
+<tr>
+<td align="left"><strong>デーモン<br>(Daemon / 常駐プロセス)</strong></td>
+<td align="left">建物の裏で24時間休まず働く<br>「自動設備・見回りロボット（執事）」</td>
+<td align="left">パソコンやサーバーの画面には直接現れず、バックグラウンド（裏側）で常に動き続けて決められた仕事（監視、ログ収集、通信の待ち受けなど）を休まずこなしてくれる常駐プログラムのことです。</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="13-よくある質問トラブルシューティング">13. よくある質問・トラブルシューティング</h2>
+<div class="table-wrap"><table><thead><tr>
+<th align="left">現象</th>
+<th align="left">原因と対処法</th>
+</tr>
+</thead><tbody><tr>
+<td align="left"><strong>画面が開かない / 接続エラー</strong></td>
+<td align="left">バックグラウンドの PowerShell 画面が閉じられていないか確認してください。再度 <code>Start-Monitor.bat</code> を実行してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>起動時の黒い画面（コマンドプロンプト / PowerShell）の文字化け防止について</strong></td>
+<td align="left">本システムは、起動時に <code>Start-Monitor.bat</code> が文字コード（CP932 / UTF-8 BOM）の自動整合チェック（<code>Ensure-Utf8Bom.ps1</code>）と、日本語コンソールフォント（<code>ＭＳ ゴシック</code>）への自動切替保護を実行します。万が一、ファイルの編集後に文字化けが発生した場合は、再度 <code>Start-Monitor.bat</code> を実行することで文字コード（UTF-8 BOM）が自動修復されます。</td>
+</tr>
+<tr>
+<td align="left"><strong>Pingの応答があるのに、ステータスが「Warning」のまま戻らない / ロス率が100%になる（2026-10-28 修正済み）</strong></td>
+<td align="left">旧バージョンでは、一度「Warning（黄色）」になると、それを「通信失敗」と数え間違える不具合がありました。そのため、応答があってもロス率が100%まで上がり、Warningのまま戻りませんでした。現在は「<strong>実際にPingの返事が返ってきたか</strong>」をもとにロス率・到達率・揺らぎ（ジッター）を計算するように修正しています。通信が安定すれば、自動で「Success（正常）」に戻ります。※修正前に記録された古いログ（CSV・報告書）の数値は、そのまま残ります。</td>
+</tr>
+<tr>
+<td align="left"><strong>画面上部に「サーバーとの接続が途切れています」と表示された</strong></td>
+<td align="left">バックグラウンドのサーバープロセスが一時的に高負荷になっているか、ネットワークが瞬断した可能性があります。本システムは自動復旧（Watchdog）を備えているため、通常は数秒〜十数秒待つと自動的に「サーバーとの再接続が完了しました」と表示されて復旧します。お急ぎの場合はバナー右側の「⚡ 今すぐ再接続」をクリックしてください。</td>
+</tr>
+<tr>
+<td align="left"><strong>Pingがすべてタイムアウト（赤）になる</strong></td>
+<td align="left">対象機器側で Windows Defender ファイアウォール等の「ICMP Echo（Ping）の許可」が有効になっているか確認してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>SNMPの情報（TX/RX）が取得できない</strong></td>
+<td align="left">機器側のSNMPコミュニティ名（<code>public</code>等）または v3 認証情報が正しいか確認してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>SNMP詳細情報が表示されない</strong></td>
+<td align="left">取得できなかった場合は、SNMP詳細画面の「システム説明」欄に <strong>⚠ から始まる原因</strong> が表示されます。表示された内容に沿って、機器でSNMPが有効か、コミュニティ名／v3認証情報が一致しているか、UDP 161番ポートが遮断されていないかを確認してください。なお、2026-10-29 に「SNMPv3の機器でも常にv2cで問い合わせてしまう」不具合と、「Ping状態が正常のときしか問い合わせない」制限を修正しました（警告中の機器やPingを遮断している機器でもSNMP詳細を取得できます）。</td>
+</tr>
+<tr>
+<td align="left"><strong>超高速モード（0.1秒）で遅延グラフが時々消える / 縦軸が100msから変わらない（2026-10-29 修正済み）</strong></td>
+<td align="left">旧バージョンではグラフの点が15個（0.1秒更新では1.5秒分）しかなく、「警告」中の値を空白として記録していたため、線がすぐ消えていました。また縦軸が最低100msに固定されていたため、数msの遅延は底に張り付いて見えにくくなっていました。現在は約30秒分を保持し、警告中も値を表示し、縦軸は遅延に合わせて自動調整されます。</td>
+</tr>
+<tr>
+<td align="left"><strong>超高速モード（0.1秒）で時々処理が止まる（2026-10-29 改善）</strong></td>
+<td align="left">対象外機器（5秒間隔）の応答待ちで、応答しない機器1台につき最大0.05秒ずつ監視ループが止まっていた問題を修正しました。画面の更新も0.2秒ごとに抑えてサーバーの負担を減らしています。それでも重い場合は、①0.1秒監視の対象を本当に必要な機器に絞る、②0.1秒監視中は機器ログ取得・リモート操作・帯域計測など時間のかかる操作を控える、③使わない機器は監視を一時停止する、を試してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>システム構成図で「リンク追加」「リンク削除」が有効かわからない</strong></td>
+<td align="left">ボタンを押してモードがONになると、リンク追加はオレンジ、リンク削除は赤で塗りつぶされて光り、ボタンの文字が「〜中（もう一度押すと終了）」に変わります。操作方法の案内も表示されます。もう一度ボタンを押すとOFFに戻ります。</td>
+</tr>
+<tr>
+<td align="left"><strong>無人運用モード（<code>autoShutdownOnDisconnect: false</code>）にしてもブラウザを閉じると監視が止まる（2026-10-30 修正）</strong></td>
+<td align="left">起動処理の途中で設定が「標準（ブラウザを閉じたら終了）」に上書きされており、無人運用モードが働いていませんでした。修正後は、無人運用モードではブラウザを閉じても監視を続けます。「🛑 監視終了＆報告書」ボタンからは、どちらのモードでも終了できます。</td>
+</tr>
+<tr>
+<td align="left"><strong>ページを再読み込み（F5）したら監視が終了してしまった（2026-10-30 修正）</strong></td>
+<td align="left">再読み込みのときも「ブラウザを閉じた」合図が送られるため、2秒以内に画面が戻らないと終了していました。待ち時間を10秒に延ばし、その間に画面が戻れば終了を取り消します。</td>
+</tr>
+<tr>
+<td align="left"><strong>Syslog が届かない</strong></td>
+<td align="left">Syslog / Trap 画面の上部の「受信状態」で、実際に受信しているポートを確認してください。514番が他のソフトに使われていると、自動的に 1514 番で受信します（機器側の送信先ポートを 1514 に合わせるか、514 番を使っているソフトを止めてください）。</td>
+</tr>
+<tr>
+<td align="left"><strong>機器一覧の JSON インポートで既存の機器が消えた</strong></td>
+<td align="left">JSON インポートは「追加」ではなく、<strong>現在の機器一覧をファイルの内容にすべて置き換え</strong>ます（2026-10-30 に確認メッセージをこの動作どおりに修正）。必要な機器を残したい場合は、先に「📤 JSON エクスポート」で現在の一覧を保存し、そのファイルに追記してからインポートしてください。なお、エクスポートファイル内の SNMPv3 パスワードは暗号化されており、<strong>エクスポートしたPC・Windowsユーザーでのみ</strong>インポート後も使えます。</td>
+</tr>
+<tr>
+<td align="left"><strong>一括バックアップから復元しても機器一覧が戻らない（2026-10-30 修正）</strong></td>
+<td align="left">以前のバージョンでは、一括バックアップ（設定＋機器）の書き出し形式に問題があり、復元しても「正常に復元しました」と表示されるだけで機器一覧が戻りませんでした。修正後は正しく戻ります。修正前に書き出したバックアップファイルも、そのまま復元に使えます。</td>
+</tr>
+<tr>
+<td align="left"><strong>起動時に「devices.json is broken」「RECOVERED」と表示された</strong></td>
+<td align="left">機器一覧（devices.json）または設定（config.json）が壊れていて読めなかったため、<code>system\backups</code> の自動スナップショットのうち最も新しい読めるものから自動で復元しました。壊れたファイルは <code>devices.json.broken_日時</code> として残してあります。復元内容が古い場合は、Web画面の「スナップショット復元」から別の時点を選んで戻してください。どのスナップショットも読めない場合は、機器一覧を空で上書きしないよう保存を止めた状態で起動します。</td>
+</tr>
+<tr>
+<td align="left"><strong>TCPポート監視にした機器が、ポートが開いていても常に「エラー / オフライン」になる（2026-10-30 修正）</strong></td>
+<td align="left">TCP接続を始める処理の書き方に誤りがあり、接続を試す前に必ず失敗していました。修正後は、ポートに接続できれば「正常」と表示されます。また、応答しない機器が他にあると TCP 監視の遅延が実際より大幅に長く（数百ms）表示され「高遅延」と誤判定されていた問題も、接続にかかった時間だけを測るように修正しました。</td>
+</tr>
+<tr>
+<td align="left"><strong>親機器のダウン中は通知が抑止されたのに、親の復旧時に子機器の「復旧」通知が大量に届いた（2026-10-30 修正）</strong></td>
+<td align="left">復旧通知は、実際に障害通知を送った機器にだけ送るようにしました。親機器のダウンで障害通知を抑止した子機器からは、復旧通知も送られません。</td>
+</tr>
+<tr>
+<td align="left"><strong>SNMP Trap が届かない</strong></td>
+<td align="left">Syslog / Trap 画面の「受信状態」で受信ポートを確認してください（標準は UDP 162 番）。Windows の「SNMP Trap」サービスなどが使っていると 1162 番で受信し、その旨を黄色で表示します。その場合は該当サービスを止めるか、機器側の送信先ポートを 1162 に合わせてください。Windows ファイアウォールで UDP 162 番の受信を許可する必要がある場合もあります。受信できるのは v1 / v2c です。SNMPv3 の Trap は暗号化されていて読めないため、届いたことだけを表示します。</td>
+</tr>
+<tr>
+<td align="left"><strong>CSV で機器をまとめて登録・編集したい</strong></td>
+<td align="left">「機器追加 / 管理」の「📤 CSV エクスポート」で Excel で開ける一覧を保存し、編集してから「📥 CSV インポート」で読み込みます。同じ IP の機器は更新、新しい IP は追加され、CSV にない機器は残ります（JSON インポートは全置き換えなので動作が異なります）。必須の列は「IPアドレス」だけで、ない列の項目は変わりません。パスワードは CSV に含まれません。ただしコミュニティ名（SNMP の合言葉）は含まれるので、ファイルの扱いにご注意ください。</td>
+</tr>
+<tr>
+<td align="left"><strong>SNMPv3 の設定方法</strong></td>
+<td align="left">機器の登録・編集画面で SNMP バージョンを「SNMPv3」にすると入力欄が出ます。保存済みのパスフレーズは画面に表示されず、空欄のまま保存すれば今の値を使い続けます。認証方式を「なし」にすると消去されます。</td>
+</tr>
+<tr>
+<td align="left"><strong>機器までの通信経路を調べたい</strong></td>
+<td align="left">システム構成図で機器を右クリックして「🧭 経路トレース」を選びます。このPCからその機器までに通る機器を一覧で表示し、構成図に登録済みの機器は赤く光らせます。「応答なし」は、途中の機器が調査に応答しなかった区間です（通信できていないという意味ではありません）。調査には最大 30 秒ほどかかります。</td>
+</tr>
+<tr>
+<td align="left"><strong>PC 起動時に自動で監視を始めたい</strong></td>
+<td align="left"><code>system\Service-Setup.bat</code> を実行します。[2] は Windows にログオンしたとき、[3] は PC の起動時（ログオン前）に起動します。どちらも<strong>今のWindowsユーザーで動かす</strong>ので、保存済みのパスワードを復号できます。[3] は登録時に Windows のパスワードを聞かれます。また、<strong>Google ドライブなどの同期ドライブはログオン前には使えない</strong>ため、[3] を使う場合はプロジェクトを C ドライブなどへ移してください。以前 SYSTEM で登録したタスクは同じ名前で上書きされます。</td>
+</tr>
+<tr>
+<td align="left"><strong>起動時に「保存済みのパスワードを復号できません」と表示された</strong></td>
+<td align="left">パスワードは保存した Windows ユーザーでしか復号できません。保存したユーザーで起動し直してください。復号できない間もパスワードは消えません（暗号化された形のまま保持します）。別の PC へ移した場合は、パスワードを入力し直してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>OBR の無線接続状況を見たい</strong></td>
+<td align="left">「機器追加 / 管理」で OBR を編集し、「📶 OBR の無線接続状況を確認する」にチェックを入れて管理者パスワードを入力します。30秒ごとに確認し、ダッシュボードの機器カードとシステム構成図に、接続先の SSID・電波の強さ・通信速度を表示します（カードや機器にマウスを乗せると、チャンネルとアクセスポイントも見られます）。電波の強さは -67 dBm より弱いと黄色、-75 dBm より弱いと赤で表示します。未接続になると画面のアラートと音で知らせます（Webhook とメールは送りません）。パスワードは暗号化して保存しますが、OBR との通信自体は暗号化されない HTTP です。</td>
+</tr>
+<tr>
+<td align="left"><strong>OBR の無線状態の履歴を見たい</strong></td>
+<td align="left">確認のたびに（30秒ごと）、<code>Reports\起動日時のフォルダ\obr_wireless_IPアドレス.csv</code> に記録します。確認日時・状態・SSID・アクセスポイント・チャンネル・電波の強さ・通信速度が残るので、いつ切れたか、どのアクセスポイントに移ったか（ローミング）、電波がいつ弱くなったかを Excel で確認できます。10MB を超えると <code>_1</code> 付きのファイルに切り替わり、「ログ記録（CSV）」が OFF のときは記録しません。古いフォルダはログの保持日数に従って自動で削除されます。</td>
+</tr>
+<tr>
+<td align="left"><strong>OBR の表示が「🔒 ログイン失敗」「取得不可」になる</strong></td>
+<td align="left">「ログイン失敗」はパスワードの誤りが主な原因です（機器側で拒否されないよう、5分おきに再確認します。パスワードを変更するとすぐ確認し直します）。「取得不可」は OBR の管理画面に接続できない状態です。IP アドレスと通信経路を確認してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>機器ごとの監視ウィンドウ（Launcher.ps1）をまとめて閉じたい</strong></td>
+<td align="left">プロジェクト直下の <code>Stop-All.bat</code> をダブルクリックします。各ウィンドウが結果を保存してから自動で閉じます。メインの監視画面には影響しません。</td>
+</tr>
+<tr>
+<td align="left"><strong>音声アラートが鳴らない</strong></td>
+<td align="left">ブラウザの自動再生ポリシーにより、画面の初回クリック操作後に音声が有効化されます。また、設定モーダルで「音声アラート」がONになっているか確認してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>ディスク容量が心配</strong></td>
+<td align="left">「ログ保守」機能で保持日数（例: 14日や30日）を設定すれば、古いログは自動的に削除されます。</td>
+</tr>
+<tr>
+<td align="left"><strong>自動テスト（Run-Tests.bat）でエラーが出た</strong></td>
+<td align="left">すでに監視サーバー（ポート8081等）が起動している場合は、一度画面から監視を終了させてから再度テストを実行してください。また、<code>powershell.exe -ExecutionPolicy Bypass -File system\tests\Run-Tests.ps1 -VerboseOutput</code> で詳細ログを確認できます。</td>
+</tr>
+<tr>
+<td align="left"><strong>リモート操作タブで「リモート管理が無効です」と表示される</strong></td>
+<td align="left">対象機器の登録時に「リモート管理を有効にする」チェックが入っていません。画面左側の「デバイス管理」タブまたは機器カードから「編集」を開き、「🔧 リモート管理（再起動・コマンド実行）を有効にする」にチェックを入れて接続情報（プロトコルやユーザー名）を保存してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>再起動やコマンド実行で「TIMEOUT（タイムアウト）」と表示された</strong></td>
+<td align="left">対象機器への通信が届いていないか、相手機器側でSSH/WinRMサービスが起動していない、あるいはファイアウォールで通信ポート（SSHなら22番、WinRMなら5985番など）が遮断されている可能性があります。機器のIPアドレス、ポート番号、認証設定をご確認ください。なお、タイムアウトした処理は、そこから起動された子プロセスも含めて自動的に終了されるため、このPCに処理が残り続けることはありません。</td>
+</tr>
+<tr>
+<td align="left"><strong>機器ログ取得で「TIMEOUT（タイムアウト）」と表示された</strong></td>
+<td align="left">対象機器への通信経路が遮断されているか、相手機器側でSSH/WinRMサービスが停止している、あるいはファイアウォールで通信ポート（SSH: 22番、WinRM: 5985番など）がブロックされている可能性があります。また、相手側で長いログを出力する際にキー入力待ち（ページャー）が発生している可能性もあります（本システムの標準プリセットを使用するか、コマンド末尾に <code>--no-pager</code> や行数制限を付けてお試しください）。</td>
+</tr>
+<tr>
+<td align="left"><strong>機器ログタブで「リモート管理が無効です (REMOTE_DISABLED)」と表示される</strong></td>
+<td align="left">対象機器の登録時に「リモート管理を有効にする」チェックが入っていません。画面左側の「デバイス管理」タブまたは機器カードの「編集」から、「🔧 リモート管理（再起動・コマンド実行）を有効にする」にチェックを入れ、プロトコル（SSH/WinRM）や認証情報を入力して保存してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>機器ログ取得で「認証失敗（Permission denied / ログオン失敗）」となる</strong></td>
+<td align="left">登録されているユーザー名またはパスワードに誤りがあるか、そのユーザーに対象機器のログ閲覧権限（Linuxのroot/sudo権限やWindowsの管理者権限）が付与されていない可能性があります。機器の設定でユーザー名とパスワードを再入力して保存し直してください。</td>
+</tr>
+<tr>
+<td align="left"><strong>「出力サイズが1MBを超過したため画面表示を切り詰めました」と表示された</strong></td>
+<td align="left">ログのデータ量が非常に膨大なため、ブラウザ画面が固まるのを防ぐ安全機能（バッファ保護）が働いて画面上の表示を1MBで一時的に切り詰めています。<strong>サーバー側（<code>Reports/device_logs/</code>）には省略なしの全量ログファイルが完全な状態で丸ごと保存</strong> されています。画面下の「📁 過去の取得ログ一覧」にある「📥 再ダウンロード」ボタンをクリックするか、直接ファイルを開くことで全量を確認できます。</td>
+</tr>
+<tr>
+<td align="left"><strong>過去に取得した機器ログはどこに保存され、どのようにバックアップすればよいか？</strong></td>
+<td align="left">取得された機器ログはすべて <code>Reports/device_logs/</code> フォルダ配下に <code>{IPアドレス}_{取得日時}.log</code> という形式で恒久保存されます。このフォルダは定期的な過去ログ削除（パージ）の対象から除外されているため勝手に消えることはありません。バックアップしたい場合は、<code>Reports/device_logs/</code> フォルダごと外付けドライブやファイルサーバーへ安全にコピーしてください。</td>
+</tr>
+<tr>
+<td align="left"><strong>保存したリモート接続パスワードの安全性は大丈夫か？</strong></td>
+<td align="left">はい、安全です。Windows標準のDPAPI暗号化機能により、平文ではなく強固な暗号文字列（<code>enc:...</code>）として保存されます。第三者が設定ファイルをコピーしても解読できません。</td>
+</tr>
+<tr>
+<td align="left"><strong>間違えて再起動やコマンド実行ボタンを押してしまった</strong></td>
+<td align="left">本システムでは必ず「二重確認ダイアログ」が表示されます。「キャンセル」ボタン、右上の「×」ボタン、または画面外をクリックして閉じることで、実際の処理は実行されずに安全にキャンセル（中断）されます。</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="14-エンタープライズ高信頼性自動復旧機能ui切断耐性">14. エンタープライズ高信頼性・自動復旧機能・UI切断耐性</h2>
+<p>大規模・長期連続稼働（24時間365日）を支える信頼性向上機能です。</p>
+<h3 id="1-watchdog-によるハングアップ無応答外形死活監視自己治癒">1. Watchdog による「ハングアップ・無応答」外形死活監視＆自己治癒</h3>
+<ul>
+<li><strong>概要</strong>: <code>Start-Monitor.bat</code> 起動時、内部で常駐する <code>system/Watchdog.ps1</code> が 15秒間隔でサーバーの <code>/api/health</code> を外形監視します。</li>
+<li><strong>死活＋健康状態の二重監視</strong>: プロセス自体の生存確認だけでなく、「内部のPing監視ループが正常にループし続けているか（スレッド停止・デッドロックが発生していないか）」を厳密に検査します。</li>
+<li><strong>自動復旧（自己治癒）</strong>: 3回連続でタイムアウトまたは応答停止（503 Unhealthy）を検知した場合、ハングアッププロセスを自動強制終了し、3秒後に自動再起動します。短時間に5回連続クラッシュした場合はサーキットブレーカーが発動し安全停止します。（10分以上安定して動作すると、それまでのクラッシュ回数は0に戻ります）</li>
+</ul>
+<h3 id="2-設定機器構成の自動スナップショットワンクリックロールバック">2. 設定・機器構成の自動スナップショット＆ワンクリックロールバック</h3>
+<ul>
+<li><strong>概要</strong>: 機器の追加・編集・削除や、アラート閾値などの設定を変更した直前に、変更前の状態が <code>system/backups/</code> へ最新20世代まで自動的に世代管理スナップショットとして退避されます。</li>
+<li><strong>ロールバック手順</strong>:<ol>
+<li>画面右上の <strong>「⚙️ 設定」</strong> を開きます。</li>
+<li><strong>「バックアップ・復元」</strong> タブを開きます。</li>
+<li><strong>「🔄 自動スナップショット履歴＆ロールバック」</strong> 一覧から、戻したい日時のスナップショットの <strong>「↺ この時点に戻す」</strong> ボタンをクリックします。</li>
+<li>確認ダイアログで「OK」を押すと、安全のため現在の状態も退避された上で、一瞬で以前の機器構成・設定に戻ります。</li>
+</ol>
+</li>
+</ul>
+<h3 id="3-パケット損失率ジッター異常による回線品質劣化アラート">3. パケット損失率・ジッター異常による「回線品質劣化アラート」</h3>
+<ul>
+<li><strong>概要</strong>: 機器の完全停止（オフライン）だけでなく、Web会議の映像乱れや音声途切れ（VoIP品質悪化）、回線輻輳の前兆を検知する機能です。</li>
+<li><strong>判定項目</strong>:<ul>
+<li><strong>パケット損失率（%）</strong>: 直近30回のPing試行における損失割合（初期値: 5.0%）。</li>
+<li><strong>ジッター（ms）</strong>: RFC 3550 準拠のパケット揺らぎ平均値（初期値: 20.0ms）。</li>
+</ul>
+</li>
+<li><strong>設定方法</strong>:<ul>
+<li>設定モーダルの「監視・閾値」タブにある <strong>「📶 回線品質劣化アラート」</strong> で任意の閾値にチューニングできます。閾値を超過した機器は直ちに注意ステータス（Warning・黄色）へ遷移し、ダッシュボードおよび障害優先ソートで素早く把握できます。</li>
+</ul>
+</li>
+</ul>
+<h3 id="4-前提モジュールシステム診断チェックリストweb画面">4. 前提モジュール・システム診断チェックリスト（Web画面）</h3>
+<ul>
+<li><strong>概要</strong>: 監視動作に必要な PowerShell モジュールや計測ツールが正常に認識されているかを、ブラウザ上でチェックボックス形式で確認・自己診断できる機能です。</li>
+<li><strong>確認・操作手順</strong>:<ol>
+<li>画面右上の <strong>「⚙️ 設定」</strong> を開きます。</li>
+<li><strong>「📋 前提モジュール診断」</strong> タブを開きます。</li>
+<li>各コンポーネントの状態が一目で確認できます：<ul>
+<li><code>[✔] SNMP 通信モジュール (PowerShell)</code>: インストール状況・バージョン・配置パス</li>
+<li><code>[✔] Iperf3 帯域計測ツール (iperf3.exe)</code>: 利用可否</li>
+<li><code>[✔] Pester 自動テストフレームワーク</code>: インストール状況・バージョン</li>
+<li><code>[✔] PowerShell 実行環境 &amp; ポリシー</code>: バージョン 5.1 適合性・ExecutionPolicy</li>
+</ul>
+</li>
+<li>もし別の PC にコピーした直後などで <code>SNMP</code> モジュールが未検出の場合は、カード右側の <strong>「⚡ 今すぐインストール」</strong> ボタンをクリックするだけで、ブラウザからワンクリックで自動導入できます。</li>
+</ol>
+</li>
+</ul>
+<h3 id="5--ipアドレス競合重複割り当て自動検知と対処手順">5. 🚨 IPアドレス競合（重複割り当て）自動検知と対処手順</h3>
+<ul>
+<li><strong>概要</strong>: 社内LANで誰かが既存機器と同じ固定IPアドレスを誤って設定した際、ARPテーブル（IPとMACアドレスの対応関係）の急変や不一致をバックグラウンドで自動監視し、即座に画面へ警告を発する機能です。</li>
+<li><strong>画面の見方</strong>:<ul>
+<li>競合が発生すると、ダッシュボード最上部に目立つ赤色グラデーションの <strong>「🚨 IPアドレス競合を検知しました！」</strong> バナーが表示されます。</li>
+<li>バナーには「競合しているIPアドレス」「登録MACアドレス」「新しく応答してきたMACアドレス」が表示されます。</li>
+<li>該当機器のカードにも <strong>「🚨 IP競合」</strong> バッジが表示され、カード全体が赤くハイライトされます。</li>
+</ul>
+</li>
+<li><strong>対処手順</strong>:<ol>
+<li>警告バナーに表示された「検出MACアドレス」を確認します。</li>
+<li>スイッチのMACアドレステーブルや端末の物理アドレスと照合し、誤って同じIPを設定してしまった端末（持ち込みPCやプリンター等）を特定します。</li>
+<li>誤設定された端末のIPアドレスを正しい値（またはDHCP自動取得）に変更します。</li>
+<li>通信が正常に戻ると、システムが自動判定して数秒〜十数秒で警告バナーおよびカードのハイライトが自動消去されます。</li>
+</ol>
+</li>
+</ul>
+<h3 id="6-️-フロントエンド切断検知シームレス再接続uiレジリエンス">6. 🛡️ フロントエンド切断検知＆シームレス再接続（UIレジリエンス）</h3>
+<ul>
+<li><strong>概要</strong>: 監視運用中にPCスリープや一時的なネットワーク瞬断が発生しても、監視画面が固まったり壊れたりせず、自動的に安全待機および復旧する高可用性UI機構です。</li>
+<li><strong>特徴と動作</strong>:<ul>
+<li><strong>切断バナー表示</strong>: 3回連続で通信が遮断されると、最上部に <code>#network-offline-banner</code> が表示され、手動再接続ボタン（<code>#btn-banner-reconnect</code>）が提供されます。</li>
+<li><strong>シームレス自動復帰</strong>: サーバーが回復するとバナーが消滅し、<code>✅ サーバーとの再接続が完了しました</code> トーストが表示されて即座に監視を再開します。</li>
+<li><strong>常時監視向け描画チューニング</strong>: トポロジー図の30 FPS間引き制御と Chart.js の <code>.update(&#39;none&#39;)</code> による高速描画により、長期間画面を開きっぱなしにしてもメモリリークや動作遅延が起きません。</li>
+</ul>
+</li>
+</ul>
+<h3 id="7-️-24時間365日-常時無人連続稼働モードブラウザ切断時自動停止の解除">7. ⏱️ 24時間365日 常時無人連続稼働モード（ブラウザ切断時自動停止の解除）</h3>
+<ul>
+<li><strong>概要</strong>: サーバールームや監視専用端末で、ブラウザ画面を閉じた状態でもバックグラウンドで休まず死活監視・ログ記録を続けさせるためのエンタープライズ連続運用機能です。</li>
+<li><strong>わかりやすい例え</strong>:
+一般家庭のテレビで例えると「リモコンの電源連動機能（見ている人がいなくなったらテレビ本体の主電源も落とす）」に似ています。初期設定（<code>autoShutdownOnDisconnect: true</code>）では、画面からの定期的な合図（ハートビート）が途絶えると、PCの通信やCPU負荷を抑えるために監視サーバーも自動的に安全終了します。
+無人運用モード（<code>autoShutdownOnDisconnect: false</code>）に設定すると、この連動が解除され、画面を閉じてもパソコンが起動している限り、バックグラウンドの監視スレッドが自律してPing監視とログ保存を休まず継続します。</li>
+<li><strong>設定手順</strong>:<ul>
+<li><code>system/config.json</code> 内の <code>&quot;autoShutdownOnDisconnect&quot;: false</code> に設定して上書き保存します。</li>
+<li>または、起動前に環境変数 <code>NETWORK_MONITOR_AUTOSHUTDOWN=false</code> を指定するか、Web画面の設定（<code>/api/config</code>）から切り替えることも可能です。</li>
+</ul>
+</li>
+<li><strong>耐障害性保証</strong>:<ul>
+<li>監視ループは、監視対象のネットワーク切断やソケット例外（SocketException / TimeoutException）が発生しても、Runspace が落ちずに自律回復して監視ループ（<code>LastPingLoopUtc</code>）を進め続ける例外安全設計となっています。</li>
+</ul>
+</li>
+</ul>
+</main>
+</div>
+<script>
+// 読んでいる章を目次で強調し、ページ先頭へ戻るボタンを出す (印刷やスクリプト無効でも本文は読める)
+(function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+    var targets = links.map(function (a) {
+        return { link: a, el: document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))) };
+    }).filter(function (t) { return t.el; });
+    var topBtn = document.createElement('button');
+    topBtn.className = 'to-top';
+    topBtn.type = 'button';
+    topBtn.textContent = '↑';
+    topBtn.title = 'ページの先頭へ';
+    topBtn.setAttribute('aria-label', 'ページの先頭へ');
+    topBtn.addEventListener('click', function () { window.scrollTo(0, 0); });
+    document.body.appendChild(topBtn);
+
+    function update() {
+        var current = null;
+        targets.forEach(function (t) { if (t.el.getBoundingClientRect().top <= 80) current = t; });
+        links.forEach(function (a) { a.classList.remove('current'); });
+        if (current) current.link.classList.add('current');
+        topBtn.classList.toggle('show', window.scrollY > 600);
+    }
+    window.addEventListener('scroll', update, { passive: true });
+    update();
+
+    // スマートフォンの幅では目次を閉じ、広い幅では開いておく (画面の幅が変わったときも合わせる)
+    var narrow = window.matchMedia('(max-width: 900px)');
+    function syncToc() { document.querySelector('.toc details').open = !narrow.matches; }
+    narrow.addEventListener('change', syncToc);
+    syncToc();
+})();
+</script>
+</body>
+</html>

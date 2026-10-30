@@ -12,7 +12,7 @@
 # ==============================================================================
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = (Resolve-Path (Join-Path $here "..")).Path
+$projectRoot = (Resolve-Path (Join-Path $here "..\..")).Path
 $moduleDir = Join-Path $projectRoot "system\modules"
 $reportsDir = Join-Path $projectRoot "Reports"
 

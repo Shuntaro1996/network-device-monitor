@@ -327,9 +327,7 @@ function Save-DevicesJson {
                 x             = $posX
                 y             = $posY
                 mac           = if ($syncHash.Mac -and $syncHash.Mac.ContainsKey($ip)) { $syncHash.Mac[$ip] } else { "" }
-                location      = if ($syncHash.Location -and $syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "" }
                 vendorContact = if ($syncHash.VendorContact -and $syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "" }
-                troubleMemo   = if ($syncHash.TroubleMemo -and $syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" }
                 deviceType    = if ($syncHash.DeviceType -and $syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" }
                 webUrl        = if ($syncHash.WebUrl -and $syncHash.WebUrl.ContainsKey($ip)) { $syncHash.WebUrl[$ip] } else { "" }
                 checkType     = if ($syncHash.CheckType -and $syncHash.CheckType.ContainsKey($ip)) { $syncHash.CheckType[$ip] } else { "icmp" }

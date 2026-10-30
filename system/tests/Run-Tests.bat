@@ -15,7 +15,7 @@ set TEST_EXIT=%errorlevel%
 
 if %TEST_EXIT% neq 0 (
     echo.
-    echo [ERROR] 自動テストで失敗が検出されました (終了コード: %TEST_EXIT%)。
+    echo [ERROR] 自動テストで失敗が検出されました (終了コード: %TEST_EXIT%^)。
     if "%CI%"=="" if not "%~1"=="-NoPause" pause
     exit /b %TEST_EXIT%
 )

@@ -117,10 +117,8 @@ $syncHash.Stats = [hashtable]::Synchronized(@{})
 $syncHash.Mac = [hashtable]::Synchronized(@{})  # MAC addresses
 $syncHash.SnmpDetail = [hashtable]::Synchronized(@{})  # link speed, neighbors, wifi band
     
-# Memo & Location & Web extensions
-$syncHash.Location = [hashtable]::Synchronized(@{})
+# Contact & Web extensions
 $syncHash.VendorContact = [hashtable]::Synchronized(@{})
-$syncHash.TroubleMemo = [hashtable]::Synchronized(@{})
 $syncHash.DeviceType = [hashtable]::Synchronized(@{}) # network, web, server, etc.
 $syncHash.WebUrl = [hashtable]::Synchronized(@{})
 $syncHash.SslExpiryDays = [hashtable]::Synchronized(@{})
@@ -630,9 +628,7 @@ Write-Host "[ERROR] devices.json and all snapshots are unreadable. Device saving
                     $syncHash.X[$ip] = if ($null -ne $d.x) { $d.x } else { $null }
                     $syncHash.Y[$ip] = if ($null -ne $d.y) { $d.y } else { $null }
                     $syncHash.Mac[$ip] = if ($null -ne $d.mac) { [string]$d.mac } else { "" }
-                    $syncHash.Location[$ip] = if ($null -ne $d.location) { [string]$d.location } else { "" }
                     $syncHash.VendorContact[$ip] = if ($null -ne $d.vendorContact) { [string]$d.vendorContact } else { "" }
-                    $syncHash.TroubleMemo[$ip] = if ($null -ne $d.troubleMemo) { [string]$d.troubleMemo } else { "" }
                     $syncHash.DeviceType[$ip] = if ($null -ne $d.deviceType) { [string]$d.deviceType } else { "network" }
                     $syncHash.WebUrl[$ip] = if ($null -ne $d.webUrl) { [string]$d.webUrl } else { "" }
                     $syncHash.CheckType[$ip] = if ($null -ne $d.checkType) { [string]$d.checkType } else { "icmp" }
@@ -735,9 +731,7 @@ $saveDevicesJsonScript = {
                     x             = if ($syncHash.X.ContainsKey($ip)) { $syncHash.X[$ip] } else { $null }
                     y             = if ($syncHash.Y.ContainsKey($ip)) { $syncHash.Y[$ip] } else { $null }
                     mac           = if ($syncHash.Mac.ContainsKey($ip)) { $syncHash.Mac[$ip] } else { "" }
-                    location      = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "" }
                     vendorContact = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "" }
-                    troubleMemo   = if ($syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" }
                     deviceType    = if ($syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" }
                     webUrl        = if ($syncHash.WebUrl.ContainsKey($ip)) { $syncHash.WebUrl[$ip] } else { "" }
                     checkType     = if ($syncHash.CheckType.ContainsKey($ip)) { $syncHash.CheckType[$ip] } else { "icmp" }
@@ -2992,9 +2986,7 @@ function Set-DeviceRecordInSyncHash($d) {
     $syncHash.X[$ip] = if ($null -ne $d.x) { $d.x } else { $null }
     $syncHash.Y[$ip] = if ($null -ne $d.y) { $d.y } else { $null }
     $syncHash.Mac[$ip] = if ($null -ne $d.mac) { [string]$d.mac } else { "" }
-    $syncHash.Location[$ip] = if ($null -ne $d.location) { [string]$d.location } else { "" }
     $syncHash.VendorContact[$ip] = if ($null -ne $d.vendorContact) { [string]$d.vendorContact } else { "" }
-    $syncHash.TroubleMemo[$ip] = if ($null -ne $d.troubleMemo) { [string]$d.troubleMemo } else { "" }
     $syncHash.DeviceType[$ip] = if ($null -ne $d.deviceType) { [string]$d.deviceType } else { "network" }
     $syncHash.WebUrl[$ip] = if ($null -ne $d.webUrl) { [string]$d.webUrl } else { "" }
     $syncHash.CheckType[$ip] = if ($d.checkType) { [string]$d.checkType } else { "icmp" }
@@ -3258,9 +3250,7 @@ try {
                                 x             = if ($syncHash.X.ContainsKey($ip)) { $syncHash.X[$ip] } else { $null }
                                 y             = if ($syncHash.Y.ContainsKey($ip)) { $syncHash.Y[$ip] } else { $null }
                                 mac           = if ($syncHash.Mac.ContainsKey($ip)) { $syncHash.Mac[$ip] } else { "" }
-                                location      = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "" }
                                 vendorContact = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "" }
-                                troubleMemo   = if ($syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" }
                                 deviceType    = if ($syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" }
                                 webUrl        = if ($syncHash.WebUrl.ContainsKey($ip)) { $syncHash.WebUrl[$ip] } else { "" }
                                 checkType     = if ($syncHash.CheckType.ContainsKey($ip)) { $syncHash.CheckType[$ip] } else { "icmp" }
@@ -3402,9 +3392,7 @@ try {
                             if ($syncHash.ConnectedTo.ContainsKey($ipToRemove)) { $syncHash.ConnectedTo.Remove($ipToRemove) }
                             if ($syncHash.History.ContainsKey($ipToRemove)) { $syncHash.History.Remove($ipToRemove) }
                             
-                            if ($syncHash.Location.ContainsKey($ipToRemove)) { $syncHash.Location.Remove($ipToRemove) }
                             if ($syncHash.VendorContact.ContainsKey($ipToRemove)) { $syncHash.VendorContact.Remove($ipToRemove) }
-                            if ($syncHash.TroubleMemo.ContainsKey($ipToRemove)) { $syncHash.TroubleMemo.Remove($ipToRemove) }
                             if ($syncHash.DeviceType.ContainsKey($ipToRemove)) { $syncHash.DeviceType.Remove($ipToRemove) }
                             if ($syncHash.WebUrl.ContainsKey($ipToRemove)) { $syncHash.WebUrl.Remove($ipToRemove) }
                             if ($syncHash.CheckType.ContainsKey($ipToRemove)) { $syncHash.CheckType.Remove($ipToRemove) }
@@ -3524,9 +3512,7 @@ try {
                             $syncHash.SnmpPrivPass[$ip] = $snmpPrivPass
                             $syncHash.ObrEnabled[$ip] = [bool]$payload.obrEnabled
                             $syncHash.ObrPassword[$ip] = if ($payload.obrPassword) { Protect-SecretString ([string]$payload.obrPassword) } else { "" }
-                            $syncHash.Location[$ip] = if ($null -ne $payload.location) { [string]$payload.location } else { "" }
                             $syncHash.VendorContact[$ip] = if ($null -ne $payload.vendorContact) { [string]$payload.vendorContact } else { "" }
-                            $syncHash.TroubleMemo[$ip] = if ($null -ne $payload.troubleMemo) { [string]$payload.troubleMemo } else { "" }
                             $syncHash.DeviceType[$ip] = if ($null -ne $payload.deviceType) { [string]$payload.deviceType } else { "network" }
                             $syncHash.WebUrl[$ip] = if ($null -ne $payload.webUrl) { [string]$payload.webUrl } else { "" }
                             $syncHash.CheckType[$ip] = if ($null -ne $payload.checkType) { [string]$payload.checkType } else { "icmp" }
@@ -4109,10 +4095,8 @@ try {
                                     $privProto = & $bulkField 'snmpPrivProto' $syncHash.SnmpPrivProto "none"
                                     if ([string]::IsNullOrWhiteSpace($privProto)) { $privProto = "none" }
                                     $privPass = if ($null -ne $item.PSObject.Properties['snmpPrivPass']) { Unprotect-SecretString ([string]$item.snmpPrivPass) } elseif ($syncHash.SnmpPrivPass.ContainsKey($ip)) { $syncHash.SnmpPrivPass[$ip] } else { "" }
-                                    # 以前はこの API で設置場所・メモ等が保存されず、機器の新規登録画面で入力しても消えていた
-                                    $syncHash.Location[$ip] = & $bulkField 'location' $syncHash.Location ""
+                                    # 以前はこの API で保守連絡先等が保存されず、機器の新規登録画面で入力しても消えていた
                                     $syncHash.VendorContact[$ip] = & $bulkField 'vendorContact' $syncHash.VendorContact ""
-                                    $syncHash.TroubleMemo[$ip] = & $bulkField 'troubleMemo' $syncHash.TroubleMemo ""
                                     $syncHash.DeviceType[$ip] = & $bulkField 'deviceType' $syncHash.DeviceType "network"
                                     $syncHash.WebUrl[$ip] = & $bulkField 'webUrl' $syncHash.WebUrl ""
 
@@ -4612,7 +4596,7 @@ $isNew = $true
 
                         # 送信されなかった項目は既存値を維持する
                         # (構成図のリンク追加・削除などは一部の項目だけを送るため、既定値で上書きすると
-                        #  SNMPv3認証情報・設置場所・メモ等が消えてしまう)
+                        #  SNMPv3認証情報・保守連絡先等が消えてしまう)
                         $hasField = { param($n) $null -ne $payload.PSObject.Properties[$n] }
                         $prevValue = { param($table, $default) if ($null -ne $table -and $table.ContainsKey($oldIp)) { $table[$oldIp] } else { $default } }
 
@@ -4625,9 +4609,7 @@ $isNew = $true
                         $snmpPrivPass = if (& $hasField 'snmpPrivPass') { if ($payload.snmpPrivPass) { Unprotect-SecretString ([string]$payload.snmpPrivPass) } else { "" } } else { & $prevValue $syncHash.SnmpPrivPass "" }
                         $obrEnabledVal = if (& $hasField 'obrEnabled') { [bool]$payload.obrEnabled } else { [bool](& $prevValue $syncHash.ObrEnabled $false) }
                         $obrPasswordVal = if (& $hasField 'obrPassword') { if ($payload.obrPassword) { Protect-SecretString ([string]$payload.obrPassword) } else { "" } } else { & $prevValue $syncHash.ObrPassword "" }
-                        $locationVal = if (& $hasField 'location') { [string]$payload.location } else { & $prevValue $syncHash.Location "" }
                         $vendorContactVal = if (& $hasField 'vendorContact') { [string]$payload.vendorContact } else { & $prevValue $syncHash.VendorContact "" }
-                        $troubleMemoVal = if (& $hasField 'troubleMemo') { [string]$payload.troubleMemo } else { & $prevValue $syncHash.TroubleMemo "" }
                         $deviceTypeVal = if (& $hasField 'deviceType') { [string]$payload.deviceType } else { & $prevValue $syncHash.DeviceType "network" }
                         $webUrlVal = if (& $hasField 'webUrl') { [string]$payload.webUrl } else { & $prevValue $syncHash.WebUrl "" }
                         # 監視方式 (ICMP / TCP) とポート: 以前は編集APIで反映されず、画面で変更しても保存されなかった
@@ -4740,9 +4722,7 @@ $isNew = $true
                             $syncHash.ObrEnabled[$newIp] = $obrEnabledVal
                             $syncHash.ObrPassword[$newIp] = $obrPasswordVal
 
-                            $syncHash.Location[$newIp] = $locationVal
                             $syncHash.VendorContact[$newIp] = $vendorContactVal
-                            $syncHash.TroubleMemo[$newIp] = $troubleMemoVal
                             $syncHash.DeviceType[$newIp] = $deviceTypeVal
                             $syncHash.WebUrl[$newIp] = $webUrlVal
                             $syncHash.CheckType[$newIp] = $checkTypeVal
@@ -4777,9 +4757,7 @@ $isNew = $true
                             }
 
                             if ($oldIp -ne $newIp) {
-                                if ($syncHash.Location.ContainsKey($oldIp)) { $syncHash.Location.Remove($oldIp) }
                                 if ($syncHash.VendorContact.ContainsKey($oldIp)) { $syncHash.VendorContact.Remove($oldIp) }
-                                if ($syncHash.TroubleMemo.ContainsKey($oldIp)) { $syncHash.TroubleMemo.Remove($oldIp) }
                                 if ($syncHash.DeviceType.ContainsKey($oldIp)) { $syncHash.DeviceType.Remove($oldIp) }
                                 if ($syncHash.WebUrl.ContainsKey($oldIp)) { $syncHash.WebUrl.Remove($oldIp) }
                                 if ($syncHash.CheckType.ContainsKey($oldIp)) { $syncHash.CheckType.Remove($oldIp) }
@@ -4957,7 +4935,7 @@ $isNew = $true
                                 foreach ($item in $validPayload) {
                                     # 同じIPが複数行あると、同じ機器が二重に監視・表示されるため最初の1件だけ使う
                                     if ($newArr.Contains(([string]$item.ip).Trim())) { continue }
-                                    # 起動時と同じ全項目を読み込む (以前は監視方式・ポート・メモ・設置場所等が読み込まれず消えていた)
+                                    # 起動時と同じ全項目を読み込む (以前は監視方式・ポート・保守連絡先等が読み込まれず消えていた)
                                     $ip = Set-DeviceRecordInSyncHash $item
                                     if (-not $ip) { continue }
                                     $newArr.Add($ip)
@@ -5589,7 +5567,7 @@ sslWarnDays              = $syncHash.SslWarnDays
                             $normalizedData = foreach ($r in $rawRows) {
                                 $ts = if ($r.Timestamp) { $r.Timestamp } elseif ($r.'タイムスタンプ') { $r.'タイムスタンプ' } else { "" }
                                 $lat = if ($null -ne $r.Latency_ms -and $r.Latency_ms -ne "") { $r.Latency_ms } elseif ($null -ne $r.'遅延_ms' -and $r.'遅延_ms' -ne "") { $r.'遅延_ms' } else { "0" }
-                                $tx = if ($null -ne $r.Tx_Mbps -and $r.Tx_Mbps -ne "") { $r.Tx_Mbps } elseif ($null -ne $r.'送信_Mbps' -and $r.'送信_Mbps' -ne "") { $r.'送信_Mbps' } elseif ($null -ne $r.'帯域_Mbps' -and $r.'帯域_Mbps' -ne "") { $r.'帯域_Mbps' } else { "0" }
+                                $tx = if ($null -ne $r.Tx_Mbps -and $r.Tx_Mbps -ne "") { $r.Tx_Mbps } elseif ($null -ne $r.'送信_Mbps' -and $r.'送信_Mbps' -ne "") { $r.'送信_Mbps' } else { "0" }
                                 $rx = if ($null -ne $r.Rx_Mbps -and $r.Rx_Mbps -ne "") { $r.Rx_Mbps } elseif ($null -ne $r.'受信_Mbps' -and $r.'受信_Mbps' -ne "") { $r.'受信_Mbps' } else { "0" }
                                 
                                 [PSCustomObject]@{
@@ -6716,7 +6694,6 @@ sslWarnDays              = $syncHash.SslWarnDays
                         
                         # Generate config snapshot (SNMP system metadata, interface details, and running parameters)
                         $devName = if ($syncHash.DeviceName.ContainsKey($ip)) { $syncHash.DeviceName[$ip] } else { $ip }
-                        $loc = if ($syncHash.Location.ContainsKey($ip)) { $syncHash.Location[$ip] } else { "N/A" }
                         $vendor = if ($syncHash.VendorContact.ContainsKey($ip)) { $syncHash.VendorContact[$ip] } else { "N/A" }
                         $snmpD = if ($syncHash.SnmpDetail.ContainsKey($ip)) { $syncHash.SnmpDetail[$ip] } else { @{} }
                         
@@ -6725,7 +6702,6 @@ sslWarnDays              = $syncHash.SslWarnDays
  Network Device Configuration & Inventory Snapshot
  Device: $devName ($ip)
  Timestamp: $((Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
- Location: $loc
  Vendor Contact: $vendor
 ================================================================================
 [SYSTEM_INFORMATION]
@@ -6733,9 +6709,7 @@ Hostname: $devName
 IP Address: $ip
 MAC Address: $(if ($syncHash.Mac.ContainsKey($ip)) { $syncHash.Mac[$ip] } else { "Unknown" })
 Device Type: $(if ($syncHash.DeviceType.ContainsKey($ip)) { $syncHash.DeviceType[$ip] } else { "network" })
-Location: $loc
 Vendor Contact: $vendor
-Trouble Memo: $(if ($syncHash.TroubleMemo.ContainsKey($ip)) { $syncHash.TroubleMemo[$ip] } else { "" })
 
 [SNMP_CONFIGURATION]
 SNMP Version: $(if ($syncHash.SnmpVersion.ContainsKey($ip)) { $syncHash.SnmpVersion[$ip] } else { "v2c" })

@@ -3,7 +3,7 @@
 # ==============================================================================
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Resolve-Path (Join-Path $here "..")
+$projectRoot = Resolve-Path (Join-Path $here "..\..")
 $moduleDir = Join-Path $projectRoot "system\modules"
 
 # モジュールのインポート
@@ -110,18 +110,24 @@ Describe "4. Iperf エラーログ除外 (ReportGenerator.psm1 / Clean-IperfLogL
         $hasData | Should Not BeNullOrEmpty
     }
 
-    It "Measure-Bandwidth.ps1 は -UseIperf3 を指定しない場合は iperf3 を勝手に実行せず RTT 推定を行うこと" {
-        $bwScript = Join-Path $projectRoot "system\Measure-Bandwidth.ps1"
-        $output = & $bwScript -IpList "127.0.0.1" -NoCsv -NoReport *>&1 | Out-String
-        $output | Should Match "RTT Estimate"
-        $output | Should Not Match "Running iperf3"
-    }
-
     It "Ping の応答時間から計算した帯域を監視画面に出さないこと" {
         $server = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\Server.ps1"), [System.Text.Encoding]::UTF8)
         $app = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\public\app.js"), [System.Text.Encoding]::UTF8)
         $server | Should Not Match 'syncHash\.Bandwidth'
-        $app | Should Not Match '(data|statusData|fromStatus)\.bandwidth'
+        $app | Should Not Match '(data|statusData|fromStatus)\.bandwidth|帯域_Mbps'
+    }
+
+    It "設置場所とトラブル対応マニュアルの項目を持たないこと" {
+        $server = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\Server.ps1"), [System.Text.Encoding]::UTF8)
+        $html = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\public\index.html"), [System.Text.Encoding]::UTF8)
+        $app = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\public\app.js"), [System.Text.Encoding]::UTF8)
+        $common = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\modules\Common.psm1"), [System.Text.Encoding]::UTF8)
+        $report = [System.IO.File]::ReadAllText((Join-Path $projectRoot "system\modules\ReportGenerator.psm1"), [System.Text.Encoding]::UTF8)
+        $server | Should Not Match 'syncHash\.(Location|TroubleMemo)'
+        $common | Should Not Match 'syncHash\.(Location|TroubleMemo)'
+        $report | Should Not Match 'sync\.(Location|TroubleMemo)'
+        $app | Should Not Match 'device\.location|troubleMemo'
+        $html | Should Not Match 'dev-location|dev-trouble-memo|snmp-tab-memo'
     }
 }
 
@@ -562,8 +568,6 @@ Describe "12. 長時間・高頻度稼働時のログ記録・ローテーショ
                 Stats = @{ "192.168.1.10" = @{ Total = 72000; Success = 72000; Failed = 0; MinLat = 3; MaxLat = 9; SumLat = 360000; LatCount = 72000; MaxOutageSec = 0; Outage600msCount = 0; Outage5sCount = 0; JitterSum = 57600; JitterCount = 72000 } }
                 DeviceName = @{ "192.168.1.10" = "CoreRouter" }
                 Group = @{ "192.168.1.10" = "Core" }
-                Location = @{ "192.168.1.10" = "1F" }
-                TroubleMemo = @{}
                 PollInterval = 100
                 HighFreqTargetIps = "192.168.1.10"
             }
@@ -599,8 +603,6 @@ Describe "12. 長時間・高頻度稼働時のログ記録・ローテーショ
                 Stats = @{ "192.168.1.50" = @{ Total = 3; Success = 3; Failed = 0; MinLat = 2; MaxLat = 6; SumLat = 12; LatCount = 3; MaxOutageSec = 0; Outage600msCount = 0; Outage5sCount = 0; JitterSum = 1.2; JitterCount = 3 } }
                 DeviceName = @{ "192.168.1.50" = "Switch50" }
                 Group = @{ "192.168.1.50" = "Floor" }
-                Location = @{ "192.168.1.50" = "2F" }
-                TroubleMemo = @{}
                 PollInterval = 100
                 HighFreqTargetIps = "192.168.1.50"
             }

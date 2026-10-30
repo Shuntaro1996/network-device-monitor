@@ -25,10 +25,10 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
 - テストは Pester 3.4.0 で、Windows PowerShell 5.1（`powershell.exe`）を使って実行する。
   - pwsh 7 では一部が動かない（例：`Add-Type -OutputType ConsoleApplication`）。
   - PowerShell ツールは pwsh 7 で動くため、`powershell.exe` を明示的に呼ぶ。
-- 全体のテスト：`tests\Run-Tests.bat`。E2E と UI のテストは `-All`、`-IncludeE2E`、`-IncludeUI` を付けたときだけ実行される。
+- 全体のテスト：`system\tests\Run-Tests.bat`。E2E のテストは標準で実行される。UI のテストは `-All` か `-IncludeUI` を付けたときだけ実行される。
 - 個別のテスト：
   ```
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'Import-Module Pester -RequiredVersion 3.4.0; Invoke-Pester -Script tests\RemoteExec.Tests.ps1 -PassThru -Quiet'
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'Import-Module Pester -RequiredVersion 3.4.0; Invoke-Pester -Script system\tests\RemoteExec.Tests.ps1 -PassThru -Quiet'
   ```
 - この PC ではアプリ制御（Smart App Control）が、生成した exe の実行をブロックする。テストでは exe をコンパイルして起動せず、`Add-Type` による P/Invoke などメモリ内で完結する方法を使う。
 
@@ -36,7 +36,7 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
 
 - `.ps1` / `.psm1` は **UTF-8 BOM 付き** にする。`system/Ensure-Utf8Bom.ps1` と `Run-Tests.ps1` が BOM の有無を検査・付与する。新しいファイルにも BOM を付けること。
 - `.bat` は **Shift_JIS（CP932）** で、先頭で `chcp 932` を実行している。UTF-8 で保存し直さないこと。
-- 改行コードはファイルごとに異なる。例：`Server.ps1` と `利用手順書.md` は CRLF、`RemoteExec.psm1` は LF。編集するときは既存の改行コードに合わせる。
+- 改行コードはファイルごとに異なる。例：`Server.ps1` と `利用手順書.html` は CRLF、`RemoteExec.psm1` は LF。編集するときは既存の改行コードに合わせる。
 
 ## セキュリティ上の前提（変更時に崩さないこと）
 
@@ -46,5 +46,7 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
 
 ## 作業上の注意
 
-- 仕様・機能を変更したら、`README.md` / `system/SPECIFICATION.md` / `利用手順書.md` を同時に更新する（GEMINI.md の §2）。
+- 仕様・機能を変更したら、`README.md` / `system/SPECIFICATION.md` / `利用手順書.html` を同時に更新する（GEMINI.md の §2）。
+- `利用手順書.html` はビルド工程のない 1 枚の HTML なので、直接編集する（CSS と JS もファイル内に含まれ、外部ファイルは読み込まない）。
+- プロジェクト直下には、利用者が使うもの（`Start-Monitor.bat` / `Stop-All.bat` / `利用手順書.html` / `Reports/`）と、ツールや GitHub が直下を前提とするもの（`README.md` / `LICENSE` / `CLAUDE.md` / `GEMINI.md` / `.gitignore`）だけを置く。それ以外は `system/` に入れる。
 - コード内のコメントは日本語で、「初心者向けの簡単な解説」という既存のスタイルに合わせる。

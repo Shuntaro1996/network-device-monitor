@@ -492,14 +492,10 @@ return 'http://' + u;
             if (devEnabledInput) devEnabledInput.checked = device.enabled !== false;
             if (submitDeviceBtn) submitDeviceBtn.textContent = '機器情報を更新';
 
-            const devLocEl = document.getElementById('dev-location');
-            const devMemoEl = document.getElementById('dev-trouble-memo');
             const devWebEl = document.getElementById('dev-web-url');
             const devCheckTypeEl = document.getElementById('dev-check-type');
             const devPortEl = document.getElementById('dev-port');
             const devPortGroup = document.getElementById('dev-tcp-port-group');
-            if (devLocEl) devLocEl.value = device.location || '';
-            if (devMemoEl) devMemoEl.value = device.troubleMemo || '';
             if (devWebEl) devWebEl.value = device.webUrl || '';
             if (devCheckTypeEl) {
                 devCheckTypeEl.value = device.checkType || 'icmp';
@@ -583,14 +579,10 @@ return 'http://' + u;
             if (devEnabledInput) devEnabledInput.checked = true;
             if (submitDeviceBtn) submitDeviceBtn.textContent = '機器を保存';
 
-            const devLocEl = document.getElementById('dev-location');
-            const devMemoEl = document.getElementById('dev-trouble-memo');
             const devWebEl = document.getElementById('dev-web-url');
             const devCheckTypeEl = document.getElementById('dev-check-type');
             const devPortEl = document.getElementById('dev-port');
             const devPortGroup = document.getElementById('dev-tcp-port-group');
-            if (devLocEl) devLocEl.value = '';
-            if (devMemoEl) devMemoEl.value = '';
             if (devWebEl) devWebEl.value = '';
             if (devCheckTypeEl) devCheckTypeEl.value = 'icmp';
             if (devPortGroup) devPortGroup.classList.add('hidden');
@@ -2872,8 +2864,6 @@ return 'http://' + u;
                 newIp: newIp,
                 name: newName,
                 group: devGroupInput ? devGroupInput.value.trim() : "",
-                location: document.getElementById('dev-location') ? document.getElementById('dev-location').value.trim() : "",
-                troubleMemo: document.getElementById('dev-trouble-memo') ? document.getElementById('dev-trouble-memo').value.trim() : "",
                 webUrl: document.getElementById('dev-web-url') ? document.getElementById('dev-web-url').value.trim() : "",
                 checkType: document.getElementById('dev-check-type') ? document.getElementById('dev-check-type').value : "icmp",
                 port: document.getElementById('dev-port') ? parseInt(document.getElementById('dev-port').value, 10) || 0 : 0,
@@ -2918,8 +2908,6 @@ return 'http://' + u;
             ip: ip,
             name: name,
             group: devGroupInput ? devGroupInput.value.trim() : "",
-            location: document.getElementById('dev-location') ? document.getElementById('dev-location').value.trim() : "",
-            troubleMemo: document.getElementById('dev-trouble-memo') ? document.getElementById('dev-trouble-memo').value.trim() : "",
             webUrl: document.getElementById('dev-web-url') ? document.getElementById('dev-web-url').value.trim() : "",
             checkType: document.getElementById('dev-check-type') ? document.getElementById('dev-check-type').value : "icmp",
             port: document.getElementById('dev-port') ? parseInt(document.getElementById('dev-port').value, 10) || 0 : 0,
@@ -4803,6 +4791,8 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
             if (rx === 0 && toStatus.tx && !isNaN(parseFloat(toStatus.tx))) rx = parseFloat(toStatus.tx);
         }
         const totalMbps = tx + rx;
+        // 通信量を実際に読み取れたか (読み取れて 0 Mbps の場合と、読み取れない場合を画面で区別するため)
+        const hasTraffic = [fromStatus?.tx, fromStatus?.rx, toStatus?.tx].some(v => !isNaN(parseFloat(v)));
 
         if (isOffline) {
             return {
@@ -4816,7 +4806,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 color: { color: '#f59e0b', highlight: '#fbbf24', hover: '#fde047' },
                 width: 3.0,
                 dashes: isWireless ? [4, 4] : false,
-                tx, rx, totalMbps, isOffline: false
+                tx, rx, totalMbps, hasTraffic, isOffline: false
             };
         } else {
             // Dynamic traffic heatmap coloring on edges (cyan/blue -> green -> orange -> magenta)
@@ -4852,7 +4842,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 color: { color: edgeColor, highlight: hlColor, hover: hvColor },
                 width: edgeWidth,
                 dashes: isWireless ? [6, 4] : false,
-                tx, rx, totalMbps, isOffline: false
+                tx, rx, totalMbps, hasTraffic, isOffline: false
             };
         }
     }
@@ -5552,8 +5542,11 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                     badgeText = `↑${formatMbps(tx)} / ↓${formatMbps(rx)}`;
                 } else if (totalMbps > 0) {
                     badgeText = `↑${formatMbps(totalMbps)}`;
-                } else {
+                } else if (estyle.hasTraffic) {
                     badgeText = '↑0M / ↓0M';
+                } else {
+                    // SNMP がない機器など、通信量を読み取れない線
+                    badgeText = '↑- / ↓-';
                 }
 
                 ctx.save();
@@ -7298,9 +7291,7 @@ const activeDevices = devices.filter(d => d.enabled !== false);
         { key: 'port', label: 'ポート' },
         { key: 'community', label: 'コミュニティ名' },
         { key: 'connectedTo', label: '接続先' },
-        { key: 'location', label: '設置場所' },
         { key: 'vendorContact', label: '保守連絡先' },
-        { key: 'troubleMemo', label: 'マニュアル' },
         { key: 'webUrl', label: '管理画面URL' },
         { key: 'deviceType', label: '機器種別' },
         { key: 'snmpVersion', label: 'SNMPバージョン' },
@@ -7706,8 +7697,10 @@ return toCsvCell(d[c.key]);
                     return `${dt.getHours()}:${String(dt.getMinutes()).padStart(2,'0')}`;
                 });
                 const latencyData = json.data.map(d => parseFloat(d.Latency_ms || d['遅延_ms']) || 0);
-                const txData = json.data.map(d => parseFloat(d.Tx_Mbps || d['送信_Mbps'] || d['帯域_Mbps']) || 0);
-                const rxData = json.data.map(d => parseFloat(d.Rx_Mbps || d['受信_Mbps']) || 0);
+                // 通信量を取得できなかった時刻 (「-」) は、通信が 0 だったように見えないよう線を引かない
+                const toMbpsOrGap = (value) => { const n = parseFloat(value); return Number.isNaN(n) ? null : n; };
+                const txData = json.data.map(d => toMbpsOrGap(d.Tx_Mbps || d['送信_Mbps']));
+                const rxData = json.data.map(d => toMbpsOrGap(d.Rx_Mbps || d['受信_Mbps']));
 
                 if (historyLatencyChart) historyLatencyChart.destroy();
                 if (historyTrafficChart) historyTrafficChart.destroy();
@@ -8249,7 +8242,7 @@ return toCsvCell(d[c.key]);
         });
     }
 
-    // 6. Update SNMP Modal Opening with Manual Link, Backup, and Remote Control (Milestone 2)
+    // 6. Update SNMP Modal Opening with Web URL, Backup, and Remote Control (Milestone 2)
     const originalOpenSnmpDetailsModal = openSnmpDetailsModal;
     openSnmpDetailsModal = async function(device) {
         if (typeof device === 'string') {
@@ -8257,25 +8250,13 @@ return toCsvCell(d[c.key]);
             device = found || { ip: device, name: device };
         }
         if (originalOpenSnmpDetailsModal) await originalOpenSnmpDetailsModal(device);
+
+        // SNMP の取得には時間がかかるので、待っている間に別の機器へ切り替えたり閉じたりしたら、ここで止める
+        // (止めないと、開いている機器の画面に前の機器の URL や操作先が表示されてしまう)
+        if (currentSnmpIp !== device.ip) return;
         
-        // Populate manual and location tab
-        const locEl = document.getElementById('modal-memo-location');
-        const webEl = document.getElementById('modal-memo-weburl');
-        const linkWrapper = document.getElementById('modal-memo-link-wrapper');
-        const linkEl = document.getElementById('modal-memo-link');
-        const emptyEl = document.getElementById('modal-memo-empty');
-        
-        if (locEl) locEl.textContent = device.location || '未登録';
+        const webEl = document.getElementById('snmp-webUrl');
         if (webEl) webEl.innerHTML = safeLinkUrl(device.webUrl) ? `<a href="${escapeHTML(safeLinkUrl(device.webUrl))}" target="_blank" rel="noopener noreferrer" style="color:var(--primary); text-decoration:underline;">${escapeHTML(device.webUrl)}</a>` : '—';
-        
-        if (device.troubleMemo && device.troubleMemo.trim()) {
-            if (linkEl) linkEl.href = safeLinkUrl(device.troubleMemo) || '#';
-            if (linkWrapper) linkWrapper.style.display = 'block';
-            if (emptyEl) emptyEl.style.display = 'none';
-        } else {
-            if (linkWrapper) linkWrapper.style.display = 'none';
-            if (emptyEl) emptyEl.style.display = 'block';
-        }
 
         // Load backup list
         loadConfigBackupList(device.ip);
@@ -8287,25 +8268,6 @@ return toCsvCell(d[c.key]);
         setupDeviceLogTabForDevice(device);
     };
     window.openSnmpDetailsModal = openSnmpDetailsModal;
-
-    // 7. Helper: Render simple mode memo badge into device cards
-    const originalRenderDeviceCard = typeof renderDeviceCard !== 'undefined' ? renderDeviceCard : null;
-    if (typeof originalRenderDeviceCard === 'function') {
-        renderDeviceCard = function(device) {
-            const card = originalRenderDeviceCard(device);
-            if (card && (device.location || device.troubleMemo)) {
-                const memoDiv = document.createElement('div');
-                memoDiv.className = 'simple-mode-memo-badge';
-                memoDiv.innerHTML = `
-                    ${device.location ? `<span>📍 <strong>${escapeHTML(device.location)}</strong></span>` : ''}
-                    ${safeLinkUrl(device.troubleMemo) ? `<span>📖 <a href="${escapeHTML(safeLinkUrl(device.troubleMemo))}" target="_blank" rel="noopener noreferrer" style="color:var(--primary); font-weight:600; text-decoration:underline;">マニュアル</a></span>` : ''}
-                `;
-                const content = card.querySelector('.device-card-content') || card;
-                content.appendChild(memoDiv);
-            }
-            return card;
-        };
-    }
 
     // =========================================================================
     // 8. Milestone 2: Remote Device Management & Execution Logic

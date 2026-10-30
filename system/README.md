@@ -43,7 +43,7 @@
 ```
 NetworkDeviceMonitor/
 ├── Start-Monitor.bat              # 起動スクリプト（管理者不要）
-├── 利用手順書.md                  # 現場運用者向けマニュアル
+├── 利用手順書.html                  # 現場運用者向けマニュアル
 ├── README.md                      # プロジェクト概要
 ├── LICENSE                        # MIT License
 ├── Reports/                       # 実行時ログ・CSVレポート出力先（自動生成）
@@ -51,7 +51,6 @@ NetworkDeviceMonitor/
 └── system/
     ├── README.md                  # ★本ドキュメント
     ├── Server.ps1                 # ★メインバックエンドサーバー（Runspace並列処理）
-    ├── Measure-Bandwidth.ps1      # SNMPによる帯域計算ロジック
     ├── Launcher.ps1               # 個別デバイス監視ランチャー
     ├── Monitor-SingleDevice.ps1   # 単体デバイス監視スクリプト
     ├── Start-BandwidthServer.ps1  # 帯域監視補助サーバー
@@ -145,7 +144,7 @@ powershell.exe -ExecutionPolicy Bypass -File "system\Server.ps1"
 │ Server.ps1 (メインプロセス)                                            │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
 │  │ $syncHash (スレッドセーフな Synchronized Hashtable)               │  │
-│  │ ・Devices, Status, Stats, Traffic, Bandwidth, Config, ...        │  │
+│  │ ・Devices, Status, Stats, Traffic, Config, ...                   │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 │                                                                        │
 │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │

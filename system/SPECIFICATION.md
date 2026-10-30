@@ -253,9 +253,7 @@ flowchart LR
     "x": 100.5,
     "y": -50.2,
     "mac": "00:11:22:33:44:55",
-    "location": "Server Room Rack A-1",
     "vendorContact": "Cisco Support: 0120-xxx-xxx",
-    "troubleMemo": "Gi0/1 is WAN uplink",
     "deviceType": "network",
     "webUrl": "https://192.168.1.1",
     "snmpVersion": "v2c",
@@ -281,9 +279,7 @@ flowchart LR
 | `connectedTo` | `string` | `""` | No | 親ノードのIPアドレス（カンマ区切りで複数指定可能）。トポロジー図でエッジを結ぶ |
 | `x`, `y` | `number` | `null` | No | トポロジー図上の固定座標（ドラッグ配置保存時） |
 | `mac` | `string` | `""` | No | 機器のMACアドレス |
-| `location` | `string` | `""` | No | 設置場所（ラック番号、部屋名など） |
 | `vendorContact` | `string` | `""` | No | ベンダー連絡先・保守契約番号 |
-| `troubleMemo` | `string` | `""` | No | トラブルシューティング用メモ・注意点 |
 | `deviceType` | `string` | `"network"` | No | 機器カテゴリ（`network`, `server`, `client`, `iot`, `power`） |
 | `webUrl` | `string` | `""` | No | 機器の管理GUI Web URL |
 | `snmpVersion` | `string` | `"v2c"` | No | SNMPバージョン（`"v1"`, `"v2c"`, `"v3"`） |
@@ -366,7 +362,6 @@ classDiagram
         +string timeFormatted
         +string tx (Mbps)
         +string rx (Mbps)
-        +string bandwidth
         +bool isSuppressed
         +string connectedTo
     }
@@ -631,7 +626,6 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
     "timeFormatted": "06:00:00",
     "tx": "45.2",
     "rx": "12.8",
-    "bandwidth": "45.2",
     "errors": {
       "1": { "inErr": 0, "outErr": 0, "inDisc": 0, "outDisc": 0, "dInErr": 0, "dOutErr": 0, "dInDisc": 0, "dOutDisc": 0 }
     },
@@ -683,9 +677,7 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
   "enabled": true,
   "image": "switch",
   "connectedTo": "192.168.1.1",
-  "location": "Rack B-2",
   "vendorContact": "03-xxxx-xxxx",
-  "troubleMemo": "VLAN 10,20 trunk",
   "deviceType": "network",
   "webUrl": "https://192.168.1.10"
 }
@@ -997,7 +989,7 @@ while ($syncHash.Running) {
 NetworkDeviceMonitor/
 ├── SPECIFICATION.md          # システム完全技術仕様書 (本書)
 ├── README.md                 # 簡易概要・クイックスタート
-├── 利用手順書.md             # エンドユーザー向け操作マニュアル
+├── 利用手順書.html             # エンドユーザー向け操作マニュアル
 ├── Start-Monitor.bat         # ワンクリック起動バッチ
 ├── Stop-All.bat              # Launcher.ps1 で開いた機器ごとの監視ウィンドウを一括終了 (.stop_signal を置く)
 ├── Reports/                  # 永続ログ・レポート保存先
@@ -1007,7 +999,6 @@ NetworkDeviceMonitor/
 └── system/                   # システムコアディレクトリ
     ├── Server.ps1            # バックエンドサーバー & 監視コアエンジン
     ├── Launcher.ps1          # 起動前ポート・権限チェッカー
-    ├── Measure-Bandwidth.ps1 # 帯域計測補助スクリプト
     ├── config.json           # システム設定ファイル
     ├── devices.json          # 監視対象機器リスト
     ├── iperf3.18_64/         # iperf3 実行バイナリ (64bit)

@@ -4,7 +4,7 @@
     このPCをiperf3サーバーとして起動し、他のPCからの帯域幅計測を受け付けます
 .DESCRIPTION
     iperf3をサーバーモードで起動します。
-    他のPCから Measure-Bandwidth.ps1 を実行すると、このPCとの帯域幅が計測されます。
+    他のPCの監視画面 (Iperf3 計測) や iperf3 コマンドから接続すると、このPCとの帯域幅が計測されます。
 .PARAMETER Port
     iperf3リッスンポート（デフォルト: 5201）
 .PARAMETER AddFirewallRule
@@ -100,8 +100,7 @@ Write-Host ""
 Write-Host "  リッスンポート: $Port" -ForegroundColor White
 Write-Host ""
 Write-Host "  別のPCから計測するには:" -ForegroundColor Yellow
-    $portArg = if ($Port -ne 5201) { " -IperfPort $Port" } else { "" }   # 標準以外のポートなら計測側にも指定が必要
-    Write-Host "  .\system\Measure-Bandwidth.ps1 -IpList `"<このPCのIP>`" -UseIperf3$portArg" -ForegroundColor White
+    Write-Host "  iperf3 -c <このPCのIP> -p $Port" -ForegroundColor White
 Write-Host ""
 Write-Host "  停止: Ctrl+C" -ForegroundColor Gray
 Write-Host "=====================================================" -ForegroundColor Cyan

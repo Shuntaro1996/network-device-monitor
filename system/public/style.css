@@ -1646,22 +1646,6 @@ body.simple-mode .device-title-area .device-ip {
     color: var(--text-muted);
 }
 
-.simple-mode-memo-badge {
-    display: flex;
-    gap: 12px;
-    margin-top: 8px;
-    font-size: 0.85rem;
-    color: var(--text-main);
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--glass-border);
-    padding: 8px 12px;
-    border-radius: 8px;
-}
-
-:root[data-theme="day"] .simple-mode-memo-badge {
-    background: rgba(0, 0, 0, 0.03);
-}
-
 /* ==========================================================================
    Syslog / Trap Stream Box
    ========================================================================== */

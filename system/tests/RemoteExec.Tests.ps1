@@ -3,7 +3,7 @@
 # ==============================================================================
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Resolve-Path (Join-Path $here "..")
+$projectRoot = Resolve-Path (Join-Path $here "..\..")
 $moduleDir = Join-Path $projectRoot "system\modules"
 
 Import-Module (Join-Path $moduleDir "Common.psm1") -Force

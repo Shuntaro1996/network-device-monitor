@@ -261,14 +261,6 @@ function Generate-SessionReportHtml {
 
         $dName   = if ($sync.DeviceName.ContainsKey($ip) -and $sync.DeviceName[$ip]) { $sync.DeviceName[$ip] } else { $ip }
         $dGroup  = if ($sync.Group.ContainsKey($ip) -and $sync.Group[$ip]) { $sync.Group[$ip] } else { "未分類" }
-        $dLoc    = if ($sync.Location.ContainsKey($ip) -and $sync.Location[$ip]) { $sync.Location[$ip] } else { "—" }
-        # マニュアルのリンクは http / https / file とファイルパスだけを許可する (javascript: 等はリンクにしない)
-        $memoUrl = if ($sync.TroubleMemo.ContainsKey($ip)) { ([string]$sync.TroubleMemo[$ip]).Trim() } else { "" }
-        if ($memoUrl -match '^[a-zA-Z]:[\\/]' -or $memoUrl.StartsWith('\\')) { $memoUrl = 'file:' + $(if ($memoUrl.StartsWith('\\')) { '' } else { '///' }) + $memoUrl.Replace('\', '/') }
-        elseif ($memoUrl -match '^[a-zA-Z0-9.\-]+:\d+(?:[/?#]|$)') { $memoUrl = "http://$memoUrl" }
-        elseif ($memoUrl -match '^[a-zA-Z][a-zA-Z0-9+.\-]*:' -and $memoUrl -notmatch '^(https?|file):') { $memoUrl = "" }
-        elseif ($memoUrl -and $memoUrl -notmatch '^(https?|file):') { $memoUrl = "http://$memoUrl" }
-$dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($memoUrl))' target='_blank' style='color:#2563eb; text-decoration:underline;'>マニュアル</a>" } else { "—" }
         $color   = $palette[$devIdx % $palette.Count]
 
         $totalPings = 0
@@ -335,7 +327,7 @@ $dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($mem
         $reportRows += @"
 <tr>
     <td><span class="color-dot" style="background-color:$color;"></span><strong>$([System.Web.HttpUtility]::HtmlEncode($dName))</strong><br><small style="color:#64748b;">$ip</small></td>
-    <td>$([System.Web.HttpUtility]::HtmlEncode($dGroup))<br><small style="color:#64748b;">$([System.Web.HttpUtility]::HtmlEncode($dLoc))</small></td>
+    <td>$([System.Web.HttpUtility]::HtmlEncode($dGroup))</td>
     <td><span class="status-tag $($st.ToLower())">$st</span></td>
     <td style="text-align:center; font-weight:600; color:#475569; white-space:nowrap;">$freqDisplay</td>
     <td style="text-align:right;">$totalPings</td>
@@ -350,7 +342,6 @@ $dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($mem
     <td style="text-align:right; color:#f59e0b; font-weight:600;">$maxOutage</td>
     <td style="text-align:right;">$out600ms</td>
     <td style="text-align:right;">$out5s</td>
-    <td style="text-align:center;"><small>$dManual</small></td>
 </tr>
 "@
 
@@ -676,7 +667,7 @@ $dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($mem
     $overallAvgLat = if ($totalLatCount -gt 0) { "$([math]::Round($totalLatSum / $totalLatCount, 0)) ms" } else { "—" }
     $overallMaxOutageStr = if ($maxOverallOutage -gt 0) { "$([math]::Round($maxOverallOutage * 1000, 0)) ms" } else { "—" }
 
-    $rowsHtml = if ($reportRows.Count -gt 0) { $reportRows -join "`r`n" } else { "<tr><td colspan='17' style='text-align:center; padding:20px; color:#94a3b8;'>計測データがありません</td></tr>" }
+    $rowsHtml = if ($reportRows.Count -gt 0) { $reportRows -join "`r`n" } else { "<tr><td colspan='16' style='text-align:center; padding:20px; color:#94a3b8;'>計測データがありません</td></tr>" }
     $devCardsHtmlStr = if ($devCardsHtml.Count -gt 0) { $devCardsHtml -join "`r`n" } else { "<div style='color:#94a3b8; font-size:12px; padding:10px;'>有効なグラフデータがありません</div>" }
     $iperfSectionHtml = if ($iperfCardsHtml.Count -gt 0) { $iperfCardsHtml -join "`r`n" } else { "<div style='color:#94a3b8; font-size:12px; padding:10px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px;'>本計測期間中の Iperf3 帯域計測ログはありません。</div>" }
 
@@ -794,7 +785,7 @@ $dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($mem
                 <thead>
                     <tr>
                         <th>機器名 / IPアドレス</th>
-                        <th>グループ / 設置場所</th>
+                        <th>グループ</th>
                         <th>状態</th>
                         <th>監視頻度</th>
                         <th>総Ping数</th>
@@ -809,7 +800,6 @@ $dManual = if ($memoUrl) { "<a href='$([System.Web.HttpUtility]::HtmlEncode($mem
                         <th>最大瞬断時間</th>
                         <th>600ms以上瞬断</th>
                         <th>5s以上瞬断</th>
-                        <th>マニュアル</th>
                     </tr>
                 </thead>
                 <tbody>

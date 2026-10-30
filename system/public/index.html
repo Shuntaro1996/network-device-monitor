@@ -746,14 +746,6 @@
                                     <span class="hint-text" style="display:block; margin-top:4px; font-size:0.75rem; color:var(--text-muted);">※ 親機器が障害中の場合、この機器のアラート通知（メール・Webhook・音）を自動抑制します</span>
                                 </div>
                                 <div class="form-group">
-                                    <label for="dev-location">📍 設置場所 / ラック位置</label>
-                                    <input type="text" id="dev-location" class="form-input" placeholder="例: 3F サーバー室 ラックA-02">
-                                </div>
-                                <div class="form-group">
-                                    <label for="dev-trouble-memo">📖 トラブル対応マニュアル URL (社内Wiki / 共有リンク)</label>
-                                    <input type="text" id="dev-trouble-memo" class="form-input" placeholder="例: https://wiki.example.com/manuals/core-switch.pdf">
-                                </div>
-                                <div class="form-group">
                                     <label for="dev-web-url">🌐 Web URL / SSL監視対象 (任意)</label>
                                     <input type="text" id="dev-web-url" class="form-input" placeholder="例: https://portal.example.com">
                                 </div>
@@ -924,7 +916,6 @@
             
             <div class="snmp-tab-bar">
                 <button class="snmp-tab-btn active" data-tab="snmp-tab-overview">概要</button>
-                <button class="snmp-tab-btn" data-tab="snmp-tab-memo">📖 マニュアル・設置場所</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-backup">💾 コンフィグ管理</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-remote">🔧 リモート操作</button>
                 <button class="snmp-tab-btn" data-tab="snmp-tab-device-logs">📋 機器ログ</button>
@@ -957,6 +948,7 @@
                                     <div class="info-row"><span class="label">ホスト名:</span><span id="snmp-sysName" class="value"></span></div>
                                     <div class="info-row"><span class="label">IP アドレス:</span><span id="snmp-ip" class="value"></span></div>
                                     <div class="info-row"><span class="label">稼働時間:</span><span id="snmp-sysUpTime" class="value"></span></div>
+                                    <div class="info-row"><span class="label">Web URL:</span><span id="snmp-webUrl" class="value">—</span></div>
                                     <div class="info-col"><span class="label">機器詳細:</span><div id="snmp-sysDescr" class="descr-box"></div></div>
                                 </div>
                             </div>
@@ -980,30 +972,6 @@
                         </div>
                     </div>
                     
-                    <!-- Trouble Manual & Location Tab -->
-                    <div id="snmp-tab-memo" class="snmp-tab-content">
-                        <div class="overview-grid">
-                            <div class="info-card glass-card">
-                                <h3 class="card-title">📍 機器情報 & 設置場所</h3>
-                                <div class="info-list" style="margin-top:12px;">
-                                    <div class="info-row"><span class="label">設置場所:</span><span id="modal-memo-location" class="value" style="font-weight:600;">—</span></div>
-                                    <div class="info-row"><span class="label">Web URL:</span><span id="modal-memo-weburl" class="value">—</span></div>
-                                </div>
-                            </div>
-                            <div class="info-card glass-card">
-                                <h3 class="card-title">📖 トラブル対応マニュアル</h3>
-                                <div id="modal-memo-manual-container" style="margin-top:16px; display:flex; flex-direction:column; gap:10px;">
-                                    <div id="modal-memo-link-wrapper">
-                                        <a id="modal-memo-link" href="#" target="_blank" class="btn primary-btn" style="display:inline-flex; align-items:center; gap:8px; text-decoration:none; padding:10px 18px; font-weight:700;">
-                                            <span>🔗</span> トラブル対応マニュアルを開く
-                                        </a>
-                                    </div>
-                                    <div id="modal-memo-empty" style="color:var(--text-muted); font-size:0.85rem; padding:12px 0;">マニュアルのリンクは登録されていません。</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- Config Backup & Diff Tab -->
                     <div id="snmp-tab-backup" class="snmp-tab-content">
                         <div class="glass-card" style="padding:16px;">
@@ -1750,7 +1718,7 @@
                                             <span id="prereq-badge-pester" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
                                         </div>
                                         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
-                                            単体テスト・機能結合テスト（tests/Run-Tests.ps1）の実行に必要です。
+                                            単体テスト・機能結合テスト（system/tests/Run-Tests.ps1）の実行に必要です。
                                         </div>
                                         <div id="prereq-detail-pester" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
                                     </div>

@@ -3,7 +3,7 @@
 # ==============================================================================
 # 【初心者向けの簡単な解説】
 # このスクリプトは、システム全体の品質を保証するための「自動テスト総合管理ツール」です。
-# tests/ フォルダ内にある「*.Tests.ps1」という名前のテストファイルをすべて自動検出して
+# system/tests/ フォルダ内にある「*.Tests.ps1」という名前のテストファイルをすべて自動検出して
 # 順番に実行し、成功数・失敗数のサマリーを分かりやすく画面に表示します。
 # Windows標準の PowerShell 5.1 (Pester 3.4.0) 環境および Pester未導入環境（自律フォールバック）
 # の両方で100%確実に動作するように設計されています。
@@ -26,7 +26,7 @@ Write-Host "==========================================================" -Foregro
 
 # ── 0. UTF-8 BOM エンコーディング事前保護 ────────────────────────────────────
 # PowerShell 5.1 で日本語コメントや特殊文字が文字化けするのを防ぐため、
-# tests/ 配下の全スクリプト (.ps1) に UTF-8 BOM が付与されていることを確認・保証します。
+# system/tests/ 配下の全スクリプト (.ps1) に UTF-8 BOM が付与されていることを確認・保証します。
 $utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $allTestScripts = Get-ChildItem -Path $here -Filter "*.ps1" -File -Recurse -ErrorAction SilentlyContinue | Where-Object {
     $_.FullName -notmatch '[\\/](temp_|backups|\.git)'

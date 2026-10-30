@@ -21,7 +21,7 @@ $projectRoot = if ($PSScriptRoot) {
 $scanDirs = @(
     (Join-Path $projectRoot "system"),
     (Join-Path $projectRoot "system\modules"),
-    (Join-Path $projectRoot "tests")
+    (Join-Path $projectRoot "system\tests")
 )
 
 $targetFileInfos = [System.Collections.Generic.Dictionary[string, System.IO.FileInfo]]::new([System.StringComparer]::OrdinalIgnoreCase)

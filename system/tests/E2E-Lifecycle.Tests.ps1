@@ -12,7 +12,7 @@
 # ==============================================================================
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Resolve-Path (Join-Path $here "..")
+$projectRoot = Resolve-Path (Join-Path $here "..\..")
 $systemDir = Join-Path $projectRoot "system"
 $serverScript = Join-Path $systemDir "Server.ps1"
 $reportsDir = Join-Path $projectRoot "Reports"
@@ -153,10 +153,19 @@ Describe "F14: 自動 E2E サーバーライフサイクル統合テスト (Full
 
         It "各監視対象デバイスのメトリクス (status, loss, jitter, avgRtt) が有効な数値形式であること" {
             $statusUrl = "http://localhost:$($global:e2eTestPort)/api/status"
-            $statusData = Invoke-RestMethod -Uri $statusUrl -Method Get -TimeoutSec 3 -ErrorAction Stop
-            $statusData | Should Not BeNullOrEmpty
+            $statusData = $null
+            $deviceProperties = @()
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-            $deviceProperties = $statusData.PSObject.Properties | Where-Object { $_.Name -notmatch '^_' }
+            # 起動直後は Ping の初回結果がまだなく、機器の項目が空のことがあるので、出そろうまで最大15秒待つ
+            while ($sw.Elapsed.TotalSeconds -lt 15) {
+                $statusData = Invoke-RestMethod -Uri $statusUrl -Method Get -TimeoutSec 3 -ErrorAction Stop
+                $deviceProperties = @($statusData.PSObject.Properties | Where-Object { $_.Name -notmatch '^_' })
+                if ($deviceProperties.Count -gt 0) { break }
+                Start-Sleep -Milliseconds 500
+            }
+
+            $statusData | Should Not BeNullOrEmpty
             $deviceProperties.Count | Should BeGreaterThan 0
 
             foreach ($prop in $deviceProperties) {

@@ -71,7 +71,7 @@ graph TD
         Backups["スナップショット退避 (backups/)"]
     end
 
-    subgraph TestSuite["自動テスト検証基盤 (tests/)"]
+    subgraph TestSuite["自動テスト検証基盤 (system/tests/)"]
         TestRunner["Run-Tests.bat / Run-Tests.ps1"]
         DeviceLogTests["機器ログ取得・バッファ保護・API検証 (32項目)"]
         PesterTests["ユニット & Runspace統合テスト"]
@@ -106,7 +106,7 @@ NetworkDeviceMonitor/
 │
 ├── 📂 【ユーザー操作部】（プロジェクトルート）
 │   ├── Start-Monitor.bat              # 🚀 起動用バッチファイル（Windows監視サーバー一発起動）
-│   ├── 利用手順書.md                  # 📘 エンドユーザー・運用担当者向け利用マニュアル（平易な用語解説付き）
+│   ├── 利用手順書.html                  # 📘 エンドユーザー・運用担当者向け利用マニュアル（平易な用語解説付き）
 │   ├── README.md                      # 📖 プロジェクト概要・仕様書（本ドキュメント）
 │   └── LICENSE                        # 📄 MIT License
 │
@@ -136,7 +136,7 @@ NetworkDeviceMonitor/
 │       ├── chart.js                   # チャート描画ライブラリ
 │       └── vis-network.min.js         # トポロジー図描画エンジン
 │
-├── 📂 【自動テスト検証部】（tests/ フォルダ）
+├── 📂 【自動テスト検証部】（system/tests/ フォルダ）
 │   ├── Run-Tests.bat                  # 🧪 自動テスト一括実行ランチャー（ワンクリック実行）
 │   ├── Run-Tests.ps1                  # ⚙️ 自動テスト総合管理スクリプト（PowerShell実行用）
 │   ├── DeviceLog.Tests.ps1            # 📋 機器ログ取得テスト（プリセット・安全性・バッファ保護・API検証）
@@ -180,28 +180,28 @@ NetworkDeviceMonitor/
 
 ### 実行手順
 - **ワンクリック実行（推奨）**:
-  `tests\Run-Tests.bat` をダブルクリックします。
+  `system\tests\Run-Tests.bat` をダブルクリックします。
 - **PowerShell コマンド実行**:
   ```powershell
-  powershell.exe -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1
+  powershell.exe -ExecutionPolicy Bypass -File .\system\tests\Run-Tests.ps1
   ```
   詳細な合否結果を表示したい場合は `-VerboseOutput` スイッチを付与します：
   ```powershell
-  powershell.exe -ExecutionPolicy Bypass -File .\tests\Run-Tests.ps1 -VerboseOutput
+  powershell.exe -ExecutionPolicy Bypass -File .\system\tests\Run-Tests.ps1 -VerboseOutput
   ```
 
 ### テストスイート構成
-1. **機器ログ取得テスト (`tests/DeviceLog.Tests.ps1`)**:
+1. **機器ログ取得テスト (`system/tests/DeviceLog.Tests.ps1`)**:
    Cisco/Yamaha/Linux/Windows各プリセット整合性、リモート無効時ガード、1MB画面切り詰め・5MBディスク保存ガード、プロセスタイムアウト強制終了、自己記述ヘッダー保存、名前付きミューテックス排他制御監査ログ、パストラバーサル遮断を含むHTTP REST APIを網羅検証（全32テスト）。
-2. **ユニットテスト (`tests/Monitor.Tests.ps1`)**:
+2. **ユニットテスト (`system/tests/Monitor.Tests.ps1`)**:
    コアモジュールの個別機能（DPAPI暗号化、遅延・パケットロス閾値判定、TCPポート監視、サマリー集計、古いログの自動パージ等）を検証（全29テスト）。
-3. **リモート制御テスト (`tests/RemoteExec.Tests.ps1`)**:
+3. **リモート制御テスト (`system/tests/RemoteExec.Tests.ps1`)**:
    リモート制御エンジン（SSH / WinRM / カスタム）の安全性、入力バリデーション、タイムアウト監視（プロセス強制終了）、DPAPI暗号化保存、および操作履歴（Audit Log）出力を網羅的に検証（全18テスト）。
-4. **Runspace統合テスト (`tests/Runspace.Tests.ps1`)**:
+4. **Runspace統合テスト (`system/tests/Runspace.Tests.ps1`)**:
    6大ヘルパーモジュールの並行スレッド読み込み、高負荷マルチスレッド環境でのデータ競合耐性、REST API（`/api/health`, `/api/status`, `/api/devices`, `/api/syslog`, `/api/shutdown`）の契約検証に加え、ホスト瞬断・復旧遷移、ソケット例外時のRunspace生存性、24時間無人稼働モードを網羅した25テストを収録。
-5. **E2Eライフサイクル検証 (`tests/E2E-Lifecycle.Tests.ps1`)**:
+5. **E2Eライフサイクル検証 (`system/tests/E2E-Lifecycle.Tests.ps1`)**:
    サーバープロセスの起動から死活監視確認、安全なシャットダウン、CSVサマリーログ生成までの一連のライフサイクルを通しで検証（全9テスト）。
-6. **ブラウザUI自動テスト (`tests/ui_verification.py`)**:
+6. **ブラウザUI自動テスト (`system/tests/ui_verification.py`)**:
    Playwright ヘッドレスブラウザによる画面レイアウト描画、各種ボタン操作、切断検知バナー（`#network-offline-banner`）と自動再接続トーストの動作検証。
 
 > **💡 テスト検証状況**: 全113項目のPesterテスト（機器ログ取得32件、E2Eライフサイクル9件、ユニット29件、リモート制御18件、Runspace統合25件、全5スイート計113件）が100%合格し、Windows PowerShell 5.1 / UTF-8 BOM 環境での完全な動作と堅牢性が実証されています。
@@ -210,7 +210,7 @@ NetworkDeviceMonitor/
 
 ## 📖 ドキュメント (Documentation)
 
-* **運用者・一般ユーザー向け操作マニュアル**: [利用手順書.md](利用手順書.md)
+* **運用者・一般ユーザー向け操作マニュアル**: [利用手順書.html](利用手順書.html)
   - 初心者・運用者向けに **専門用語（Runspace、Pester、ジッター、E2E、AST構文解析など）の平易なやさしい解説** を掲載しています。
 * **管理者・開発者向け詳細設計書**: [system/README.md](system/README.md)
 * **機能詳細仕様書**: [system/SPECIFICATION.md](system/SPECIFICATION.md)

@@ -27,7 +27,7 @@ __pycache__/
 # Agents & Backups
 .agents/
 system/backups/
-tests/temp_*
+system/tests/temp_*
 
 
 # Machine-specific BOM check cache
