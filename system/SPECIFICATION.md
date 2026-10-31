@@ -970,11 +970,13 @@ while ($syncHash.Running) {
 * **Path Traversal 防御**: 静的ファイル配信時、リクエストパスの正規化（`GetFullPath`）を行い、`publicDir` 外へのディレクトリトラバーサルアクセスを `403 Forbidden` で遮断。
 * **IPアドレス形式の厳格検証**: すべてのAPI入力において、正規表現 `^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$` によるIPv4形式検証を実施。
 * **SNMPv3 暗号化通信**: SHA / AES による USM 認証暗号化を完全サポートし、平文コミュニティ名漏洩リスクを排除。
+* **接続元の制限（このPC以外の拒否）**: `http://localhost:<port>/` で待ち受けていても、HTTP.sys は `Host: localhost` と書かれた要求をネットワーク側からも受け取るため、全リクエスト（画面と `/api/*`）をルーティング前に `Test-ClientAddressAllowed`（`Common.psm1`）で検査する。接続元アドレスがループバック（`127.0.0.0/8`, `::1`, `::ffff:127.0.0.1` など）以外の場合は `403`（`status: FORBIDDEN_CLIENT`）で遮断する。同じPCの LAN 側アドレス宛ての接続も遮断対象。同じPC上の他のプログラムや他のユーザーからの接続は、この検査では区別できない（認証は未実装）。
+* **応答の保護ヘッダー**: 全応答に `X-Frame-Options: DENY` / `Content-Security-Policy: frame-ancestors 'none'`（別サイトへの埋め込み禁止）と `X-Content-Type-Options: nosniff`（ファイル種類の推測禁止）を付ける。
 * **CSRF（外部サイトからの API 呼び出し）防御**: `/api/*` へのリクエストは、ルーティング前に `Test-ApiRequestAllowed`（`Common.psm1`）で検査。`Origin` ヘッダーが `http://localhost:<port>` / `http://127.0.0.1:<port>` / `http://[::1]:<port>` 以外、または `Sec-Fetch-Site` が `same-origin` / `none` 以外（`cross-site`, `same-site`）の場合は `403`（`status: FORBIDDEN_ORIGIN`）で遮断。`Access-Control-Allow-Origin: *` は返さない（UI は同一オリジンのため不要）。ヘッダーを付けないブラウザ以外のクライアント（PowerShell, テスト, Watchdog の `/api/health`）は従来どおり利用可能。
 * **リモート実行のコマンド注入防御**（`RemoteExec.psm1`）:
   * SSH: 接続先・鍵パス・コマンドを `ConvertTo-ProcessArgument`（MSVC 引数解析規則に準拠したエスケープ）で 1 引数として渡し、`-` で始まる接続先/ユーザー名は `INVALID_TARGET` で拒否。パスワードは環境変数 `NDM_SSH_PASS` 経由で askpass（遅延展開 `!NDM_SSH_PASS!`）に渡し、ディスクへは書き込まない。パスワードに非 ASCII 文字を含む場合は、cmd の `echo` がコードページ変換で文字化けさせるため、askpass を `powershell.exe` で UTF-8 バイト列を直接出力する版に切り替える（`Get-SshAskPassScript`）。
   * WinRM: 実行スクリプトは固定文とし、接続先・認証情報・コマンドは環境変数（`NDM_REMOTE_HOST/USER/PASS/CMD`）で渡して `[ScriptBlock]::Create()` で生成。コマンド文字列が監視PC側の構文として解釈されることはない。
-  * Custom: 仕様として監視PC上で `cmd.exe` によりコマンドを実行するため、上記 CSRF 防御が前提となる。置換変数は `{ip}` / `{name}` / `{user}` / `{port}`（`{command}` は置換しない）。
+  * Custom: 仕様として監視PC上で `cmd.exe` によりコマンドを実行するため、上記の接続元の制限と CSRF 防御が前提となる。置換変数は `{ip}` / `{name}` / `{user}` / `{port}`（`{command}` は置換しない）。
 * **リモート実行の非同期化**: `/api/device/remote-exec` と `/api/device/fetch-log` の実行本体は `Start-BackgroundScript`（`$asyncWorkerPool`, 最大10並列）で行い、HTTP 受付ループ・`/api/health` を最大300秒のコマンド実行中もブロックしない（Watchdog による誤った強制再起動を防止）。
 * **入力値・異常系の堅牢化**: `timeoutSec` は `[int]::TryParse` で検証し、数値以外・範囲外（1〜300秒以外）は既定値（remote-exec: 15秒 / fetch-log: 20秒）に戻す。CSRF ガードは `Test-ApiRequestAllowed` が使えない（`Common.psm1` 読み込み失敗）場合も例外で落ちず、`Origin` / `Sec-Fetch-Site` 付きのブラウザ要求は遮断、ヘッダーなしのクライアント（Watchdog）は許可する。
 * **タイムアウト時のプロセスツリー終了**: `Invoke-ProcessWithTimeout` はタイムアウト時に `taskkill /T /F /PID` で子プロセスごと終了し、失敗時は `Process.Kill()` で本体を終了する。

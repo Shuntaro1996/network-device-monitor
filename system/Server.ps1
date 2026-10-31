@@ -3182,6 +3182,28 @@ try {
         $urlPath = $request.Url.LocalPath
         $method = $request.HttpMethod
 
+        # 別サイトの画面の中に監視画面を埋め込ませない (見えない画面を重ねて誤操作させる攻撃を防ぐ)
+        # nosniff は、ブラウザがファイルの種類を推測して別の形式として実行するのを防ぐ
+        $response.Headers.Add("X-Frame-Options", "DENY")
+        $response.Headers.Add("Content-Security-Policy", "frame-ancestors 'none'")
+        $response.Headers.Add("X-Content-Type-Options", "nosniff")
+
+        # このPC以外からの接続は、画面の表示も含めてすべて拒否する (コマンド実行などの API を他のPCから使わせない)
+        $clientAllowed = $false
+        try {
+            $clientAllowed = Test-ClientAddressAllowed -Address $request.RemoteEndPoint.Address
+        } catch {
+            # Common.psm1 が読み込めないときも、このPCからの接続だけは受け付ける (Watchdog の確認を止めないため)
+            Write-Host "Client address check unavailable: $($_.Exception.Message)" -ForegroundColor Red
+            try { $clientAllowed = [System.Net.IPAddress]::IsLoopback($request.RemoteEndPoint.Address) } catch {}
+        }
+        if (-not $clientAllowed) {
+            Write-Host "Blocked non-local request: $method $urlPath (From: $($request.RemoteEndPoint))" -ForegroundColor Red
+            try { Write-JsonResponse $response @{ error = "Only connections from this PC are allowed"; success = $false; status = "FORBIDDEN_CLIENT" } 403 } catch {}
+            try { $response.Close() } catch {}
+            continue
+        }
+
         # CSRF guard: reject /api/* calls made by other websites open in the same browser
         if ($urlPath.StartsWith("/api/")) {
             $reqOrigin = $request.Headers["Origin"]

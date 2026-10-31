@@ -737,3 +737,30 @@ Describe "13. 外部サイトからの API 呼び出し拒否 (CSRF 対策 / Tes
         $serverSrc | Should Match 'Test-ApiRequestAllowed'
     }
 }
+
+Describe "14. このPC以外からの接続拒否と画面の埋め込み防止 (Test-ClientAddressAllowed)" {
+    It "このPC自身のアドレスは許可されること" {
+        foreach ($address in @("127.0.0.1", "127.0.0.2", "::1", "::ffff:127.0.0.1")) {
+            Test-ClientAddressAllowed -Address ([System.Net.IPAddress]::Parse($address)) | Should Be $true
+        }
+    }
+
+    It "他のPCのアドレスは拒否されること" {
+        foreach ($address in @("192.168.1.10", "10.0.0.1", "8.8.8.8", "0.0.0.0", "fe80::1", "::ffff:192.168.1.10")) {
+            Test-ClientAddressAllowed -Address ([System.Net.IPAddress]::Parse($address)) | Should Be $false
+        }
+    }
+
+    It "アドレスが分からないときは拒否されること" {
+        Test-ClientAddressAllowed -Address $null | Should Be $false
+    }
+
+    It "Server.ps1 が CSRF 判定より前に接続元を確認し、保護ヘッダーを付けること" {
+        $serverSrc = Get-Content (Join-Path $projectRoot "system\Server.ps1") -Raw -Encoding UTF8
+        $serverSrc.IndexOf('Test-ClientAddressAllowed') | Should BeGreaterThan 0
+        $serverSrc.IndexOf('Test-ClientAddressAllowed') | Should BeLessThan $serverSrc.IndexOf('Test-ApiRequestAllowed -Origin')
+        $serverSrc | Should Match '"X-Frame-Options", "DENY"'
+        $serverSrc | Should Match "frame-ancestors 'none'"
+        $serverSrc | Should Match '"X-Content-Type-Options", "nosniff"'
+    }
+}

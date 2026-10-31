@@ -203,6 +203,24 @@ function Test-ApiRequestAllowed {
     return $true
 }
 
+function Test-ClientAddressAllowed {
+    <#
+    .SYNOPSIS
+        接続してきた相手が「このPC自身」かどうかを、接続元の IP アドレスで判定します。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        待ち受け先を http://localhost にしていても、Windows は「宛先名が localhost」と書かれた通信を
+        ネットワーク側からも受け取ってしまいます。宛先名は送る側が自由に書けるので、当てになりません。
+        そこで偽れない接続元のアドレスを見て、このPC自身 (127.0.0.1 や ::1) からの接続だけを許可します。
+    #>
+    param([System.Net.IPAddress]$Address)
+
+    if ($null -eq $Address) { return $false }
+    # ::ffff:127.0.0.1 は IPv6 の形で書いた 127.0.0.1 なので、IPv4 に直してから判定する
+    if ($Address.IsIPv4MappedToIPv6) { $Address = $Address.MapToIPv4() }
+    return [System.Net.IPAddress]::IsLoopback($Address)
+}
+
 function Get-MimeType {
     param([string]$ext)
     switch ($ext.ToLower()) {
@@ -862,4 +880,4 @@ function New-AppRunspace {
     return $rs
 }
 
-Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Test-ApiRequestAllowed, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule, New-AppRunspace
+Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Test-ApiRequestAllowed, Test-ClientAddressAllowed, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule, New-AppRunspace

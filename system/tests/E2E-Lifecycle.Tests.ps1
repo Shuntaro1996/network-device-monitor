@@ -121,6 +121,42 @@ Describe "F14: 自動 E2E サーバーライフサイクル統合テスト (Full
             [double]$healthData.pingAgeSec | Should BeLessThan 15.0
             [int]$healthData.uptimeSec | Should BeGreaterThan -1
         }
+
+        It "画面の応答に埋め込み防止などの保護ヘッダーが付くこと" {
+            $page = Invoke-WebRequest -Uri "http://localhost:$($global:e2eTestPort)/" -UseBasicParsing -TimeoutSec 5
+            $page.StatusCode | Should Be 200
+            $page.Headers["X-Frame-Options"] | Should Be "DENY"
+            $page.Headers["Content-Security-Policy"] | Should Be "frame-ancestors 'none'"
+            $page.Headers["X-Content-Type-Options"] | Should Be "nosniff"
+        }
+
+        It "宛先名を localhost と偽っても、このPC以外のアドレス経由の接続は 403 で拒否されること" {
+            # ネットワーク側のアドレスへ送ると、接続元もそのアドレスになるので他のPCからの接続を再現できる
+            $lanAddress = Get-NetIPAddress -AddressFamily IPv4 -AddressState Preferred -ErrorAction SilentlyContinue |
+                Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } | Select-Object -First 1 -ExpandProperty IPAddress
+            if (-not $lanAddress) {
+                Write-Host "  [E2E] ネットワークのアドレスがないため、この確認を省略します" -ForegroundColor Yellow
+                return
+            }
+            foreach ($path in @("/api/health", "/")) {
+                $req = [System.Net.HttpWebRequest]::Create("http://${lanAddress}:$($global:e2eTestPort)$path")
+                $req.Host = "localhost:$($global:e2eTestPort)"
+                $req.Proxy = $null
+                $req.Timeout = 5000
+                $code = 0
+                try {
+                    $resp = $req.GetResponse()
+                    $code = [int]$resp.StatusCode
+                    $resp.Close()
+                } catch [System.Net.WebException] {
+                    if ($_.Exception.Response) {
+                        $code = [int]$_.Exception.Response.StatusCode
+                        $_.Exception.Response.Close()
+                    }
+                }
+                $code | Should Be 403
+            }
+        }
     }
 
     # ──────────────────────────────────────────────────────────────────────────
