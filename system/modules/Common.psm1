@@ -221,6 +221,55 @@ function Test-ClientAddressAllowed {
     return [System.Net.IPAddress]::IsLoopback($Address)
 }
 
+function ConvertTo-SafeIperfOptions {
+    <#
+    .SYNOPSIS
+        画面で入力された iperf3 の追加オプションから、危険な記号と、PC 内のファイルを扱うオプションを取り除きます。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        iperf3 には、ファイルの中身を相手へ送る (-F / --file) ものや、ファイルに書き込むもの
+        (-I / --pidfile, --logfile) があります。計測には不要で、悪用すると情報が漏れるので使わせません。
+        入力: 画面で入力された文字列。結果: 安全なオプションだけの文字列 (何も残らなければ空文字)。
+    .NOTES
+        【なぜ語ごとに判定するのか】
+        iperf3 は -RF のように短いオプションをまとめて書けて、--log のように長い名前を省略して書くこともできます。
+        決まった文字列を探すだけではこれらを見逃すので、空白で区切った語ごとに判定しています。
+        【変更するときの注意】
+        - -F と -I の大文字と小文字は別のオプションです (-f は単位、-i は間隔)。比較は大文字と小文字を区別してください。
+        - 長い名前は 2 文字以上の省略で判定します。--l や --f だけでは他のオプションと区別できず、iperf3 も受け付けません。
+        - 取り除いたオプションの値も、続く語が「-」で始まらなければ一緒に取り除きます。
+    #>
+    param([string]$Options)
+
+    $blockedLongNames = @("file", "logfile", "pidfile")
+    # 英数字・空白・ハイフン以外を消すので、「;」「&」などでの別コマンドの実行や「.」「\」でのパス指定はできない
+    $words = @(($Options -replace '[^a-zA-Z0-9\s\-]', '') -split '\s+' | Where-Object { $_ })
+    $kept = [System.Collections.Generic.List[string]]::new()
+    for ($index = 0; $index -lt $words.Count; $index++) {
+        $word = $words[$index]
+        $isBlocked = $false
+        if ($word.StartsWith("--")) {
+            $longName = $word.Substring(2)
+            if ($longName.Length -ge 2) {
+                foreach ($blocked in $blockedLongNames) {
+                    if ($blocked.StartsWith($longName, [System.StringComparison]::Ordinal)) { $isBlocked = $true }
+                }
+            }
+        }
+        elseif ($word.StartsWith("-")) {
+            # -cmatch は大文字と小文字を区別する
+            $isBlocked = $word -cmatch '[FI]'
+        }
+
+        if ($isBlocked) {
+            if (($index + 1) -lt $words.Count -and -not $words[$index + 1].StartsWith("-")) { $index++ }
+            continue
+        }
+        $kept.Add($word)
+    }
+    return ($kept -join " ")
+}
+
 function Get-MimeType {
     param([string]$ext)
     switch ($ext.ToLower()) {
@@ -884,4 +933,4 @@ function New-AppRunspace {
     return $rs
 }
 
-Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Test-ApiRequestAllowed, Test-ClientAddressAllowed, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule, New-AppRunspace
+Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Test-ApiRequestAllowed, Test-ClientAddressAllowed, ConvertTo-SafeIperfOptions, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule, New-AppRunspace

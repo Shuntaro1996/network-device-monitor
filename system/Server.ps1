@@ -5742,9 +5742,8 @@ sslWarnDays              = $syncHash.SslWarnDays
                             # 前回の計測で指定した追加オプションがそのまま iperf3 に渡されていた)
                             $safeOpts = ""
                             if ($customOpts) {
-                                $safeOpts = $customOpts -replace '[^a-zA-Z0-9\s\-]', ''
-                                # PC 内のファイルを相手へ送ったり書き込んだりするオプションは使わせない
-                                $safeOpts = [regex]::Replace($safeOpts, '(?<![^\s])(--file|-F|--logfile|--pidfile|-I)(\s+[^\s\-]\S*)?', '')
+                                # 危険な記号と、PC 内のファイルを扱うオプションを取り除く (詳しくは関数の説明を参照)
+                                $safeOpts = ConvertTo-SafeIperfOptions -Options $customOpts
                                 if ($safeOpts -notmatch "-i\s+\d+") {
                                     $cmdArgs += " $safeOpts"
                                 }

@@ -15,6 +15,7 @@
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $systemDir = Split-Path -Parent $here
 Import-Module (Join-Path $systemDir "modules\IperfRunner.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $systemDir "modules\Common.psm1") -Force -DisableNameChecking
 
 function New-TestFolder {
     # テストごとに重ならない一時フォルダを作る
@@ -34,6 +35,50 @@ Describe "IperfRunner Get-IperfCommandLine (iperf3 のオプションの組み�
 
     It "TCP のときは UDP の帯域の指定を使わないこと" {
         (Get-IperfCommandLine -target "h" -udpBw "5M") -join " " | Should Be "-c h -p 5201 -t 10"
+    }
+}
+
+Describe "ConvertTo-SafeIperfOptions (iperf3 の追加オプションの安全確認)" {
+    It "計測に使う普通のオプションは残すこと" {
+        ConvertTo-SafeIperfOptions -Options "-R -P 4 -u -b 10M" | Should Be "-R -P 4 -u -b 10M"
+        ConvertTo-SafeIperfOptions -Options "--reverse --parallel 2 --format m --port 5202 --length 1K" | Should Be "--reverse --parallel 2 --format m --port 5202 --length 1K"
+    }
+
+    It "小文字の -f と -i は取り除かないこと (大文字の -F と -I とは別のオプション)" {
+        ConvertTo-SafeIperfOptions -Options "-f m -i 1" | Should Be "-f m -i 1"
+    }
+
+    It "ファイルを扱うオプションを、値と一緒に取り除くこと" {
+        ConvertTo-SafeIperfOptions -Options "-F secret -R" | Should Be "-R"
+        ConvertTo-SafeIperfOptions -Options "--file secret" | Should Be ""
+        ConvertTo-SafeIperfOptions -Options "--logfile out -u" | Should Be "-u"
+        ConvertTo-SafeIperfOptions -Options "--pidfile p" | Should Be ""
+        ConvertTo-SafeIperfOptions -Options "-I p -t 3" | Should Be "-t 3"
+    }
+
+    It "まとめ書きと値の続け書きも取り除くこと" {
+        ConvertTo-SafeIperfOptions -Options "-RF secret -P 2" | Should Be "-P 2"
+        ConvertTo-SafeIperfOptions -Options "-Fsecret" | Should Be ""
+    }
+
+    It "長い名前の省略形も取り除くこと" {
+        ConvertTo-SafeIperfOptions -Options "--log out" | Should Be ""
+        ConvertTo-SafeIperfOptions -Options "--fi secret" | Should Be ""
+        ConvertTo-SafeIperfOptions -Options "--pid p" | Should Be ""
+    }
+
+    It "コマンドをつなぐ記号とパスの記号を消すこと" {
+        ConvertTo-SafeIperfOptions -Options "-R; del & calc | x" | Should Be "-R del calc x"
+        ConvertTo-SafeIperfOptions -Options "-b ..\10M" | Should Be "-b 10M"
+    }
+
+    It "空の入力は空文字を返すこと" {
+        ConvertTo-SafeIperfOptions -Options "" | Should Be ""
+    }
+
+    It "Server.ps1 がこの関数を使っていること" {
+        $serverSource = [System.IO.File]::ReadAllText((Join-Path $systemDir "Server.ps1"), [System.Text.Encoding]::UTF8)
+        $serverSource | Should Match 'ConvertTo-SafeIperfOptions -Options \$customOpts'
     }
 }
 

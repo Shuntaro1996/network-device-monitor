@@ -971,7 +971,7 @@ while ($syncHash.Running) {
 * **IPアドレス形式の厳格検証**: すべてのAPI入力において、正規表現 `^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$` によるIPv4形式検証を実施。
 * **SNMPv3 暗号化通信**: SHA / AES による USM 認証暗号化を完全サポートし、平文コミュニティ名漏洩リスクを排除。
 * **接続元の制限（このPC以外の拒否）**: `http://localhost:<port>/` で待ち受けていても、HTTP.sys は `Host: localhost` と書かれた要求をネットワーク側からも受け取るため、全リクエスト（画面と `/api/*`）をルーティング前に `Test-ClientAddressAllowed`（`Common.psm1`）で検査する。接続元アドレスがループバック（`127.0.0.0/8`, `::1`, `::ffff:127.0.0.1` など）以外の場合は `403`（`status: FORBIDDEN_CLIENT`）で遮断する。同じPCの LAN 側アドレス宛ての接続も遮断対象。同じPC上の他のプログラムや他のユーザーからの接続は、この検査では区別できない（認証は未実装）。
-* **操作の制限**: `POST /api/system/install-module` は `SNMP` のみインストールする（それ以外は失敗を返す）。`/api/shutdown` は `POST` のみ受け付ける。
+* **操作の制限**: `POST /api/system/install-module` は `SNMP` のみインストールする（それ以外は失敗を返す）。`/api/shutdown` は `POST` のみ受け付ける。`/api/iperf` の追加オプションは `ConvertTo-SafeIperfOptions`（`Common.psm1`）で検査し、PC 内のファイルを扱うオプション（`-F` / `--file` / `-I` / `--pidfile` / `--logfile`。まとめ書きや省略形を含む）を取り除く。
 * **応答の保護ヘッダー**: 全応答に `X-Frame-Options: DENY` / `Content-Security-Policy: frame-ancestors 'none'`（別サイトへの埋め込み禁止）と `X-Content-Type-Options: nosniff`（ファイル種類の推測禁止）を付ける。
 * **CSRF（外部サイトからの API 呼び出し）防御**: `/api/*` へのリクエストは、ルーティング前に `Test-ApiRequestAllowed`（`Common.psm1`）で検査。`Origin` ヘッダーが `http://localhost:<port>` / `http://127.0.0.1:<port>` / `http://[::1]:<port>` 以外、または `Sec-Fetch-Site` が `same-origin` / `none` 以外（`cross-site`, `same-site`）の場合は `403`（`status: FORBIDDEN_ORIGIN`）で遮断。`Access-Control-Allow-Origin: *` は返さない（UI は同一オリジンのため不要）。ヘッダーを付けないブラウザ以外のクライアント（PowerShell, テスト, Watchdog の `/api/health`）は従来どおり利用可能。
 * **リモート実行のコマンド注入防御**（`RemoteExec.psm1`）:
