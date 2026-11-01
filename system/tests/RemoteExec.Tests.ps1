@@ -6,8 +6,8 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Resolve-Path (Join-Path $here "..\..")
 $moduleDir = Join-Path $projectRoot "system\modules"
 
-Import-Module (Join-Path $moduleDir "Common.psm1") -Force
-Import-Module (Join-Path $moduleDir "RemoteExec.psm1") -Force
+Import-Module (Join-Path $moduleDir "Common.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $moduleDir "RemoteExec.psm1") -Force -DisableNameChecking
 
 Describe "1. RemoteExec モジュールロード & インターフェース検証" {
     It "RemoteExec.psm1 から Invoke-RemoteDeviceCommand が正常にエクスポートされていること" {
@@ -319,8 +319,8 @@ Describe "7. HTTP REST API (/api/device/remote-exec) エンドポイント統合
         $global:apiServerRs = [powershell]::Create()
         $global:apiServerRs.AddScript({
             param($port, $moduleDir, $reportsDir, $syncHash)
-            Import-Module (Join-Path $moduleDir "Common.psm1") -Force
-            Import-Module (Join-Path $moduleDir "RemoteExec.psm1") -Force
+            Import-Module (Join-Path $moduleDir "Common.psm1") -Force -DisableNameChecking
+            Import-Module (Join-Path $moduleDir "RemoteExec.psm1") -Force -DisableNameChecking
 
             $listener = New-Object System.Net.HttpListener
             $listener.Prefixes.Add("http://127.0.0.1:$port/")

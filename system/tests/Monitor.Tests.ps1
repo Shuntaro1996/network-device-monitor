@@ -7,10 +7,10 @@ $projectRoot = Resolve-Path (Join-Path $here "..\..")
 $moduleDir = Join-Path $projectRoot "system\modules"
 
 # モジュールのインポート
-Import-Module (Join-Path $moduleDir "Common.psm1") -Force
-Import-Module (Join-Path $moduleDir "PingEngine.psm1") -Force
-Import-Module (Join-Path $moduleDir "ReportGenerator.psm1") -Force
-Import-Module (Join-Path $moduleDir "SnmpService.psm1") -Force
+Import-Module (Join-Path $moduleDir "Common.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $moduleDir "PingEngine.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $moduleDir "ReportGenerator.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $moduleDir "SnmpService.psm1") -Force -DisableNameChecking
 Import-Module (Join-Path $moduleDir "AlertManager.psm1") -Force -DisableNameChecking
 Import-Module (Join-Path $moduleDir "IperfRunner.psm1") -Force -DisableNameChecking
 

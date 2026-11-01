@@ -16,9 +16,9 @@ $projectRoot = (Resolve-Path (Join-Path $here "..\..")).Path
 $moduleDir = Join-Path $projectRoot "system\modules"
 $reportsDir = Join-Path $projectRoot "Reports"
 
-Import-Module (Join-Path $moduleDir "Common.psm1") -Force
-Import-Module (Join-Path $moduleDir "RemoteExec.psm1") -Force
-Import-Module (Join-Path $moduleDir "ReportGenerator.psm1") -Force
+Import-Module (Join-Path $moduleDir "Common.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $moduleDir "RemoteExec.psm1") -Force -DisableNameChecking
+Import-Module (Join-Path $moduleDir "ReportGenerator.psm1") -Force -DisableNameChecking
 
 # ── ヘルパー: テスト用一時ディレクトリの完全分離管理 ─────────────────────────
 $testTempDir_Engine = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_DeviceLog_Engine_$([Guid]::NewGuid().ToString('N'))"
@@ -642,8 +642,8 @@ HELLO_LOG
         $global:listenerRs = [powershell]::Create()
         $global:listenerRs.AddScript({
             param($port, $moduleDir, $reportsDirectory, $syncHash)
-            Import-Module (Join-Path $moduleDir "Common.psm1") -Force
-            Import-Module (Join-Path $moduleDir "RemoteExec.psm1") -Force
+            Import-Module (Join-Path $moduleDir "Common.psm1") -Force -DisableNameChecking
+            Import-Module (Join-Path $moduleDir "RemoteExec.psm1") -Force -DisableNameChecking
 
             $listener = New-Object System.Net.HttpListener
             $listener.Prefixes.Add("http://127.0.0.1:$port/")
