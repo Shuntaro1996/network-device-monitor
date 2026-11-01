@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             const div = document.createElement('div');
                             div.style.cssText = `
                                 padding: 4px 8px;
-                                background: ${isAlreadyAdded ? 'rgba(255,255,255,0.05)' : 'rgba(59, 130, 246, 0.2)'};
+                                background: ${isAlreadyAdded ? 'var(--lift-05)' : 'rgba(59, 130, 246, 0.2)'};
                                 border: 1px solid ${isAlreadyAdded ? 'transparent' : 'rgba(59, 130, 246, 0.4)'};
                                 border-radius: 4px;
                                 font-size: 0.75rem;
@@ -149,12 +149,31 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/'/g, '&#039;');
     }
 
+    // 【テーマに合わせた文字色】
+    // 目的: 状態の色 (緑・黄・赤など) を文字に使うとき、デイモードでは濃い色に置き換えて読みやすくします。
+    // 入力: 色の文字列 (#ef4444 など)。結果: デイモードなら対応する濃い色、ナイトモードなら入力のままの色。
+    // なぜ CSS 変数にしないか: 構成図の機器カードは画像 (SVG) として描くので CSS 変数が効きません。
+    //   また状態の判定に #ef4444 のような値そのものを比べている箇所があり (createNodeSvg など)、
+    //   元の値は変えられません。そこで文字を描く直前にだけ、この関数で色を置き換えます。
+    // 変更するときの注意: 濃い色は style.css の :root[data-theme="day"] の --text-* と同じ値にそろえてください。
+    const DAY_TEXT_COLORS = {
+        '#10b981': '#047857', '#34d399': '#047857',
+        '#f59e0b': '#b45309', '#fbbf24': '#92400e',
+        '#ef4444': '#b91c1c', '#f87171': '#b91c1c',
+        '#c084fc': '#7e22ce', '#60a5fa': '#1d4ed8',
+        '#94a3b8': '#475569', '#64748b': '#475569'
+    };
+    function themeTextColor(color) {
+        const isDay = document.documentElement.getAttribute('data-theme') === 'day';
+        return (isDay && DAY_TEXT_COLORS[color]) || color;
+    }
+
     // グラフの文字と目盛り線の色を、今の画面テーマ (昼・夜) に合わせて返す
     function getChartThemeColors() {
         const isDay = document.documentElement.getAttribute('data-theme') === 'day';
         return {
             textColor: isDay ? '#0f172a' : '#f8fafc',
-            gridColor: isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)'
+            gridColor: isDay ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.05)'
         };
     }
 
@@ -1014,7 +1033,7 @@ return 'http://' + u;
         if (!loggingToggleBtn) return;
         if (isLoggingEnabled) {
             loggingToggleBtn.textContent = 'ON';
-            loggingToggleBtn.style.background = '#10b981';
+            loggingToggleBtn.style.background = 'var(--toggle-on-bg)';
             loggingToggleBtn.style.color = '#ffffff';
             loggingToggleBtn.style.border = 'none';
         } else {
@@ -1221,18 +1240,18 @@ return 'http://' + u;
             let html = '';
             snapshots.forEach(s => {
                 const typeBadge = s.type === 'devices' 
-                    ? '<span style="background:rgba(59,130,246,0.2); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:0.7rem; padding:1px 5px; border-radius:4px; font-weight:600;">機器構成</span>'
-                    : '<span style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.3); font-size:0.7rem; padding:1px 5px; border-radius:4px; font-weight:600;">システム設定</span>';
+                    ? '<span style="background:rgba(59,130,246,0.2); color:var(--text-blue); border:1px solid rgba(59,130,246,0.3); font-size:0.7rem; padding:1px 5px; border-radius:4px; font-weight:600;">機器構成</span>'
+                    : '<span style="background:rgba(168,85,247,0.2); color:var(--text-purple); border:1px solid rgba(168,85,247,0.3); font-size:0.7rem; padding:1px 5px; border-radius:4px; font-weight:600;">システム設定</span>';
                 const sizeKb = (s.sizeBytes / 1024).toFixed(1);
                 
                 html += `
-                    <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.75rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-bottom:1px solid var(--line-05); font-size:0.75rem;">
                         <div style="display:flex; align-items:center; gap:8px;">
                             ${typeBadge}
                             <span style="font-family:monospace; color:var(--text-light); font-weight:500;">${s.createdAt}</span>
                             <span style="color:var(--text-muted); font-size:0.7rem;">(${sizeKb} KB)</span>
                         </div>
-                        <button type="button" class="btn secondary-btn btn-rollback-snapshot" data-file="${s.fileName}" style="padding:2px 8px; font-size:0.7rem; color:#f59e0b; border-color:rgba(245,158,11,0.3);">
+                        <button type="button" class="btn secondary-btn btn-rollback-snapshot" data-file="${s.fileName}" style="padding:2px 8px; font-size:0.7rem; color:var(--text-amber-strong); border-color:rgba(245,158,11,0.3);">
                             ↺ この時点に戻す
                         </button>
                     </div>
@@ -1274,7 +1293,7 @@ return 'http://' + u;
                 });
             });
         } catch (err) {
-            listEl.innerHTML = `<div style="font-size:0.75rem; color:#ef4444; text-align:center; padding:10px;">スナップショット取得エラー: ${escapeHTML(err.message)}</div>`;
+            listEl.innerHTML = `<div style="font-size:0.75rem; color:var(--text-red-strong); text-align:center; padding:10px;">スナップショット取得エラー: ${escapeHTML(err.message)}</div>`;
         }
     }
 
@@ -1293,7 +1312,7 @@ return 'http://' + u;
         const textEl = document.getElementById('prereq-overall-text');
         
         if (!bannerEl) return;
-        bannerEl.style.background = 'rgba(255,255,255,0.05)';
+        bannerEl.style.background = 'var(--lift-05)';
         bannerEl.style.borderColor = 'var(--glass-border)';
         iconEl.textContent = '⏳';
         textEl.textContent = '前提環境を診断中...';
@@ -1307,13 +1326,13 @@ return 'http://' + u;
             if (data.allReady) {
                 bannerEl.style.background = 'rgba(16,185,129,0.15)';
                 bannerEl.style.borderColor = 'rgba(16,185,129,0.4)';
-                bannerEl.style.color = '#34d399';
+                bannerEl.style.color = 'var(--text-green)';
                 iconEl.textContent = '✅';
                 textEl.textContent = '必須コンポーネント（SNMP / PowerShell / Iperf3）はすべて正常に認識されています。';
             } else {
                 bannerEl.style.background = 'rgba(239,68,68,0.15)';
                 bannerEl.style.borderColor = 'rgba(239,68,68,0.4)';
-                bannerEl.style.color = '#f87171';
+                bannerEl.style.color = 'var(--text-red)';
                 iconEl.textContent = '⚠️';
                 textEl.textContent = '一部の前提モジュールまたはツールが未検出です。下記のボタンからインストールできます。';
             }
@@ -1327,7 +1346,7 @@ return 'http://' + u;
                 snmpStatus.textContent = '✅';
                 snmpBadge.textContent = `インストール済み (v${data.snmpModule.version})`;
                 snmpBadge.style.background = 'rgba(16,185,129,0.2)';
-                snmpBadge.style.color = '#34d399';
+                snmpBadge.style.color = 'var(--text-green)';
                 snmpBadge.style.border = '1px solid rgba(16,185,129,0.3)';
                 snmpDetail.textContent = `Path: ${data.snmpModule.path}`;
                 if (btnInstallSnmp) btnInstallSnmp.style.display = 'none';
@@ -1335,7 +1354,7 @@ return 'http://' + u;
                 snmpStatus.textContent = '❌';
                 snmpBadge.textContent = '未インストール';
                 snmpBadge.style.background = 'rgba(239,68,68,0.2)';
-                snmpBadge.style.color = '#f87171';
+                snmpBadge.style.color = 'var(--text-red)';
                 snmpBadge.style.border = '1px solid rgba(239,68,68,0.3)';
                 snmpDetail.textContent = 'PowerShell Gallery からの導入が必要です。';
                 if (btnInstallSnmp) {
@@ -1353,14 +1372,14 @@ return 'http://' + u;
                 iperfStatus.textContent = '✅';
                 iperfBadge.textContent = '利用可能';
                 iperfBadge.style.background = 'rgba(16,185,129,0.2)';
-                iperfBadge.style.color = '#34d399';
+                iperfBadge.style.color = 'var(--text-green)';
                 iperfBadge.style.border = '1px solid rgba(16,185,129,0.3)';
                 iperfDetail.textContent = `Path: ${data.iperf3.path}`;
             } else {
                 iperfStatus.textContent = '⚠️';
                 iperfBadge.textContent = '未配置';
                 iperfBadge.style.background = 'rgba(245,158,11,0.2)';
-                iperfBadge.style.color = '#fbbf24';
+                iperfBadge.style.color = 'var(--text-amber)';
                 iperfBadge.style.border = '1px solid rgba(245,158,11,0.3)';
                 iperfDetail.textContent = 'tools\\iperf3.exe を配置すると帯域計測が有効化されます。';
             }
@@ -1374,14 +1393,14 @@ return 'http://' + u;
                 pesterStatus.textContent = '✅';
                 pesterBadge.textContent = `インストール済み (v${data.pesterModule.version})`;
                 pesterBadge.style.background = 'rgba(16,185,129,0.2)';
-                pesterBadge.style.color = '#34d399';
+                pesterBadge.style.color = 'var(--text-green)';
                 pesterBadge.style.border = '1px solid rgba(16,185,129,0.3)';
                 pesterDetail.textContent = '自動テストフレームワークが利用可能です。';
                 if (btnInstallPester) btnInstallPester.style.display = 'none';
             } else {
                 pesterStatus.textContent = '➖';
                 pesterBadge.textContent = '未インストール (任意)';
-                pesterBadge.style.background = 'rgba(255,255,255,0.1)';
+                pesterBadge.style.background = 'var(--lift-10)';
                 pesterBadge.style.color = 'var(--text-muted)';
                 pesterBadge.style.border = '1px solid var(--glass-border)';
                 pesterDetail.textContent = 'テスト実行時のみ必要（通常監視では不要）';
@@ -1400,21 +1419,21 @@ return 'http://' + u;
                 psStatus.textContent = '✅';
                 psBadge.textContent = `適合 (PS v${data.psVersion})`;
                 psBadge.style.background = 'rgba(16,185,129,0.2)';
-                psBadge.style.color = '#34d399';
+                psBadge.style.color = 'var(--text-green)';
                 psBadge.style.border = '1px solid rgba(16,185,129,0.3)';
                 psDetail.textContent = `ExecutionPolicy: ${data.executionPolicy} | NuGet: ${data.hasNuGet ? '利用可能' : '未検出'}`;
             } else {
                 psStatus.textContent = '❌';
                 psBadge.textContent = `不適合 (PS v${data.psVersion})`;
                 psBadge.style.background = 'rgba(239,68,68,0.2)';
-                psBadge.style.color = '#f87171';
+                psBadge.style.color = 'var(--text-red)';
                 psBadge.style.border = '1px solid rgba(239,68,68,0.3)';
                 psDetail.textContent = 'PowerShell 5.1 以上が必要です。';
             }
 
         } catch (err) {
             bannerEl.style.background = 'rgba(239,68,68,0.15)';
-            bannerEl.style.color = '#f87171';
+            bannerEl.style.color = 'var(--text-red)';
             iconEl.textContent = '❌';
             textEl.textContent = `診断エラー: ${err.message}`;
         }
@@ -2053,7 +2072,7 @@ return 'http://' + u;
             if (statusEl) {
                 statusEl.textContent = '追跡中...';
                 statusEl.style.background = 'rgba(59, 130, 246, 0.2)';
-                statusEl.style.color = '#3b82f6';
+                statusEl.style.color = 'var(--text-blue-strong)';
             }
             list.innerHTML = '<div style="color: var(--text-muted); padding: 10px; text-align: center; font-size: 0.8rem;">ルートを解析しています...</div>';
             return;
@@ -2062,14 +2081,14 @@ return 'http://' + u;
         if (statusEl) {
             statusEl.textContent = '完了';
             statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
-            statusEl.style.color = '#4ade80';
+            statusEl.style.color = 'var(--text-lime)';
         }
 
         if (status === 'error') {
             if (statusEl) {
                 statusEl.textContent = '失敗';
                 statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-                statusEl.style.color = '#f87171';
+                statusEl.style.color = 'var(--text-red)';
             }
             list.innerHTML = '<div style="color: var(--error); padding: 10px; text-align: center; font-size: 0.8rem;">経路を調べられませんでした</div>';
             return;
@@ -2078,7 +2097,7 @@ return 'http://' + u;
         if (status === 'unreached' && statusEl) {
             statusEl.textContent = '未到達';
             statusEl.style.background = 'rgba(245, 158, 11, 0.2)';
-            statusEl.style.color = '#f59e0b';
+            statusEl.style.color = 'var(--text-amber-strong)';
         }
 
         if (activeTraceHops.length === 0) {
@@ -2104,7 +2123,7 @@ return 'http://' + u;
                 align-items: center;
                 gap: 8px;
                 padding: 6px 10px;
-                background: rgba(255, 255, 255, 0.03);
+                background: var(--lift-03);
                 border-radius: 6px;
                 border-left: 3px solid ${index === activeTraceHops.length - 1 ? '#ef4444' : '#3b82f6'};
             `;
@@ -3075,7 +3094,7 @@ return 'http://' + u;
                 
                 const isEnabled = d.enabled !== false;
                 const toggleIcon = isEnabled ? '⏸' : '▶️';
-                const toggleColor = isEnabled ? '#f59e0b' : '#10b981';
+                const toggleColor = isEnabled ? 'var(--text-amber-strong)' : 'var(--text-emerald)';
                 const toggleTitle = isEnabled ? '監視を一時停止' : '監視を再開';
                 
                 const safeName = escapeHTML(d.name || d.ip);
@@ -3084,7 +3103,7 @@ return 'http://' + u;
                 li.innerHTML = `
                     <div style="overflow: hidden;">
                         <div style="font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;" title="${safeName}">${safeName}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);">${safeIp}${d.mac ? ` / MAC: ${escapeHTML(d.mac)}` : ''} ${!isEnabled ? '<span style="color:#f59e0b; margin-left:4px;">(一時停止中)</span>' : ''}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">${safeIp}${d.mac ? ` / MAC: ${escapeHTML(d.mac)}` : ''} ${!isEnabled ? '<span style="color:var(--text-amber-strong); margin-left:4px;">(一時停止中)</span>' : ''}</div>
                     </div>
                     <div style="display: flex; gap: 8px; flex-shrink: 0;">
                         <button class="edit-dev-btn" data-ip="${safeIp}" style="background:transparent; border:none; color:var(--primary); cursor:pointer; font-size: 1rem;" title="機器を編集">✎</button>
@@ -3249,7 +3268,7 @@ return 'http://' + u;
         detailsEl.innerHTML = activeConflicts.map(c => `
             <div style="margin-top:2px;">
                 <strong>${escapeHTML(c.deviceName || c.ip)} (${escapeHTML(c.ip)})</strong>: 
-                <span style="color:#fca5a5;">${escapeHTML(c.reason || '競合')}</span>
+                <span style="color:var(--text-red-soft);">${escapeHTML(c.reason || '競合')}</span>
                 <span style="color:var(--text-muted); font-size:0.75rem; margin-left:6px;">[検知: ${escapeHTML(c.detectedAt || '')}]</span>
             </div>
         `).join('');
@@ -3421,9 +3440,9 @@ return 'http://' + u;
                 row.style.position = 'relative';
                 const color = !isPausedState ? chartColorOf(d) : 'transparent';
                 const displayName = escapeHTML(d.name || ip);
-                const rateBadge = ultraHighFreqActive ? (isUltraTarget ? '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(251,191,36,0.2); color:#fbbf24; font-weight:700; margin-left:4px;">0.1s</span>' : '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(148,163,184,0.15); color:#94a3b8; margin-left:4px;">5.0s</span>') : '';
-                const checkBadge = (d.checkType === 'tcp' && d.port > 0) ? `<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(99,102,241,0.2); color:#818cf8; font-weight:700; margin-left:4px;" title="TCPポート ${d.port} 死活監視">TCP:${d.port}</span>` : '';
-                const conflictBadge = `<span id="conflict-badge-${safeIpId}" style="display:none; font-size:0.65rem; padding:1px 6px; border-radius:4px; background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:700; margin-left:4px;" title="IPアドレス競合を検知中">🚨 IP競合</span>`;
+                const rateBadge = ultraHighFreqActive ? (isUltraTarget ? '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(251,191,36,0.2); color:var(--text-amber); font-weight:700; margin-left:4px;">0.1s</span>' : '<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(148,163,184,0.15); color:var(--text-slate); margin-left:4px;">5.0s</span>') : '';
+                const checkBadge = (d.checkType === 'tcp' && d.port > 0) ? `<span style="font-size:0.65rem; padding:1px 5px; border-radius:4px; background:rgba(99,102,241,0.2); color:var(--text-indigo); font-weight:700; margin-left:4px;" title="TCPポート ${d.port} 死活監視">TCP:${d.port}</span>` : '';
+                const conflictBadge = `<span id="conflict-badge-${safeIpId}" style="display:none; font-size:0.65rem; padding:1px 6px; border-radius:4px; background:rgba(239,68,68,0.25); color:var(--text-red); border:1px solid rgba(239,68,68,0.4); font-weight:700; margin-left:4px;" title="IPアドレス競合を検知中">🚨 IP競合</span>`;
                 
                 row.innerHTML = `
                     ${!isPausedState ? `<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:${color};border-radius:8px 0 0 8px;"></div>` : ''}
@@ -3440,22 +3459,22 @@ return 'http://' + u;
                         </div>
                     </div>
                     <div style="flex:1.1; min-width:0; display:flex; flex-direction:column; gap:1px;">
-                        <span id="traffic-tx-${safeIpId}" style="font-size:0.71rem; color:#60a5fa; white-space:nowrap;" title="SNMP 送信トラフィック速度 (Tx Mbps)">↑ TX: -</span>
-                        <span id="traffic-rx-${safeIpId}" style="font-size:0.71rem; color:#34d399; white-space:nowrap;" title="SNMP 受信トラフィック速度 (Rx Mbps)">↓ RX: -</span>
+                        <span id="traffic-tx-${safeIpId}" style="font-size:0.71rem; color:var(--text-blue); white-space:nowrap;" title="SNMP 送信トラフィック速度 (Tx Mbps)">↑ TX: -</span>
+                        <span id="traffic-rx-${safeIpId}" style="font-size:0.71rem; color:var(--text-green); white-space:nowrap;" title="SNMP 受信トラフィック速度 (Rx Mbps)">↓ RX: -</span>
                     </div>
                     <div style="flex:1.1; min-width:0; display:flex; flex-direction:column; gap:1px;">
-                        <span id="loss-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;" title="パケット損失率: 直近30回のPing送信に対する失敗割合 (%)">ロス: 0.0%</span>
-                        <span id="jitter-${safeIpId}" style="font-size:0.71rem; color:#94a3b8; white-space:nowrap;" title="ジッター (ms): 応答時間のブレ・揺らぎ (RFC 3550)。5ms未満が理想">揺らぎ: -</span>
-                        ${d.obrEnabled ? `<button type="button" id="obr-${safeIpId}" class="obr-history-btn" style="font-size:0.71rem; color:#94a3b8;" title="押すと無線履歴を表示します">📶 無線: 確認中...</button>` : ''}
+                        <span id="loss-${safeIpId}" style="font-size:0.71rem; color:var(--text-slate); white-space:nowrap;" title="パケット損失率: 直近30回のPing送信に対する失敗割合 (%)">ロス: 0.0%</span>
+                        <span id="jitter-${safeIpId}" style="font-size:0.71rem; color:var(--text-slate); white-space:nowrap;" title="ジッター (ms): 応答時間のブレ・揺らぎ (RFC 3550)。5ms未満が理想">揺らぎ: -</span>
+                        ${d.obrEnabled ? `<button type="button" id="obr-${safeIpId}" class="obr-history-btn" style="font-size:0.71rem; color:var(--text-slate);" title="押すと無線履歴を表示します">📶 無線: 確認中...</button>` : ''}
 </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;min-width:110px;">
                         <span class="header-latency" id="latency-${safeIpId}" style="min-width:50px;text-align:right;font-weight:700;" title="現在のPing応答遅延時間 (ms)">-</span>
-                        <span id="minmax-${safeIpId}" style="font-size:0.7rem;white-space:nowrap;" title="セッション中の最大応答遅延 / 最小応答遅延 (ms)"><span style="color:#f97316;">最大-</span> / <span style="color:#06b6d4;">最小-</span></span>
-                        <span id="outage-${safeIpId}" style="font-size:0.68rem;white-space:nowrap;color:#94a3b8;" title="最大瞬断時間: 連続してPingが途絶えた最長ミリ秒数 (ms)">瞬断最大: -</span>
+                        <span id="minmax-${safeIpId}" style="font-size:0.7rem;white-space:nowrap;" title="セッション中の最大応答遅延 / 最小応答遅延 (ms)"><span style="color:var(--text-orange);">最大-</span> / <span style="color:var(--text-cyan);">最小-</span></span>
+                        <span id="outage-${safeIpId}" style="font-size:0.68rem;white-space:nowrap;color:var(--text-slate);" title="最大瞬断時間: 連続してPingが途絶えた最長ミリ秒数 (ms)">瞬断最大: -</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
                         <button class="device-detail-btn" data-ip="${ip}" title="ポート通信量・MTR経路・24h履歴の詳細診断を開きます">🔍 詳細</button>
-                        <button class="toggle-monitor-btn" data-ip="${ip}" style="background:transparent;border:none;color:${!isPausedState ? '#f59e0b' : '#10b981'};cursor:pointer;font-size:1.1rem;" title="${!isPausedState ? '監視を一時停止' : '監視を再開'}">${!isPausedState ? '⏸' : '▶'}</button>
+                        <button class="toggle-monitor-btn" data-ip="${ip}" style="background:transparent;border:none;color:${!isPausedState ? 'var(--text-amber-strong)' : 'var(--text-emerald)'};cursor:pointer;font-size:1.1rem;" title="${!isPausedState ? '監視を一時停止' : '監視を再開'}">${!isPausedState ? '⏸' : '▶'}</button>
                     </div>`;
                 grid.appendChild(row);
                 ensureHistory(ip);
@@ -3827,14 +3846,14 @@ const ip = d.ip;
                 const minmaxEl = document.getElementById(`minmax-${safeIpId}`);
                 if (minmaxEl && latencyStats[ip]) {
                     const mn = latencyStats[ip].min, mx = latencyStats[ip].max;
-                    minmaxEl.innerHTML = `<span style="color:#f97316;">最大${mx !== null ? mx + ' ms' : '-'}</span> / <span style="color:#06b6d4;">最小${mn !== null ? mn + ' ms' : '-'}</span>`;
+                    minmaxEl.innerHTML = `<span style="color:var(--text-orange);">最大${mx !== null ? mx + ' ms' : '-'}</span> / <span style="color:var(--text-cyan);">最小${mn !== null ? mn + ' ms' : '-'}</span>`;
                 }
                 // Refresh Packet Loss & Jitter display
                 const obrEl = document.getElementById(`obr-${safeIpId}`);
                 if (obrEl) {
                     const obrView = describeObrStatus(data.obr);
                     obrEl.textContent = obrView.text;
-                    obrEl.style.color = obrView.color;
+                    obrEl.style.color = themeTextColor(obrView.color);
                     obrEl.title = (obrView.detail ? obrView.detail + '\n' : '') + '押すと無線履歴を表示します';
                 }
                 const lossEl = document.getElementById(`loss-${safeIpId}`);
@@ -3842,13 +3861,13 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 if (lossEl) {
                     const lossRate = (data.packetLossRate != null) ? data.packetLossRate : 0.0;
                     lossEl.textContent = `ロス: ${lossRate.toFixed(1)}%`;
-                    lossEl.style.color = (lossRate > 0) ? '#f87171' : 'var(--text-muted)';
+                    lossEl.style.color = (lossRate > 0) ? 'var(--text-red)' : 'var(--text-muted)';
                 }
                 if (jitterEl) {
                     const jit = (data.avgJitter != null && data.avgJitter > 0) ? data.avgJitter : null;
                     jitterEl.textContent = `揺らぎ: ${jit !== null ? jit.toFixed(1) + 'ms' : '-'}`;
                     jitterEl.title = jit !== null ? `平均ジッター: ${jit.toFixed(2)}ms` : '';
-                    jitterEl.style.color = (jit !== null && jit > 20) ? '#fbbf24' : 'var(--text-muted)';
+                    jitterEl.style.color = (jit !== null && jit > 20) ? 'var(--text-amber)' : 'var(--text-muted)';
                 }
 
                 // Update max outage display
@@ -3884,7 +3903,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                     }
 
                     if (isOffline) {
-                        outageEl.style.color = '#ef4444';
+                        outageEl.style.color = 'var(--text-red-strong)';
                         outageEl.textContent = `瞬断中: ${fmtOutageMs(curSec)}`;
                         let tooltip = `現在オフライン継続中: ${fmtOutageMs(curSec)}${curSec >= 1 ? ` (${curSec.toFixed(1)}秒)` : ''}`;
                         if (maxSec !== null) tooltip += ` / 過去最大瞬断: ${fmtOutageMs(maxSec)}`;
@@ -3892,14 +3911,14 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                         if (lastEvStr) tooltip += ` / ${lastEvStr}`;
                         outageEl.title = tooltip;
                     } else if (maxSec !== null) {
-                        outageEl.style.color = '#f97316';
+                        outageEl.style.color = 'var(--text-orange)';
                         outageEl.textContent = `瞬断最大: ${fmtOutageMs(maxSec)}`;
                         let tooltip = `最大瞬断時間: ${fmtOutageMs(maxSec)}${maxSec >= 1 ? ` (${maxSec.toFixed(1)}秒)` : ''}`;
                         if (cntStr) tooltip += ` / ${cntStr}`;
                         if (lastEvStr) tooltip += ` / ${lastEvStr}`;
                         outageEl.title = tooltip;
                     } else {
-                        outageEl.style.color = '#94a3b8';
+                        outageEl.style.color = 'var(--text-slate)';
                         outageEl.textContent = '瞬断最大: -';
                         outageEl.title = data.status === 'Paused' ? '監視一時停止中' : '瞬断の発生なし（連続正常稼働中）';
                     }
@@ -3911,16 +3930,16 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 if (txEl && rxEl) {
                     if (data.tx && data.tx !== '-') {
                         txEl.textContent = `↑ TX: ${data.tx} Mbps`;
-                        txEl.style.color = '#60a5fa';
+                        txEl.style.color = 'var(--text-blue)';
                     } else {
                         txEl.textContent = '↑ TX: -';
-                        txEl.style.color = '#60a5fa';
+                        txEl.style.color = 'var(--text-blue)';
                     }
                     txEl.style.display = '';
                     rxEl.textContent = (data.rx && data.rx !== '-')
                         ? `↓ RX: ${data.rx} Mbps`
                         : '↓ RX: -';
-                    rxEl.style.color  = '#34d399';
+                    rxEl.style.color  = 'var(--text-green)';
                     rxEl.style.display = '';
                 }
                 const macEl = document.getElementById(`mac-${safeIpId}`);
@@ -4355,12 +4374,12 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                         animation: { duration: 150 },
                         scales: {
                             x: {
-                                grid: { color: isDayMode ? 'rgba(15, 23, 42, 0.05)' : 'rgba(255, 255, 255, 0.05)' },
+                                grid: { color: isDayMode ? 'rgba(15, 23, 42, 0.12)' : 'rgba(255, 255, 255, 0.05)' },
                                 ticks: { color: isDayMode ? '#4b5563' : 'rgba(200, 210, 230, 0.8)', font: { size: 10 } }
                             },
                             y: {
                                 beginAtZero: true,
-                                grid: { color: isDayMode ? 'rgba(15, 23, 42, 0.05)' : 'rgba(255, 255, 255, 0.05)' },
+                                grid: { color: isDayMode ? 'rgba(15, 23, 42, 0.12)' : 'rgba(255, 255, 255, 0.05)' },
                                 ticks: { color: isDayMode ? '#4b5563' : 'rgba(200, 210, 230, 0.8)', font: { size: 10 } },
                                 title: { display: true, text: 'Mbps', color: isDayMode ? '#0f172a' : 'rgba(200, 210, 230, 0.8)', font: { size: 11, weight: 'bold' } }
                             }
@@ -4423,7 +4442,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                     iperfViewExecutedCommand.textContent = `実行コマンド: ${startData.command}`;
                     iperfViewExecutedCommand.classList.remove('hidden');
                     iperfViewExecutedCommand.style.display = 'block';
-                    iperfLiveConsole.innerHTML += `> コマンド実行: <span style="color: #94a3b8;">${escapeHTML(startData.command)}</span>\n\n`;
+                    iperfLiveConsole.innerHTML += `> コマンド実行: <span style="color: var(--text-slate);">${escapeHTML(startData.command)}</span>\n\n`;
                 }
 
                 if (startData.status === 'started') {
@@ -4471,13 +4490,13 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                             }
                         } catch(e) { /* ignore final-flush errors */ }
                         iperfViewSummary.innerHTML = `
-                            <div style="font-size: 1.3rem; color: #f59e0b; margin-bottom: 8px; font-weight: 700;">⏹ 計測中断</div>
+                            <div style="font-size: 1.3rem; color: var(--text-amber-strong); margin-bottom: 8px; font-weight: 700;">⏹ 計測中断</div>
                             <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">それまでの計測データはログに保存されています。（Reports フォルダ配下）</div>
                             <a href="/api/iperf/log" download="iperf_results.log" class="btn secondary-btn" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:8px 16px; border-radius:8px; font-size:0.85rem; font-weight:600;">📥 計測ログをダウンロード (iperf_results.log)</a>
                         `;
                     } else {
                         iperfViewSummary.innerHTML = `
-                            <div style="font-size: 1.3rem; color: #4ade80; margin-bottom: 8px; font-weight: 700;">✅ 計測完了</div>
+                            <div style="font-size: 1.3rem; color: var(--text-lime); margin-bottom: 8px; font-weight: 700;">✅ 計測完了</div>
                             <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">計測結果ログおよび統計サマリーが Reports フォルダ配下に保存されました。</div>
                             <a href="/api/iperf/log" download="iperf_results.log" class="btn primary-btn" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:8px 16px; border-radius:8px; font-size:0.85rem; font-weight:600;">📥 計測ログをダウンロード (iperf_results.log)</a>
                         `;
@@ -4548,7 +4567,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 iperfSubtabServer.classList.add('active');
             }
             if (iperfSubtabClient) {
-                iperfSubtabClient.style.background = 'rgba(255,255,255,0.06)';
+                iperfSubtabClient.style.background = 'var(--lift-06)';
                 iperfSubtabClient.style.color = 'var(--text-muted)';
                 iperfSubtabClient.classList.remove('active');
             }
@@ -4562,7 +4581,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 iperfSubtabClient.classList.add('active');
             }
             if (iperfSubtabServer) {
-                iperfSubtabServer.style.background = 'rgba(255,255,255,0.06)';
+                iperfSubtabServer.style.background = 'var(--lift-06)';
                 iperfSubtabServer.style.color = 'var(--text-muted)';
                 iperfSubtabServer.classList.remove('active');
             }
@@ -4582,7 +4601,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
             if (iperfServerPort) iperfServerPort.disabled = true;
             if (iperfServerStatusBadge) {
                 iperfServerStatusBadge.style.background = 'rgba(16, 185, 129, 0.15)';
-                iperfServerStatusBadge.style.color = '#10b981';
+                iperfServerStatusBadge.style.color = 'var(--text-emerald)';
             }
             if (iperfServerStatusDot) {
                 iperfServerStatusDot.style.background = '#10b981';
@@ -4617,7 +4636,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 iperfServerLiveConsole.textContent = output;
                 iperfServerLiveConsole.scrollTop = iperfServerLiveConsole.scrollHeight;
             } else if (!running) {
-                iperfServerLiveConsole.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:40px;">サーバーは停止しています。「▶️ サーバー起動」を押すとクライアントからの受信待機を開始します。</div>';
+                iperfServerLiveConsole.innerHTML = '<div style="color:#94a3b8; text-align:center; padding:40px;">サーバーは停止しています。「▶️ サーバー起動」を押すとクライアントからの受信待機を開始します。</div>';
             }
         }
     }
@@ -4739,8 +4758,8 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
         const safeLat  = escapeXml(latencyText || '');
 
         const txColor  = isDay ? '#1d4ed8' : '#60a5fa';  // blue
-        const rxColor  = isDay ? '#059669' : '#34d399';  // green
-        const latColor = statusColor;
+        const rxColor  = isDay ? '#047857' : '#34d399';  // green
+        const latColor = themeTextColor(statusColor);
 
         // Determine Y positions depending on what data is available
         // Layout (SVG height 175):
@@ -4764,7 +4783,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
         // OBR は通信量の代わりに無線の接続状況を表示する (通信量はマウスを乗せると出る説明に残る)
         if (obrView) {
             const obrShort = obrView.short.length > 22 ? obrView.short.slice(0, 21) + '…' : obrView.short;
-            txTextHtml = `<text x="60" y="159" font-family="'Inter', sans-serif" font-size="8.5" font-weight="bold" fill="${obrView.color}" text-anchor="middle">${escapeXml(obrShort)}</text>`;
+            txTextHtml = `<text x="60" y="159" font-family="'Inter', sans-serif" font-size="8.5" font-weight="bold" fill="${themeTextColor(obrView.color)}" text-anchor="middle">${escapeXml(obrShort)}</text>`;
             rxTextHtml = '';
         }
 
@@ -4962,7 +4981,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
         const isDayMode = document.documentElement.getAttribute('data-theme') === 'day';
         const GROUP_COLORS = isDayMode ? [
             { fill: 'rgba(76, 175, 80, 0.08)', stroke: 'rgba(76, 175, 80, 0.3)', label: '#2e7d32' },
-            { fill: 'rgba(217, 119, 6, 0.07)', stroke: 'rgba(217, 119, 6, 0.3)', label: '#b78103' },
+            { fill: 'rgba(217, 119, 6, 0.07)', stroke: 'rgba(217, 119, 6, 0.3)', label: '#8a6100' },
             { fill: 'rgba(0, 188, 212, 0.07)', stroke: 'rgba(0, 188, 212, 0.3)', label: '#00838f' },
             { fill: 'rgba(33, 150, 243, 0.07)', stroke: 'rgba(33, 150, 243, 0.3)', label: '#1565c0' },
             { fill: 'rgba(171, 71, 188, 0.07)', stroke: 'rgba(171, 71, 188, 0.3)', label: '#6a1b9a' },
@@ -5344,7 +5363,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 const labelY = rectY + 8;
 
                 // Rounded label background
-                ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+                ctx.fillStyle = isDayMode ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.82)';
                 ctx.strokeStyle = color.stroke;
                 ctx.lineWidth = 1.5;
                 ctx.beginPath();
@@ -5657,7 +5676,7 @@ const jitterEl = document.getElementById(`jitter-${safeIpId}`);
                 ctx.shadowBlur = 0;
                 ctx.stroke();
 
-                ctx.fillStyle = isOffline ? '#ef4444' : (isDay ? '#0f172a' : '#f8fafc');
+                ctx.fillStyle = isOffline ? themeTextColor('#ef4444') : (isDay ? '#0f172a' : '#f8fafc');
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(badgeText, mx, my + 0.5);
@@ -6594,8 +6613,8 @@ const activeDevices = devices.filter(d => d.enabled !== false);
             if (iperfSummary) {
                 iperfSummary.innerHTML = `
                     <div style="margin-top: 10px; text-align: center;">
-                        <div style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 4px;">⚡ 計測中 リアルタイム伝送速度</div>
-                        <div style="font-size: 1.8rem; font-weight: 800; color: #38bdf8;"><span id="modal-iperf-live-speed">0.00</span> <span style="font-size: 1rem;" id="modal-iperf-live-unit">Mbps</span></div>
+                        <div style="font-size: 0.85rem; color: var(--text-slate); margin-bottom: 4px;">⚡ 計測中 リアルタイム伝送速度</div>
+                        <div style="font-size: 1.8rem; font-weight: 800; color: var(--text-sky);"><span id="modal-iperf-live-speed">0.00</span> <span style="font-size: 1rem;" id="modal-iperf-live-unit">Mbps</span></div>
                     </div>
                 `;
             }
@@ -6635,8 +6654,8 @@ const activeDevices = devices.filter(d => d.enabled !== false);
                     const latestSpeed = parseLatestIperfSpeed(lastOutput);
                     if (iperfSummary) {
                         iperfSummary.innerHTML = `
-                            <div style="font-size: 1.1rem; color: #4ade80; margin-bottom: 8px; font-weight: 700;">✅ 計測完了</div>
-                            ${latestSpeed ? `<div>最終伝送速度: <span style="font-size: 1.3rem; font-weight: 800; color: #38bdf8;">${latestSpeed.val} ${latestSpeed.unit}</span></div>` : ''}
+                            <div style="font-size: 1.1rem; color: var(--text-lime); margin-bottom: 8px; font-weight: 700;">✅ 計測完了</div>
+                            ${latestSpeed ? `<div>最終伝送速度: <span style="font-size: 1.3rem; font-weight: 800; color: var(--text-sky);">${latestSpeed.val} ${latestSpeed.unit}</span></div>` : ''}
                             <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
                                 詳細なグラフ・ログは「Iperf3 帯域計測」タブで確認できます。
                             </div>
@@ -6933,9 +6952,9 @@ const activeDevices = devices.filter(d => d.enabled !== false);
                     const hasRecentErrors = Number(dInErr) > 0 || Number(dOutErr) > 0 || Number(dInDisc) > 0 || Number(dOutDisc) > 0;
                     const errorText = `
                         <div style="font-size:0.75rem; line-height:1.2;">
-                            <div title="合計エラー数 (受信/送信)">Err: <span style="color:${(Number(inErr)+Number(outErr)>0)?'#f87171':'inherit'}">${inErr} / ${outErr}</span></div>
-                            <div title="合計破棄パケット数 (受信/送信)">Disc: <span style="color:${(Number(inDisc)+Number(outDisc)>0)?'#fbbf24':'inherit'}">${inDisc} / ${outDisc}</span></div>
-                            ${hasRecentErrors ? `<div style="margin-top:2px; color:#f87171; font-weight:bold; font-size:0.7rem;">⚠️ +${Number(dInErr)+Number(dOutErr)+Number(dInDisc)+Number(dOutDisc)} (1秒間)</div>` : ''}
+                            <div title="合計エラー数 (受信/送信)">Err: <span style="color:${(Number(inErr)+Number(outErr)>0)?'var(--text-red)':'inherit'}">${inErr} / ${outErr}</span></div>
+                            <div title="合計破棄パケット数 (受信/送信)">Disc: <span style="color:${(Number(inDisc)+Number(outDisc)>0)?'var(--text-amber)':'inherit'}">${inDisc} / ${outDisc}</span></div>
+                            ${hasRecentErrors ? `<div style="margin-top:2px; color:var(--text-red); font-weight:bold; font-size:0.7rem;">⚠️ +${Number(dInErr)+Number(dOutErr)+Number(dInDisc)+Number(dOutDisc)} (1秒間)</div>` : ''}
                         </div>
                     `;
                     
@@ -8261,7 +8280,7 @@ return toCsvCell(d[c.key]);
                 return `
                     <div class="audit-entry">
                         <span style="color:var(--text-muted); font-size:0.75rem; white-space:nowrap;">${escapeHTML(ev.time)}</span>
-                        <span style="font-weight:700; color:${info.color}; font-size:0.8rem; white-space:nowrap;">${escapeHTML(info.label)}</span>
+                        <span style="font-weight:700; color:${themeTextColor(info.color)}; font-size:0.8rem; white-space:nowrap;">${escapeHTML(info.label)}</span>
                         <span style="color:var(--text-main); font-size:0.8rem; flex:1; min-width:0; overflow-wrap:anywhere;">${escapeHTML(info.detail)}</span>
                     </div>
                 `;
@@ -8357,7 +8376,7 @@ return toCsvCell(d[c.key]);
                 <div class="syslog-line">
                     <span style="color:var(--text-muted); font-size:0.75rem; white-space:nowrap;">${escapeHTML(log.Timestamp)}</span>
                     <span class="syslog-tag ${sevClass}">${escapeHTML(log.Severity || 'INFO')}</span>
-                    ${log.Kind === 'Trap' ? '<span class="syslog-tag" style="background:rgba(139,92,246,0.2); color:#a78bfa;">Trap</span>' : ''}
+                    ${log.Kind === 'Trap' ? '<span class="syslog-tag" style="background:rgba(139,92,246,0.2); color:var(--text-violet);">Trap</span>' : ''}
                     <span style="color:var(--primary); font-weight:600; font-size:0.8rem; min-width:95px;">${escapeHTML(log.SourceIP)}</span>
                     <span style="color:var(--text-main); font-size:0.82rem; flex:1;">${escapeHTML(log.Message)}</span>
                 </div>
@@ -8380,13 +8399,13 @@ return toCsvCell(d[c.key]);
                         listenStatusEl.style.color = 'var(--text-muted)';
                     } else if (data.listenError) {
                         listenStatusEl.textContent = '⚠ 受信状態: ' + data.listenError;
-                        listenStatusEl.style.color = '#f59e0b';
+                        listenStatusEl.style.color = 'var(--text-amber-strong)';
                     } else if (data.trapListenError) {
                         listenStatusEl.textContent = '⚠ 受信状態: ' + data.trapListenError;
-                        listenStatusEl.style.color = '#f59e0b';
+                        listenStatusEl.style.color = 'var(--text-amber-strong)';
                     } else if (data.listenPort) {
                         listenStatusEl.textContent = `受信状態: Syslog は UDP ${data.listenPort} 番、SNMP Trap は UDP ${data.trapListenPort || '-'} 番で受信中`;
-                        listenStatusEl.style.color = '#10b981';
+                        listenStatusEl.style.color = 'var(--text-emerald)';
                     }
                     // 登録済みの機器からのものだけを受け付けるので、届かないときの原因が分かるよう無視した数を出す
                     if (data.enabled !== false && data.rejectedCount > 0) {
@@ -8434,7 +8453,7 @@ return toCsvCell(d[c.key]);
                 const devBackups = (data.backups || []).filter(b => !ip || b.ip === ip);
                 if (devBackups.length > 0) {
                     configBackupFileList.innerHTML = devBackups.map(b => `
-                        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.03); cursor:pointer;">
+                        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:var(--lift-03); cursor:pointer;">
                             <input type="checkbox" class="backup-checkbox" value="${escapeHTML(b.filename)}">
                             <div style="flex:1; overflow:hidden;" class="backup-item-click" data-file="${escapeHTML(b.filename)}">
                                 <div style="font-weight:600; font-size:0.8rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHTML(b.filename)}</div>
@@ -8520,8 +8539,8 @@ return toCsvCell(d[c.key]);
                                 ${data.diff.map(d => `
                                     <div class="diff-row ${d.changed ? 'changed' : ''}">
                                         <span class="line-num">${d.line}</span>
-                                        <span style="word-break:break-all; ${d.changed ? 'color:#fb923c;' : ''}">${escapeHTML(d.file1 || '')}</span>
-                                        <span style="word-break:break-all; ${d.changed ? 'color:#4ade80;' : ''}">${escapeHTML(d.file2 || '')}</span>
+                                        <span style="word-break:break-all; ${d.changed ? 'color:var(--text-orange-soft);' : ''}">${escapeHTML(d.file1 || '')}</span>
+                                        <span style="word-break:break-all; ${d.changed ? 'color:var(--text-lime);' : ''}">${escapeHTML(d.file2 || '')}</span>
                                     </div>
                                 `).join('')}
                             `;

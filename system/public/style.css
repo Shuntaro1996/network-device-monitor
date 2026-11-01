@@ -16,27 +16,164 @@
     --secondary-btn-bg: rgba(255, 255, 255, 0.05);
     --secondary-btn-hover-bg: rgba(255, 255, 255, 0.1);
     --secondary-btn-color: #f1f5f9;
+
+    /* ---------------------------------------------------------------------------------
+       【色の変数の考え方 (初心者向けの簡単な解説)】
+       画面の色は、ここに名前を付けて定義し、各所では var(--名前) で使います。
+       :root がナイトモード (暗い表示)、下の :root[data-theme="day"] がデイモード (明るい表示) の値です。
+       同じ名前に 2 つの値を持たせることで、部品側を書き換えずに表示モードごとの色へ切り替わります。
+
+       - --text-* : 色付きの文字。暗い背景で映える明るい色は、白い背景では薄くて読めません。
+                    そこでデイモードでは同じ色みの濃い色にし、白地で 4.5:1 以上の明暗差を確保します
+                    (4.5:1 は Web の読みやすさの基準 WCAG AA の目安です)。
+       - --lift-NN: 暗い背景を少し明るく見せる半透明の白 (NN は濃さの %)。
+                    白い背景では見えなくなるので、デイモードでは薄い紺色にします。
+       - --sink-NN: 背景を少し沈ませる半透明の黒。デイモードでそのまま使うと灰色の板になって文字が
+                    読みにくくなるので、ごく薄い紺色にします。
+       - --line-NN: 区切り線の半透明の白。デイモードでは見える濃さの紺色にします。
+
+       変更するときの注意:
+       - ナイトモードの値を変えると、ナイトモードの見た目が変わります。値は置き換える前の色と同じにしてあります。
+       - 新しい色を足すときは、ナイトとデイの両方に定義してください。片方だけだと表示モードで色が切り替わりません。
+       --------------------------------------------------------------------------------- */
+    --text-blue: #60a5fa;
+    --text-blue-soft: #93c5fd;
+    --text-blue-strong: #3b82f6;
+    --text-sky: #38bdf8;
+    --text-cyan: #06b6d4;
+    --text-cyan-soft: #22d3ee;
+    --text-green: #34d399;
+    --text-emerald: #10b981;
+    --text-lime: #4ade80;
+    --text-red: #f87171;
+    --text-red-strong: #ef4444;
+    --text-red-soft: #fca5a5;
+    --text-amber: #fbbf24;
+    --text-amber-strong: #f59e0b;
+    --text-yellow: #facc15;
+    --text-orange: #f97316;
+    --text-orange-soft: #fb923c;
+    --text-purple: #c084fc;
+    --text-violet: #a78bfa;
+    --text-indigo: #818cf8;
+    --text-slate: #94a3b8;
+    --text-slate-dim: #64748b;
+    --text-slate-soft: #cbd5e1;
+    --lift-02: rgba(255, 255, 255, 0.02);
+    --lift-03: rgba(255, 255, 255, 0.03);
+    --lift-04: rgba(255, 255, 255, 0.04);
+    --lift-05: rgba(255, 255, 255, 0.05);
+    --lift-06: rgba(255, 255, 255, 0.06);
+    --lift-07: rgba(255, 255, 255, 0.07);
+    --lift-08: rgba(255, 255, 255, 0.08);
+    --lift-10: rgba(255, 255, 255, 0.1);
+    --sink-10: rgba(0, 0, 0, 0.1);
+    --sink-15: rgba(0, 0, 0, 0.15);
+    --sink-20: rgba(0, 0, 0, 0.2);
+    --sink-25: rgba(0, 0, 0, 0.25);
+    --sink-30: rgba(0, 0, 0, 0.3);
+    --sink-60: rgba(0, 0, 0, 0.6);
+    --line-04: rgba(255, 255, 255, 0.04);
+    --line-05: rgba(255, 255, 255, 0.05);
+    --line-06: rgba(255, 255, 255, 0.06);
+    --line-10: rgba(255, 255, 255, 0.1);
+    --line-12: rgba(255, 255, 255, 0.12);
+    --line-15: rgba(255, 255, 255, 0.15);
+    --line-18: rgba(255, 255, 255, 0.18);
+    --modal-backdrop: rgba(0, 0, 0, 0.7);
+    --console-bg: rgba(0, 0, 0, 0.4);
+    --console-bg-strong: rgba(0, 0, 0, 0.45);
+    --bulk-bar-bg: rgba(15, 23, 42, 0.95);
+    --speed-card-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.8));
+    --fit-btn-bg: rgba(30, 41, 59, 0.75);
+    --toggle-off-bg: rgba(148, 163, 184, 0.3);
+    --toggle-on-bg: #10b981;
+    --danger-solid: #ef4444;
+    --chart-bg: rgba(30, 41, 59, 0.4);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
 }
 
 :root[data-theme="day"] {
     --bg-color: #f1f5f9;
     --text-main: #1e293b;
-    --text-muted: #64748b;
-    --glass-bg: rgba(255, 255, 255, 0.7);
-    --glass-border: rgba(15, 23, 42, 0.1);
-    --primary: #2563eb;
-    --primary-hover: #1d4ed8;
-    --secondary: #059669;
-    --warning: #d97706;
-    --error: #dc2626;
-    --input-bg: rgba(255, 255, 255, 0.9);
-    --inset-bg: rgba(15, 23, 42, 0.03);
+    --text-muted: #475569;
+    --glass-bg: rgba(255, 255, 255, 0.88);
+    --glass-border: rgba(15, 23, 42, 0.16);
+    --primary: #1d4ed8;
+    --primary-hover: #1e40af;
+    --secondary: #047857;
+    --warning: #b45309;
+    --error: #b91c1c;
+    --input-bg: #ffffff;
+    --inset-bg: rgba(15, 23, 42, 0.04);
     --blob-1-color: rgba(37, 99, 235, 0.05);
     --blob-2-color: rgba(5, 150, 105, 0.05);
     --secondary-btn-bg: rgba(15, 23, 42, 0.05);
     --secondary-btn-hover-bg: rgba(15, 23, 42, 0.1);
     --secondary-btn-color: #1e293b;
+
+    --text-blue: #1d4ed8;
+    --text-blue-soft: #1e40af;
+    --text-blue-strong: #1d4ed8;
+    --text-sky: #0369a1;
+    --text-cyan: #0e7490;
+    --text-cyan-soft: #155e75;
+    --text-green: #065f46;
+    --text-emerald: #047857;
+    --text-lime: #15803d;
+    --text-red: #b91c1c;
+    --text-red-strong: #b91c1c;
+    --text-red-soft: #b91c1c;
+    --text-amber: #92400e;
+    --text-amber-strong: #b45309;
+    --text-yellow: #854d0e;
+    --text-orange: #c2410c;
+    --text-orange-soft: #9a3412;
+    --text-purple: #7e22ce;
+    --text-violet: #6d28d9;
+    --text-indigo: #4338ca;
+    --text-slate: #475569;
+    --text-slate-dim: #475569;
+    --text-slate-soft: #334155;
+    --lift-02: rgba(15, 23, 42, 0.03);
+    --lift-03: rgba(15, 23, 42, 0.03);
+    --lift-04: rgba(15, 23, 42, 0.04);
+    --lift-05: rgba(15, 23, 42, 0.05);
+    --lift-06: rgba(15, 23, 42, 0.06);
+    --lift-07: rgba(15, 23, 42, 0.07);
+    --lift-08: rgba(15, 23, 42, 0.08);
+    --lift-10: rgba(15, 23, 42, 0.1);
+    --sink-10: rgba(15, 23, 42, 0.03);
+    --sink-15: rgba(15, 23, 42, 0.03);
+    --sink-20: rgba(15, 23, 42, 0.03);
+    --sink-25: rgba(15, 23, 42, 0.05);
+    --sink-30: rgba(15, 23, 42, 0.05);
+    --sink-60: rgba(15, 23, 42, 0.05);
+    --line-04: rgba(15, 23, 42, 0.12);
+    --line-05: rgba(15, 23, 42, 0.12);
+    --line-06: rgba(15, 23, 42, 0.12);
+    --line-10: rgba(15, 23, 42, 0.12);
+    --line-12: rgba(15, 23, 42, 0.12);
+    --line-15: rgba(15, 23, 42, 0.2);
+    --line-18: rgba(15, 23, 42, 0.2);
+    --modal-backdrop: rgba(15, 23, 42, 0.45);
+    /* コンソール画面はデイモードでも黒地のままにする (緑の文字が読める背景にするため) */
+    --console-bg: #0f172a;
+    --console-bg-strong: #0f172a;
+    --bulk-bar-bg: rgba(255, 255, 255, 0.97);
+    --speed-card-bg: linear-gradient(135deg, #eff6ff, #e2e8f0);
+    --fit-btn-bg: rgba(255, 255, 255, 0.92);
+    --toggle-off-bg: rgba(71, 85, 105, 0.45);
+    --toggle-on-bg: #047857;
+    --danger-solid: #dc2626;
     --chart-bg: rgba(255, 255, 255, 0.5);
+    --scrollbar-thumb: rgba(15, 23, 42, 0.25);
+    --scrollbar-thumb-hover: rgba(15, 23, 42, 0.4);
+    /* 次の 3 つはデイモードだけ定義する。ナイトモードは未定義のときの従来の表示のまま変えないため */
+    --bg-main: #f1f5f9;
+    --primary-light: #1d4ed8;
+    --success: #047857;
 }
 
 * {
@@ -162,7 +299,7 @@ body {
 
 .tab-btn.active, .snmp-tab-btn.active {
     color: var(--text-main) !important;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--lift-05);
 }
 
 .tab-btn.active::after, .snmp-tab-btn.active::after {
@@ -206,7 +343,7 @@ body {
 }
 
 .threshold-item.border-top {
-    border-top: 1px solid rgba(255,255,255,0.05);
+    border-top: 1px solid var(--line-05);
     padding-top: 0.5rem;
 }
 
@@ -406,7 +543,7 @@ body {
 .iperf-container { padding: 2rem; }
 .view-title { margin-top: 0; margin-bottom: 1.5rem; font-size: 1.5rem; font-weight: 700; }
 .iperf-content { display: flex; flex-direction: column; gap: 1.5rem; }
-.iperf-setup { padding: 1.5rem; background: rgba(0,0,0,0.15); }
+.iperf-setup { padding: 1.5rem; background: var(--sink-15); }
 .setup-grid { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-end; }
 .target-field { flex: 1.5; min-width: 250px; display: flex; flex-direction: column; gap: 8px; }
 .duration-field { display: flex; flex-direction: column; gap: 8px; }
@@ -416,14 +553,14 @@ body {
 .manage-container { padding: 2rem; }
 .capacity-indicator { background: var(--inset-bg); padding: 12px 18px; border-radius: 12px; margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
 .capacity-info { display: flex; align-items: center; gap: 10px; }
-.progress-track { width: 200px; height: 10px; background: rgba(255,255,255,0.05); border-radius: 5px; overflow: hidden; }
+.progress-track { width: 200px; height: 10px; background: var(--lift-05); border-radius: 5px; overflow: hidden; }
 .progress-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.5s ease; }
 .manage-split { display: flex; gap: 2.5rem; }
 .device-list-container { flex: 1.2; border-right: 1px solid var(--glass-border); padding-right: 2.5rem; }
-.scan-section { padding: 1.25rem; margin-bottom: 2rem; background: rgba(0,0,0,0.15); }
+.scan-section { padding: 1.25rem; margin-bottom: 2rem; background: var(--sink-15); }
 .scan-inputs { display: flex; gap: 10px; align-items: center; margin-bottom: 1rem; }
 .scan-status { margin-top: 10px; font-size: 0.85rem; color: var(--text-muted); }
-.scan-results { margin-top: 1rem; padding: 0.75rem; background: rgba(0,0,0,0.2); border-radius: 8px; max-height: 360px; overflow-y: auto; }
+.scan-results { margin-top: 1rem; padding: 0.75rem; background: var(--sink-20); border-radius: 8px; max-height: 360px; overflow-y: auto; }
 .results-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 0.75rem; }
 
 .list-title { margin-bottom: 1rem; font-size: 1.1rem; font-weight: 600; }
@@ -435,7 +572,7 @@ body {
 .form-title { margin-bottom: 1.5rem; font-size: 1.2rem; font-weight: 700; }
 .vertical-form { display: flex; flex-direction: column; gap: 15px; }
 .label-hint { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; }
-.upload-container { margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 8px; display: flex; align-items: center; gap: 10px; }
+.upload-container { margin-top: 10px; padding: 10px; background: var(--sink-10); border-radius: 8px; display: flex; align-items: center; gap: 10px; }
 
 .snmpv3-container { display: flex; flex-direction: column; gap: 10px; background: var(--inset-bg); border: 1px solid var(--glass-border); border-radius: 10px; padding: 15px; margin-bottom: 1rem; }
 .snmpv3-container .field { display: flex; flex-direction: column; gap: 4px; }
@@ -445,12 +582,12 @@ body {
 .form-checkbox input { width: 18px; height: 18px; cursor: pointer; }
 
 /* Modal */
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 1rem; }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--modal-backdrop); backdrop-filter: blur(4px); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 1rem; }
 .modal-overlay.active { display: flex; }
 .modal-content { max-width: 900px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--glass-border); }
 .modal-body-scroll { flex: 1; overflow-y: auto; padding: 1.5rem; }
-.modal-footer { padding: 1.25rem 1.5rem; border-top: 1px solid var(--glass-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.15); }
+.modal-footer { padding: 1.25rem 1.5rem; border-top: 1px solid var(--glass-border); display: flex; justify-content: flex-end; background: var(--sink-15); }
 .modal-title-group { display: flex; align-items: center; gap: 10px; }
 .modal-title { font-size: 1.15rem; font-weight: 700; margin: 0; }
 .modal-close-btn { background: transparent; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; line-height: 1; padding: 0 4px; }
@@ -467,8 +604,8 @@ body {
 
 /* Dashboard card latency display */
 .header-latency { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; }
-.header-latency.bad { color: #ef4444; }
-.header-latency.paused-text { color: #64748b; font-style: italic; }
+.header-latency.bad { color: var(--text-red-strong); }
+.header-latency.paused-text { color: var(--text-slate-dim); font-style: italic; }
 
 /* Dashboard tab buttons */
 .dashboard-tab-btn { font-size: 0.8rem; padding: 0.35rem 0.8rem; border-radius: 6px; }
@@ -499,7 +636,7 @@ body {
 }
 .snmp-tab-btn.active {
     color: var(--text-main) !important;
-    background: rgba(255,255,255,0.07) !important;
+    background: var(--lift-07) !important;
 }
 .snmp-tab-btn.active::after {
     left: 10% !important;
@@ -522,7 +659,7 @@ body {
 .progress-list { display: flex; flex-direction: column; gap: 12px; }
 .progress-item { display: flex; flex-direction: column; gap: 4px; }
 .item-header { display: flex; justify-content: space-between; font-size: 0.8rem; }
-.progress-bar { height: 8px; background: rgba(255,255,255,0.07); border-radius: 4px; overflow: hidden; }
+.progress-bar { height: 8px; background: var(--lift-07); border-radius: 4px; overflow: hidden; }
 .progress-bar .fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
 .fill.cpu { background: linear-gradient(90deg, #3b82f6, #06b6d4); }
 .fill.ram { background: linear-gradient(90deg, #10b981, #14b8a6); }
@@ -535,14 +672,14 @@ body {
 .data-table, .data-table-sm { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
 .data-table th, .data-table td, .data-table-sm th, .data-table-sm td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--glass-border); }
 .data-table th, .data-table-sm th { color: var(--text-muted); font-weight: 600; position: sticky; top: 0; background: var(--glass-bg); }
-.data-table tr:hover, .data-table-sm tr:hover { background: rgba(255,255,255,0.03); }
+.data-table tr:hover, .data-table-sm tr:hover { background: var(--lift-03); }
 .network-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 
 /* MTR / Terminal */
 .mtr-container { padding: 1.25rem; }
 .mtr-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .mtr-loading { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px; }
-.terminal-console { background: rgba(0,0,0,0.4); border-radius: 8px; padding: 12px; font-family: 'Courier New', monospace; font-size: 0.75rem; color: #4ade80; min-height: 100px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+.terminal-console { background: var(--console-bg); border-radius: 8px; padding: 12px; font-family: 'Courier New', monospace; font-size: 0.75rem; color: #4ade80; min-height: 100px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
 
 /* History Charts */
 .history-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -564,7 +701,7 @@ body {
 .error-icon { font-size: 2.5rem; }
 .error-title { font-size: 1rem; font-weight: 700; color: var(--error); }
 .error-msg { font-size: 0.82rem; color: var(--text-muted); }
-.status-badge { font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; background: rgba(16,185,129,0.2); color: #4ade80; }
+.status-badge { font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; background: rgba(16,185,129,0.2); color: var(--text-lime); }
 
 /* =========================================================
    Network Offline Warning Banner
@@ -675,7 +812,7 @@ body.backend-offline .device-card {
     border-radius: 12px;
     background: rgba(15, 23, 42, 0.92);
     backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid var(--line-10);
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
     pointer-events: all;
     animation: toast-in 0.3s ease;
@@ -692,8 +829,8 @@ body.backend-offline .device-card {
 .toast-icon { font-size: 1.1rem; flex-shrink: 0; line-height: 1.4; }
 .toast-body { flex: 1; min-width: 0; }
 .toast-title { font-weight: 700; font-size: 0.85rem; color: #f1f5f9; }
-.toast-msg { font-size: 0.78rem; color: #94a3b8; margin-top: 2px; word-break: break-word; }
-.toast-close { background: transparent; border: none; color: #64748b; cursor: pointer; font-size: 0.95rem; padding: 0; flex-shrink: 0; line-height: 1; }
+.toast-msg { font-size: 0.78rem; color: var(--text-slate); margin-top: 2px; word-break: break-word; }
+.toast-close { background: transparent; border: none; color: var(--text-slate-dim); cursor: pointer; font-size: 0.95rem; padding: 0; flex-shrink: 0; line-height: 1; }
 .toast-close:hover { color: #f1f5f9; }
 .toast-progress {
     position: absolute;
@@ -714,7 +851,9 @@ body.backend-offline .device-card {
     border-color: rgba(15, 23, 42, 0.12);
 }
 :root[data-theme="day"] .toast-title { color: #1e293b; }
-:root[data-theme="day"] .toast-msg   { color: #64748b; }
+:root[data-theme="day"] .toast-msg   { color: #475569; }
+:root[data-theme="day"] .toast-close { color: #475569; }
+:root[data-theme="day"] .toast-close:hover { color: #1e293b; }
 
 /* Bulk action bar */
 .bulk-bar {
@@ -722,9 +861,9 @@ body.backend-offline .device-card {
     bottom: 1.5rem;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(15, 23, 42, 0.95);
+    background: var(--bulk-bar-bg);
     backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.12);
+    border: 1px solid var(--line-12);
     border-radius: 14px;
     padding: 10px 16px;
     display: flex;
@@ -736,14 +875,14 @@ body.backend-offline .device-card {
 }
 .bulk-label { font-size: 0.85rem; font-weight: 700; color: var(--primary); white-space: nowrap; }
 .bulk-bar .btn.small { padding: 0.3rem 0.7rem; font-size: 0.78rem; border-radius: 8px; }
-.bulk-bar .divider { width: 1px; height: 24px; background: rgba(255,255,255,0.1); }
-.danger-text { color: #ef4444 !important; }
+.bulk-bar .divider { width: 1px; height: 24px; background: var(--line-10); }
+.danger-text { color: var(--text-red-strong) !important; }
 .bulk-popup { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 10px; padding: 10px; display: flex; gap: 8px; backdrop-filter: blur(16px); }
 .popup-wrapper { position: relative; }
 
 /* Manage list items */
 .manage-list li { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--glass-border); margin-bottom: 6px; font-size: 0.85rem; }
-.manage-list li:hover { background: rgba(255,255,255,0.04); }
+.manage-list li:hover { background: var(--lift-04); }
 .manage-list .item-actions { display: flex; gap: 6px; }
 .manage-list .btn.small { padding: 0.25rem 0.6rem; font-size: 0.75rem; border-radius: 6px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
@@ -764,14 +903,14 @@ body.backend-offline .device-card {
 .result-loading { display: flex; flex-direction: column; gap: 8px; align-items: center; padding: 1.5rem; }
 .loading-info { display: flex; align-items: center; gap: 10px; }
 .countdown { font-size: 0.85rem; color: var(--text-muted); }
-.warning-text { color: #f59e0b; font-weight: 700; }
+.warning-text { color: var(--text-amber-strong); font-weight: 700; }
 .executed-command { font-size: 0.75rem; font-family: monospace; color: var(--text-muted); background: var(--inset-bg); padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; }
-.live-console { background: rgba(0,0,0,0.4); border-radius: 8px; padding: 10px; font-family: monospace; font-size: 0.72rem; color: #4ade80; max-height: 200px; overflow-y: auto; white-space: pre-wrap; margin-bottom: 8px; }
+.live-console { background: var(--console-bg); border-radius: 8px; padding: 10px; font-family: monospace; font-size: 0.72rem; color: #4ade80; max-height: 200px; overflow-y: auto; white-space: pre-wrap; margin-bottom: 8px; }
 .result-summary { background: var(--inset-bg); padding: 1rem; border-radius: 10px; font-size: 0.85rem; }
 
 /* Iperf Real-time Speed Card */
 .iperf-live-speed-card {
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.8));
+    background: var(--speed-card-bg);
     border: 1px solid rgba(59, 130, 246, 0.4);
     border-radius: 12px;
     padding: 1rem 1.5rem;
@@ -791,7 +930,7 @@ body.backend-offline .device-card {
     gap: 8px;
     font-size: 0.85rem;
     font-weight: 600;
-    color: #94a3b8;
+    color: var(--text-slate);
     margin-bottom: 6px;
     letter-spacing: 0.5px;
 }
@@ -822,7 +961,7 @@ body.backend-offline .device-card {
     font-size: 2.5rem;
     font-weight: 800;
     font-family: 'Inter', -apple-system, sans-serif;
-    color: #38bdf8;
+    color: var(--text-sky);
     text-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
     letter-spacing: -1px;
     line-height: 1;
@@ -831,7 +970,7 @@ body.backend-offline .device-card {
 .speed-unit {
     font-size: 1.1rem;
     font-weight: 700;
-    color: #94a3b8;
+    color: var(--text-slate);
 }
 
 .iperf-guide { background: var(--inset-bg); border: 1px solid var(--glass-border); border-radius: 12px; padding: 1.25rem; }
@@ -840,6 +979,8 @@ body.backend-offline .device-card {
 .guide-section.border-top { border-top: 1px solid var(--glass-border); margin-top: 0.75rem; }
 .section-subtitle { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.5rem; }
 .section-subtitle.secondary { color: var(--text-muted); opacity: 0.7; }
+/* デイモードは半透明にすると文字が薄くなりすぎるので、不透明のままにする */
+:root[data-theme="day"] .section-subtitle.secondary { opacity: 1; }
 .guide-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .guide-grid-lg { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .guide-list, .guide-list-sm { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; }
@@ -946,8 +1087,8 @@ body.backend-offline .device-card {
 /* Custom Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1011,7 +1152,7 @@ body.backend-offline .device-card {
 
 .topo-btn-fx-on {
     border-color: rgba(6, 182, 212, 0.6) !important;
-    color: #38bdf8 !important;
+    color: var(--text-sky) !important;
     background: rgba(6, 182, 212, 0.12) !important;
     box-shadow: 0 0 10px rgba(6, 182, 212, 0.25);
 }
@@ -1022,7 +1163,7 @@ body.backend-offline .device-card {
 
 .topo-btn-theater-active {
     border-color: rgba(168, 85, 247, 0.6) !important;
-    color: #c084fc !important;
+    color: var(--text-purple) !important;
     background: rgba(168, 85, 247, 0.15) !important;
     box-shadow: 0 0 10px rgba(168, 85, 247, 0.25);
 }
@@ -1129,7 +1270,7 @@ body.backend-offline .device-card {
     border-radius: 8px;
     z-index: 10;
     backdrop-filter: blur(8px);
-    background: rgba(30, 41, 59, 0.75);
+    background: var(--fit-btn-bg);
     border: 1px solid var(--glass-border);
     color: var(--text-main);
     cursor: pointer;
@@ -1166,7 +1307,7 @@ body.backend-offline .device-card {
     font-weight: 500;
 }
 .topo-context-menu button:hover {
-    background: rgba(255,255,255,0.08);
+    background: var(--lift-08);
 }
 .ctx-danger { color: var(--error) !important; }
 
@@ -1224,30 +1365,30 @@ body.backend-offline .device-card {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--lift-05);
     border: 1px solid var(--glass-border);
 }
 
 .chip-online {
-    color: #34d399;
+    color: var(--text-green);
     border-color: rgba(52, 211, 153, 0.25);
     background: rgba(52, 211, 153, 0.08);
 }
 
 .chip-offline {
-    color: #f87171;
+    color: var(--text-red);
     border-color: rgba(248, 113, 113, 0.25);
     background: rgba(248, 113, 113, 0.08);
 }
 
 .chip-paused {
-    color: #94a3b8;
+    color: var(--text-slate);
     border-color: rgba(148, 163, 184, 0.2);
     background: rgba(148, 163, 184, 0.06);
 }
 
 .chip-unreachable {
-    color: #c084fc;
+    color: var(--text-purple);
     border-color: rgba(192, 132, 252, 0.35);
     background: rgba(192, 132, 252, 0.1);
 }
@@ -1300,7 +1441,7 @@ body.backend-offline .device-card {
 }
 
 .header-latency.unreachable-text {
-    color: #c084fc;
+    color: var(--text-purple);
     font-weight: 600;
 }
 
@@ -1318,7 +1459,7 @@ body.backend-offline .device-card {
     align-items: center;
     justify-content: space-between;
     padding: 6px 10px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--lift-02);
     border: 1px solid var(--glass-border);
     border-radius: 8px;
     gap: 8px;
@@ -1362,7 +1503,7 @@ body.backend-offline .device-card {
 .config-tab-bar {
     display: flex;
     border-bottom: 1px solid var(--glass-border);
-    background: rgba(0, 0, 0, 0.15);
+    background: var(--sink-15);
     overflow-x: auto;
 }
 
@@ -1381,7 +1522,7 @@ body.backend-offline .device-card {
 
 .config-tab-btn:hover {
     color: var(--text-main);
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--lift-03);
 }
 
 .config-tab-btn.active {
@@ -1455,7 +1596,7 @@ body.backend-offline .device-card {
     position: absolute;
     cursor: pointer;
     top: 0; left: 0; right: 0; bottom: 0;
-    background-color: rgba(148, 163, 184, 0.3);
+    background-color: var(--toggle-off-bg);
     transition: .3s;
     border-radius: 24px;
 }
@@ -1488,7 +1629,7 @@ body.backend-offline .device-card {
 .device-card:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-    border-color: rgba(255, 255, 255, 0.18);
+    border-color: var(--line-18);
 }
 
 .device-card .header-latency {
@@ -1527,9 +1668,20 @@ body.backend-offline .device-card {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 }
 
-:root[data-theme="day"] .config-modal-box {
+/* 【デイモードのポップアップ画面】
+   ナイトモードのポップアップは半透明で、裏の画面が透けて見えます。明るい表示で同じことをすると、
+   黒い目隠しの色が透けて灰色の板になり、文字が読みにくくなります。そのため、デイモードだけ白で塗りつぶします。
+   .glass-modal には枠線と角丸の定義がないので、ここで合わせて指定します。
+   変更するときの注意: ナイトモードの見た目を変えないよう、必ず :root[data-theme="day"] を付けてください。 */
+:root[data-theme="day"] .config-modal-box,
+:root[data-theme="day"] .glass-modal,
+:root[data-theme="day"] .modal-content {
     background: #ffffff;
-    border-color: rgba(15, 23, 42, 0.15);
+    border: 1px solid rgba(15, 23, 42, 0.15);
+    border-radius: 16px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
 }
 
 :root[data-theme="day"] .config-tab-bar {
@@ -1540,7 +1692,7 @@ body.backend-offline .device-card {
    OSS License Modal
    ========================================= */
 #oss-license-btn:hover {
-    background: rgba(255,255,255,0.06);
+    background: var(--lift-06);
     color: var(--text-main);
     border-color: var(--primary);
 }
@@ -1569,7 +1721,7 @@ body.backend-offline .device-card {
     font-family: 'Courier New', monospace;
     font-size: 0.75rem;
     color: var(--text-muted);
-    background: rgba(255,255,255,0.06);
+    background: var(--lift-06);
     padding: 2px 7px;
     border-radius: 5px;
     border: 1px solid var(--glass-border);
@@ -1585,10 +1737,10 @@ body.backend-offline .device-card {
     flex-shrink: 0;
 }
 
-.badge-bsd    { background: rgba(59,130,246,0.18);  color: #60a5fa; border: 1px solid rgba(59,130,246,0.35); }
-.badge-lgpl   { background: rgba(251,191,36,0.18);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); }
-.badge-apache { background: rgba(16,185,129,0.18);  color: #34d399; border: 1px solid rgba(16,185,129,0.35); }
-.badge-zlib   { background: rgba(167,139,250,0.18); color: #a78bfa; border: 1px solid rgba(167,139,250,0.35); }
+.badge-bsd    { background: rgba(59,130,246,0.18);  color: var(--text-blue); border: 1px solid rgba(59,130,246,0.35); }
+.badge-lgpl   { background: rgba(251,191,36,0.18);  color: var(--text-amber); border: 1px solid rgba(251,191,36,0.35); }
+.badge-apache { background: rgba(16,185,129,0.18);  color: var(--text-green); border: 1px solid rgba(16,185,129,0.35); }
+.badge-zlib   { background: rgba(167,139,250,0.18); color: var(--text-violet); border: 1px solid rgba(167,139,250,0.35); }
 
 .oss-copyright {
     font-size: 0.78rem;
@@ -1607,10 +1759,6 @@ body.backend-offline .device-card {
 .oss-source-link:hover { opacity: 1; text-decoration: underline; }
 
 :root[data-theme="day"] .oss-file   { background: rgba(0,0,0,0.04); }
-:root[data-theme="day"] .badge-bsd    { color: #2563eb; }
-:root[data-theme="day"] .badge-lgpl   { color: #d97706; }
-:root[data-theme="day"] .badge-apache { color: #059669; }
-:root[data-theme="day"] .badge-zlib   { color: #7c3aed; }
 
 /* ==========================================================================
    Simple Mode (かんたん表示) Layout
@@ -1660,7 +1808,7 @@ body.simple-mode .device-title-area .device-ip {
     border-left: 3px solid transparent;
 }
 .syslog-line:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--lift-05);
 }
 .syslog-tag {
     font-size: 0.7rem;
@@ -1672,22 +1820,22 @@ body.simple-mode .device-title-area .device-ip {
 }
 .syslog-tag.emergency, .syslog-tag.alert, .syslog-tag.critical {
     background: rgba(239, 68, 68, 0.2);
-    color: #f87171;
+    color: var(--text-red);
     border: 1px solid rgba(239, 68, 68, 0.4);
 }
 .syslog-tag.error {
     background: rgba(249, 115, 22, 0.2);
-    color: #fb923c;
+    color: var(--text-orange-soft);
     border: 1px solid rgba(249, 115, 22, 0.4);
 }
 .syslog-tag.warning {
     background: rgba(234, 179, 8, 0.2);
-    color: #facc15;
+    color: var(--text-yellow);
     border: 1px solid rgba(234, 179, 8, 0.4);
 }
 .syslog-tag.notice, .syslog-tag.informational {
     background: rgba(59, 130, 246, 0.2);
-    color: #60a5fa;
+    color: var(--text-blue);
     border: 1px solid rgba(59, 130, 246, 0.4);
 }
 
@@ -1700,7 +1848,7 @@ body.simple-mode .device-title-area .device-ip {
     gap: 8px;
     padding: 2px 4px;
     font-size: 0.78rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--line-05);
 }
 .diff-row.changed {
     background: rgba(234, 179, 8, 0.12);
@@ -1721,7 +1869,7 @@ body.simple-mode .device-title-area .device-ip {
     gap: 12px;
     padding: 8px 12px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--lift-02);
     border-bottom: 1px solid var(--glass-border);
 }
 .obr-history-btn {
@@ -1742,7 +1890,7 @@ body.simple-mode .device-title-area .device-ip {
     padding: 2px 8px;
     border-radius: 4px;
     background: rgba(59, 130, 246, 0.15);
-    color: #60a5fa;
+    color: var(--text-blue);
     border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
@@ -1756,7 +1904,7 @@ body.simple-mode .device-title-area .device-ip {
     width: 15px;
     height: 15px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--lift-10);
     color: var(--text-muted);
     font-size: 0.68rem;
     font-weight: 700;
@@ -1815,7 +1963,7 @@ body.simple-mode .device-title-area .device-ip {
    Operation Guide & Glossary Modal Styles
    ========================================================================== */
 .guide-card {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--lift-03);
     border: 1px solid var(--glass-border);
     border-radius: 12px;
     padding: 16px 20px;
@@ -1840,7 +1988,7 @@ body.simple-mode .device-title-area .device-ip {
     line-height: 1.6;
 }
 .guide-steps strong {
-    color: #60a5fa;
+    color: var(--text-blue);
 }
 .guide-grid-2col {
     display: grid;
@@ -1848,7 +1996,7 @@ body.simple-mode .device-title-area .device-ip {
     gap: 12px;
 }
 .guide-feature-box {
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--sink-20);
     border: 1px solid var(--glass-border);
     border-radius: 10px;
     padding: 12px 14px;
@@ -1872,7 +2020,7 @@ body.simple-mode .device-title-area .device-ip {
     gap: 14px;
 }
 .glossary-item {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--lift-02);
     border: 1px solid var(--glass-border);
     border-radius: 10px;
     padding: 14px 16px;
@@ -1901,7 +2049,7 @@ body.simple-mode .device-title-area .device-ip {
     padding: 2px 8px;
     border-radius: 6px;
     background: rgba(59, 130, 246, 0.1);
-    color: #60a5fa;
+    color: var(--text-blue);
     font-size: 0.78rem;
 }
 .term-badge {
@@ -1911,12 +2059,12 @@ body.simple-mode .device-title-area .device-ip {
     border-radius: 6px;
     letter-spacing: 0.02em;
 }
-.badge-primary { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
-.badge-info { background: rgba(6, 182, 212, 0.2); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.4); }
-.badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
-.badge-purple { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
-.badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
-.badge-secondary { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.4); }
+.badge-primary { background: rgba(59, 130, 246, 0.2); color: var(--text-blue); border: 1px solid rgba(59, 130, 246, 0.4); }
+.badge-info { background: rgba(6, 182, 212, 0.2); color: var(--text-cyan-soft); border: 1px solid rgba(6, 182, 212, 0.4); }
+.badge-warning { background: rgba(245, 158, 11, 0.2); color: var(--text-amber); border: 1px solid rgba(245, 158, 11, 0.4); }
+.badge-purple { background: rgba(168, 85, 247, 0.2); color: var(--text-purple); border: 1px solid rgba(168, 85, 247, 0.4); }
+.badge-success { background: rgba(16, 185, 129, 0.2); color: var(--text-green); border: 1px solid rgba(16, 185, 129, 0.4); }
+.badge-secondary { background: rgba(148, 163, 184, 0.2); color: var(--text-slate-soft); border: 1px solid rgba(148, 163, 184, 0.4); }
 
 /* FAQ Styles */
 .faq-list {
@@ -1925,7 +2073,7 @@ body.simple-mode .device-title-area .device-ip {
     gap: 12px;
 }
 .faq-item {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--lift-02);
     border: 1px solid var(--glass-border);
     border-radius: 10px;
     padding: 14px 16px;
@@ -1957,7 +2105,7 @@ body.simple-mode .device-title-area .device-ip {
 }
 .btn-danger-glow:hover {
     background: rgba(239, 68, 68, 0.28) !important;
-    color: #ef4444 !important;
+    color: var(--text-red-strong) !important;
     border-color: rgba(239, 68, 68, 0.6) !important;
     box-shadow: 0 0 12px rgba(239, 68, 68, 0.35);
     transform: translateY(-1px);
@@ -1965,7 +2113,7 @@ body.simple-mode .device-title-area .device-ip {
 
 .btn-mute-active {
     background: rgba(245, 158, 11, 0.2) !important;
-    color: #fbbf24 !important;
+    color: var(--text-amber) !important;
     border-color: rgba(245, 158, 11, 0.6) !important;
     box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
     animation: pulse-mute 2s infinite ease-in-out;
@@ -1977,14 +2125,14 @@ body.simple-mode .device-title-area .device-ip {
 
 .btn-sort-active {
     background: rgba(16, 185, 129, 0.2) !important;
-    color: #34d399 !important;
+    color: var(--text-green) !important;
     border-color: rgba(16, 185, 129, 0.6) !important;
     box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
 }
 
 /* Device card action buttons */
 .device-detail-btn {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--lift-05);
     border: 1px solid var(--glass-border);
     color: var(--text-muted);
     font-size: 0.75rem;
@@ -1999,7 +2147,7 @@ body.simple-mode .device-title-area .device-ip {
 }
 .device-detail-btn:hover {
     background: rgba(59, 130, 246, 0.2);
-    color: #60a5fa;
+    color: var(--text-blue);
     border-color: rgba(59, 130, 246, 0.4);
     transform: translateY(-1px);
 }
@@ -2040,7 +2188,7 @@ body.simple-mode .device-title-area .device-ip {
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--lift-04);
     border: 1px solid var(--glass-border);
     border-radius: 6px;
     font-size: 0.8rem;
@@ -2053,7 +2201,7 @@ body.simple-mode .device-title-area .device-ip {
     color: var(--text-main);
 }
 .remote-cmd-item code {
-    color: #60a5fa;
+    color: var(--text-blue);
     font-family: 'Cascadia Code', Consolas, monospace;
     font-size: 0.75rem;
 }
@@ -2091,7 +2239,7 @@ body.simple-mode .device-title-area .device-ip {
     border-top: 4px solid #ef4444;
 }
 #remote-confirm-modal .modal-header h2 {
-    color: #f87171;
+    color: var(--text-red);
 }
 
 /* =========================================================
@@ -2132,16 +2280,16 @@ mark.log-search-match {
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--lift-03);
+    border: 1px solid var(--line-06);
     border-radius: 6px;
     transition: background 0.15s ease, border-color 0.15s ease;
     gap: 8px;
     flex-wrap: wrap;
 }
 .device-log-history-item:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: var(--lift-07);
+    border-color: var(--line-15);
 }
 .device-log-history-meta {
     display: flex;

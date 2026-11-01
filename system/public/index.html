@@ -92,18 +92,18 @@
                     </div>
                     <!-- 0.1s mode: dual-target device selectors (shown only when 0.1s selected) -->
                     <div id="highfreq-target-container" class="threshold-item" style="display:none; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.35); border-radius:10px; padding:10px 12px; margin-top:4px;">
-                        <label style="color:#fbbf24; font-size:0.8rem; font-weight:700;">⚡ 超高頻度モード 監視対象 (最大2台)</label>
+                        <label style="color:var(--text-amber); font-size:0.8rem; font-weight:700;">⚡ 超高頻度モード 監視対象 (最大2台)</label>
                         <div style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
                             <div style="display:flex; align-items:center; gap:6px;">
-                                <span style="font-size:0.75rem; color:#fbbf24; min-width:36px; font-weight:600;">対象①</span>
+                                <span style="font-size:0.75rem; color:var(--text-amber); min-width:36px; font-weight:600;">対象①</span>
                                 <select id="highfreq-target-select-1" class="form-select" style="flex:1; font-size:0.82rem;"></select>
                             </div>
                             <div style="display:flex; align-items:center; gap:6px;">
-                                <span style="font-size:0.75rem; color:#fbbf24; min-width:36px; font-weight:600;">対象②</span>
+                                <span style="font-size:0.75rem; color:var(--text-amber); min-width:36px; font-weight:600;">対象②</span>
                                 <select id="highfreq-target-select-2" class="form-select" style="flex:1; font-size:0.82rem;"></select>
                             </div>
                         </div>
-                        <p style="font-size:0.72rem; color:#fbbf24; margin-top:6px; margin-bottom:0; opacity:0.85;">⚠ 選択した最大2台のみ 0.1s 間隔で監視。他機器は5.0s間隔で継続します。</p>
+                        <p style="font-size:0.72rem; color:var(--text-amber); margin-top:6px; margin-bottom:0; opacity:0.85;">⚠ 選択した最大2台のみ 0.1s 間隔で監視。他機器は5.0s間隔で継続します。</p>
                     </div>
                     <div class="threshold-item border-top">
                         <label>⚡ 瞬断カウント閾値</label>
@@ -133,7 +133,7 @@
                     </button>
                 </div>
                 
-                <div class="logging-toggle-container" style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+                <div class="logging-toggle-container" style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--lift-03); border: 1px solid var(--glass-border); border-radius: 12px;">
                     <span class="label" style="font-size: 0.85rem; font-weight: 500; color: var(--text-main);">📝 ログ記録 (CSV)</span>
                     <button id="logging-toggle-btn" class="btn secondary-btn" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; font-weight: 600; min-width: 60px;">ON</button>
                 </div>
@@ -150,7 +150,7 @@
                     border: 1px solid rgba(59, 130, 246, 0.3);
                     border-radius: 10px;
                     padding: 8px 12px;
-                    color: #60a5fa;
+                    color: var(--text-blue);
                     font-size: 0.8rem;
                     font-weight: 600;
                     cursor: pointer;
@@ -205,7 +205,7 @@
                             <span id="mute-icon">🔊</span>
                             <span id="mute-text">消音 (10分)</span>
                         </button>
-                        <button id="btn-shutdown-session" class="btn btn-danger-glow" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:700; background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.35); cursor:pointer;" title="本日の監視を安全に終了し、点検報告書を保存・表示します">
+                        <button id="btn-shutdown-session" class="btn btn-danger-glow" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:700; background:rgba(239,68,68,0.15); color:var(--text-red); border:1px solid rgba(239,68,68,0.35); cursor:pointer;" title="本日の監視を安全に終了し、点検報告書を保存・表示します">
                             <span>🛑</span> 監視終了＆報告書
                         </button>
                     </div>
@@ -214,7 +214,7 @@
                             <span id="sort-failures-icon">📌</span>
                             <span id="sort-failures-text">障害優先表示: OFF</span>
                         </button>
-                        <button id="btn-open-guide-modal" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600; color:#60a5fa; border-color:rgba(59,130,246,0.3);" title="用語解説・操作方法・トラブルシューティングガイドを開きます">
+                        <button id="btn-open-guide-modal" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600; color:var(--text-blue); border-color:rgba(59,130,246,0.3);" title="用語解説・操作方法・トラブルシューティングガイドを開きます">
                             <span>❓</span> 操作ガイド・用語集
                         </button>
                         <button id="btn-open-audit-modal" class="btn secondary-btn" style="display:flex; align-items:center; gap:6px; font-size:0.85rem; padding:7px 14px; border-radius:10px; font-weight:600;" title="機器の追加・変更・削除などの操作履歴を閲覧します">
@@ -237,7 +237,7 @@
                         <div style="display:flex; align-items:center; gap:12px;">
                             <span style="font-size:1.6rem;">🚨</span>
                             <div>
-                                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#f87171; letter-spacing:0.02em;">【警告】IPアドレス競合（重複割り当て）を検知しました！</h4>
+                                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:var(--text-red); letter-spacing:0.02em;">【警告】IPアドレス競合（重複割り当て）を検知しました！</h4>
                                 <div id="ip-conflict-details" style="font-size:0.82rem; color:var(--text-main); margin-top:4px; line-height:1.5;"></div>
                             </div>
                         </div>
@@ -277,7 +277,7 @@
                         <button type="button" id="iperf-subtab-client" class="btn active" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:var(--primary); color:#fff; border:none; border-radius:8px; cursor:pointer;">
                             <span>📤 クライアント計測 (送信側)</span>
                         </button>
-                        <button type="button" id="iperf-subtab-server" class="btn" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.06); color:var(--text-muted); border:1px solid var(--glass-border); border-radius:8px; cursor:pointer;">
+                        <button type="button" id="iperf-subtab-server" class="btn" style="padding:8px 18px; font-weight:700; font-size:0.88rem; display:flex; align-items:center; gap:6px; background:var(--lift-06); color:var(--text-muted); border:1px solid var(--glass-border); border-radius:8px; cursor:pointer;">
                             <span>📥 サーバー待機 (受信・ログ取得)</span>
                         </button>
                     </div>
@@ -310,7 +310,7 @@
                                 </div>
                                 <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
                                     <button type="button" id="run-iperf-view-btn" class="btn primary-btn run-btn">計測開始</button>
-                                    <button type="button" id="stop-iperf-view-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:0 22px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.95rem;">⏹ 計測停止</button>
+                                    <button type="button" id="stop-iperf-view-btn" class="btn" style="display:none; background:linear-gradient(135deg,var(--danger-solid),#dc2626); color:#fff; border:none; padding:0 22px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.95rem;">⏹ 計測停止</button>
                                     <a id="iperf-remote-log-btn" href="/api/iperf/remote-log" class="btn secondary-btn" style="text-decoration:none;" title="UDP の計測で受け取った、相手側 (サーバー側) のログを保存します">💾 サーバー側ログ</a>
                                 </div>
                             </div>
@@ -340,7 +340,7 @@
                             <div id="iperf-view-executed-command" class="executed-command hidden"></div>
                             
                             <!-- Real-time Chart Area -->
-                            <div id="iperf-chart-container" class="iperf-chart-container hidden" style="margin-top: 15px; margin-bottom: 15px; height: 240px; background: rgba(30, 41, 59, 0.4); border: 1px solid var(--glass-border); border-radius: 12px; padding: 15px; position: relative;">
+                            <div id="iperf-chart-container" class="iperf-chart-container hidden" style="margin-top: 15px; margin-bottom: 15px; height: 240px; background: var(--chart-bg); border: 1px solid var(--glass-border); border-radius: 12px; padding: 15px; position: relative;">
                                 <canvas id="iperf-realtime-chart"></canvas>
                             </div>
                             
@@ -367,10 +367,10 @@
                                 </div>
                                 <div style="display:flex; gap:10px;">
                                     <button type="button" id="iperf-server-start-btn" class="btn primary-btn" style="padding:8px 24px; font-size:0.9rem; font-weight:700;">▶️ サーバー起動</button>
-                                    <button type="button" id="iperf-server-stop-btn" class="btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; padding:8px 24px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.9rem;">⏹ サーバー停止</button>
+                                    <button type="button" id="iperf-server-stop-btn" class="btn" style="display:none; background:linear-gradient(135deg,var(--danger-solid),#dc2626); color:#fff; border:none; padding:8px 24px; border-radius:10px; font-weight:700; cursor:pointer; font-size:0.9rem;">⏹ サーバー停止</button>
                                 </div>
                             </div>
-                            <div style="margin-top:14px; font-size:0.82rem; color:var(--text-muted); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">
+                            <div style="margin-top:14px; font-size:0.82rem; color:var(--text-muted); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; border-top:1px solid var(--line-05); padding-top:10px;">
                                 <div>💡 外部クライアントから計測する際は <code>iperf3 -c &lt;このPCのIPアドレス&gt; -p 5201</code> を実行してください。</div>
                                 <div style="display:flex; gap:8px;">
                                     <a id="iperf-server-download-log-btn" href="/api/iperf/server/log" target="_blank" class="btn secondary-btn small" style="text-decoration:none;">💾 サーバーログ保存</a>
@@ -388,8 +388,8 @@
                                 </div>
                                 <span id="iperf-server-uptime" style="font-size:0.78rem; color:var(--text-muted);"></span>
                             </div>
-                            <div id="iperf-server-live-console" class="live-console" style="min-height:300px; max-height:450px; overflow-y:auto; font-family:'Cascadia Code', Consolas, monospace; font-size:0.82rem; line-height:1.6; padding:12px; background:rgba(0,0,0,0.45); border:1px solid var(--glass-border); border-radius:10px; white-space:pre-wrap;">
-                                <div style="color:var(--text-muted); text-align:center; padding:40px;">サーバーは停止しています。「▶️ サーバー起動」を押すとクライアントからの受信待機を開始します。</div>
+                            <div id="iperf-server-live-console" class="live-console" style="min-height:300px; max-height:450px; overflow-y:auto; font-family:'Cascadia Code', Consolas, monospace; font-size:0.82rem; line-height:1.6; padding:12px; background:var(--console-bg-strong); border:1px solid var(--glass-border); border-radius:10px; white-space:pre-wrap;">
+                                <div style="color:#94a3b8; text-align:center; padding:40px;">サーバーは停止しています。「▶️ サーバー起動」を押すとクライアントからの受信待機を開始します。</div>
                             </div>
                         </div>
                     </div>
@@ -445,41 +445,41 @@
                             <div class="guide-section border-top">
                                 <div class="section-subtitle" style="color:var(--primary-light, #60a5fa);">▼ 📊 TCPモード vs UDPモード 取得情報・使い分け</div>
                                 <div style="overflow-x:auto; margin-top:8px; margin-bottom:12px;">
-                                    <table style="width:100%; border-collapse:collapse; font-size:0.8rem; background:rgba(0,0,0,0.25); border-radius:8px; overflow:hidden;">
+                                    <table style="width:100%; border-collapse:collapse; font-size:0.8rem; background:var(--sink-25); border-radius:8px; overflow:hidden;">
                                         <thead>
-                                            <tr style="background:rgba(255,255,255,0.06); text-align:left;">
+                                            <tr style="background:var(--lift-06); text-align:left;">
                                                 <th style="padding:8px 12px; border-bottom:1px solid var(--glass-border); color:var(--text-main);">取得・測定項目</th>
-                                                <th style="padding:8px 12px; border-bottom:1px solid var(--glass-border); color:#60a5fa;">TCP モード (デフォルト)</th>
-                                                <th style="padding:8px 12px; border-bottom:1px solid var(--glass-border); color:#34d399;">UDP モード (<code>-u</code> 指定)</th>
+                                                <th style="padding:8px 12px; border-bottom:1px solid var(--glass-border); color:var(--text-blue);">TCP モード (デフォルト)</th>
+                                                <th style="padding:8px 12px; border-bottom:1px solid var(--glass-border); color:var(--text-green);">UDP モード (<code>-u</code> 指定)</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                            <tr style="border-bottom:1px solid var(--line-04);">
                                                 <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">実効帯域幅 (Mbps)</td>
                                                 <td style="padding:7px 12px;">✅ <strong>最大伝送能力</strong>を実測</td>
                                                 <td style="padding:7px 12px;">✅ 指定レート (<code>-b</code>) に対する実測値</td>
                                             </tr>
-                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                            <tr style="border-bottom:1px solid var(--line-04);">
                                                 <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">転送データ量 (Bytes)</td>
                                                 <td style="padding:7px 12px;">✅ 送信・受信の総データ量</td>
                                                 <td style="padding:7px 12px;">✅ 送信・受信の総データ量</td>
                                             </tr>
-                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                            <tr style="border-bottom:1px solid var(--line-04);">
                                                 <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">パケット再送数 (Retransmits)</td>
                                                 <td style="padding:7px 12px;">✅ <strong>再送回数</strong>を検出 (品質指標)</td>
                                                 <td style="padding:7px 12px; color:var(--text-muted);">— (再送制御なし)</td>
                                             </tr>
-                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                            <tr style="border-bottom:1px solid var(--line-04);">
                                                 <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">パケットロス率 (%)</td>
                                                 <td style="padding:7px 12px; color:var(--text-muted);">— (自動再送されるため)</td>
                                                 <td style="padding:7px 12px;">✅ <strong>消失パケット数 & ロス率(%)</strong></td>
                                             </tr>
-                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                            <tr style="border-bottom:1px solid var(--line-04);">
                                                 <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">ジッター / 揺らぎ (ms)</td>
                                                 <td style="padding:7px 12px; color:var(--text-muted);">—</td>
                                                 <td style="padding:7px 12px;">✅ <strong>パケット到達間隔のブレ</strong>を測定</td>
                                             </tr>
-                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                            <tr style="border-bottom:1px solid var(--line-04);">
                                                 <td style="padding:7px 12px; font-weight:600; color:var(--text-main);">主な測定用途</td>
                                                 <td style="padding:7px 12px;">ファイル転送・Web等の<strong>最大速度測定</strong></td>
                                                 <td style="padding:7px 12px;">IP電話・Web会議・動画の<strong>品質・遅延ブレ評価</strong></td>
@@ -489,11 +489,11 @@
                                 </div>
                                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px; font-size:0.78rem; color:var(--text-muted);">
                                     <div style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:8px 12px;">
-                                        <strong style="color:#60a5fa;">💡 TCPモードのポイント:</strong><br>
+                                        <strong style="color:var(--text-blue);">💡 TCPモードのポイント:</strong><br>
                                         確実な転送を行うため、パケットロスが起きると再送が発生して速度が低下します。複数並列で限界を測る場合は <code>-P 4</code> などの指定が効果的です。
                                     </div>
                                     <div style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:8px 12px;">
-                                        <strong style="color:#34d399;">💡 UDPモードのポイント:</strong><br>
+                                        <strong style="color:var(--text-green);">💡 UDPモードのポイント:</strong><br>
                                         再送を行わないため、回線の素のパケットロスやジッターを正確に測定できます。計測時は帯域指定（例: <code>-u -b 50M</code>）を付けるのが推奨されます。
                                     </div>
                                 </div>
@@ -539,7 +539,7 @@
                             <button id="syslog-clear-btn" class="btn secondary-btn" style="font-size:0.85rem; padding:6px 14px;">🗑️ ログ消去</button>
                         </div>
                     </div>
-                    <div id="syslog-stream-container" class="syslog-stream-box" style="height:560px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid var(--glass-border); border-radius:12px; padding:14px; font-family:'Cascadia Code', Consolas, monospace; font-size:0.85rem; display:flex; flex-direction:column; gap:6px;">
+                    <div id="syslog-stream-container" class="syslog-stream-box" style="height:560px; overflow-y:auto; background:var(--sink-30); border:1px solid var(--glass-border); border-radius:12px; padding:14px; font-family:'Cascadia Code', Consolas, monospace; font-size:0.85rem; display:flex; flex-direction:column; gap:6px;">
                         <div style="color:var(--text-muted); text-align:center; padding:40px;">Syslog メッセージを受信待機中... (UDP 514)</div>
                     </div>
                 </div>
@@ -867,7 +867,7 @@
                                         </div>
                                         
                                         <!-- Custom Commands Manager -->
-                                        <div class="form-group" style="margin-bottom: 0; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.15);">
+                                        <div class="form-group" style="margin-bottom: 0; padding-top: 8px; border-top: 1px dashed var(--line-15);">
                                             <label style="display: flex; justify-content: space-between; align-items: center;">
                                                 <span>⚡ 登録カスタムコマンド一覧</span>
                                                 <span class="label-hint" style="font-size: 0.72rem;">診断画面から選んで実行可能</span>
@@ -875,7 +875,7 @@
                                             <div id="dev-remote-commands-list" style="margin-top: 6px; display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto;">
                                                 <!-- Dynamic commands list -->
                                             </div>
-                                            <div style="margin-top: 8px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 6px;">
+                                            <div style="margin-top: 8px; padding: 10px; background: var(--sink-20); border-radius: 6px; border: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 6px;">
                                                 <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted);">➕ 新しいコマンドを追加</div>
                                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
                                                     <input type="text" id="dev-cmd-name-input" class="form-input-sm" placeholder="表示名 (例: 稼働時間確認)">
@@ -983,7 +983,7 @@
                             <div style="display:grid; grid-template-columns: 1fr 2fr; gap:12px; margin-top:12px;">
                                 <div>
                                     <h4 style="font-size:0.85rem; color:var(--text-muted); margin:0 0 8px 0;">バックアップ履歴</h4>
-                                    <div id="config-backup-file-list" style="max-height:220px; overflow-y:auto; background:rgba(0,0,0,0.2); border-radius:8px; padding:6px; display:flex; flex-direction:column; gap:4px; font-size:0.82rem;">
+                                    <div id="config-backup-file-list" style="max-height:220px; overflow-y:auto; background:var(--sink-20); border-radius:8px; padding:6px; display:flex; flex-direction:column; gap:4px; font-size:0.82rem;">
                                         <div style="color:var(--text-muted); text-align:center; padding:10px;">履歴なし</div>
                                     </div>
                                     <div style="display:flex; gap:6px; margin-top:8px;">
@@ -992,7 +992,7 @@
                                 </div>
                                 <div>
                                     <h4 style="font-size:0.85rem; color:var(--text-muted); margin:0 0 8px 0;">スナップショット詳細 / 差分プレビュー</h4>
-                                    <div id="config-preview-box" style="height:260px; overflow:auto; background:rgba(0,0,0,0.3); border:1px solid var(--glass-border); border-radius:8px; padding:10px; font-family:'Cascadia Code', Consolas, monospace; font-size:0.8rem; white-space:pre-wrap;">
+                                    <div id="config-preview-box" style="height:260px; overflow:auto; background:var(--sink-30); border:1px solid var(--glass-border); border-radius:8px; padding:10px; font-family:'Cascadia Code', Consolas, monospace; font-size:0.8rem; white-space:pre-wrap;">
                                         左のリストからバックアップファイルを選択してください。
                                     </div>
                                 </div>
@@ -1025,7 +1025,7 @@
                                             <span id="remote-summary-status" class="badge-success" style="font-size:0.7rem; padding:2px 8px; border-radius:12px;">有効</span>
                                         </div>
                                         <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
-                                            IP: <code id="remote-summary-ip" style="color:#60a5fa; font-weight:700;">192.168.1.1</code> | 
+                                            IP: <code id="remote-summary-ip" style="color:var(--text-blue); font-weight:700;">192.168.1.1</code> | 
                                             方式: <strong id="remote-summary-protocol" style="color:var(--text-main);">SSH</strong> | 
                                             ポート: <span id="remote-summary-port">22</span> | 
                                             ユーザー: <span id="remote-summary-user">admin</span>
@@ -1034,7 +1034,7 @@
                                 </div>
                                 <!-- One-click Reboot Button with warning badge -->
                                 <button id="btn-remote-reboot" class="btn btn-danger-glow" type="button" style="
-                                    background: linear-gradient(135deg, #ef4444, #dc2626);
+                                    background: linear-gradient(135deg, var(--danger-solid), #dc2626);
                                     color: #fff;
                                     font-weight: 700;
                                     padding: 10px 18px;
@@ -1066,7 +1066,7 @@
                                     </button>
                                 </div>
                                 <!-- Custom one-off command runner -->
-                                <div id="remote-custom-cmd-container" style="margin-top:12px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.1); display:flex; gap:10px; align-items:center;">
+                                <div id="remote-custom-cmd-container" style="margin-top:12px; padding-top:10px; border-top:1px dashed var(--line-10); display:flex; gap:10px; align-items:center;">
                                     <input type="text" id="remote-custom-cmd-input" class="form-input" placeholder="任意のワンオフ実行コマンドを入力 (例: uptime, ping -c 4 8.8.8.8)..." style="flex:1;">
                                     <button id="btn-remote-run-custom" class="btn secondary-btn" type="button" style="padding:8px 16px; white-space:nowrap; font-weight:600;">
                                         <span>⚡</span> 任意実行
@@ -1090,7 +1090,7 @@
                                     min-height: 200px;
                                     max-height: 320px;
                                     overflow-y: auto;
-                                    background: rgba(0, 0, 0, 0.6);
+                                    background: var(--sink-60);
                                     border: 1px solid var(--glass-border);
                                     border-radius: 8px;
                                     padding: 12px;
@@ -1129,7 +1129,7 @@
                                             <span id="device-log-summary-status" class="badge-success" style="font-size:0.7rem; padding:2px 8px; border-radius:12px;">有効</span>
                                         </div>
                                         <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
-                                            IP: <code id="device-log-summary-ip" style="color:#60a5fa; font-weight:700;">-</code> | 
+                                            IP: <code id="device-log-summary-ip" style="color:var(--text-blue); font-weight:700;">-</code> | 
                                             方式: <strong id="device-log-summary-protocol" style="color:var(--text-main);">SSH</strong> | 
                                             ポート: <span id="device-log-summary-port">-</span> | 
                                             ユーザー: <span id="device-log-summary-user">-</span>
@@ -1207,7 +1207,7 @@
                                 </div>
 
                                 <!-- Filter & Search Toolbar -->
-                                <div class="device-log-toolbar" style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:6px; border:1px solid var(--glass-border);">
+                                <div class="device-log-toolbar" style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; background:var(--sink-20); padding:8px 12px; border-radius:6px; border:1px solid var(--glass-border);">
                                     <div style="display:flex; align-items:center; gap:6px; flex:1; min-width:200px;">
                                         <span style="font-size:0.9rem;">🔍</span>
                                         <input type="text" id="device-log-search-input" class="form-input" placeholder="ログ内をキーワード検索 (リアルタイム強調)..." style="flex:1; padding:4px 8px; font-size:0.8rem;">
@@ -1247,7 +1247,7 @@
                                     </h4>
                                     <button id="device-log-history-refresh-btn" class="btn secondary-btn small" type="button">🔄 履歴を再読み込み</button>
                                 </div>
-                                <div id="device-log-history-list" style="max-height:180px; overflow-y:auto; background:rgba(0,0,0,0.2); border-radius:8px; padding:6px; display:flex; flex-direction:column; gap:4px; font-size:0.82rem;">
+                                <div id="device-log-history-list" style="max-height:180px; overflow-y:auto; background:var(--sink-20); border-radius:8px; padding:6px; display:flex; flex-direction:column; gap:4px; font-size:0.82rem;">
                                     <div style="color:var(--text-muted); text-align:center; padding:12px;">履歴を読み込み中...</div>
                                 </div>
                             </div>
@@ -1377,18 +1377,18 @@
                         
                         <!-- 0.1s mode target devices -->
                         <div id="modal-highfreq-target-container" style="display:none; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.35); border-radius:10px; padding:12px; margin-top:8px;">
-                            <label style="color:#fbbf24; font-size:0.82rem; font-weight:700; display:block; margin-bottom:6px;">⚡ 超高頻度対象機器 (最大2台)</label>
+                            <label style="color:var(--text-amber); font-size:0.82rem; font-weight:700; display:block; margin-bottom:6px;">⚡ 超高頻度対象機器 (最大2台)</label>
                             <div style="display:flex; flex-direction:column; gap:8px;">
                                 <div style="display:flex; align-items:center; gap:8px;">
-                                    <span style="font-size:0.75rem; color:#fbbf24; min-width:40px; font-weight:600;">対象①</span>
+                                    <span style="font-size:0.75rem; color:var(--text-amber); min-width:40px; font-weight:600;">対象①</span>
                                     <select id="modal-highfreq-target-select-1" class="form-select" style="flex:1; font-size:0.82rem;"></select>
                                 </div>
                                 <div style="display:flex; align-items:center; gap:8px;">
-                                    <span style="font-size:0.75rem; color:#fbbf24; min-width:40px; font-weight:600;">対象②</span>
+                                    <span style="font-size:0.75rem; color:var(--text-amber); min-width:40px; font-weight:600;">対象②</span>
                                     <select id="modal-highfreq-target-select-2" class="form-select" style="flex:1; font-size:0.82rem;"></select>
                                 </div>
                             </div>
-                            <p style="font-size:0.72rem; color:#fbbf24; margin:6px 0 0 0; opacity:0.85;">※ 対象外の機器は 5.0 秒間隔の低速レートで監視を継続（デュアルレート監視）します。</p>
+                            <p style="font-size:0.72rem; color:var(--text-amber); margin:6px 0 0 0; opacity:0.85;">※ 対象外の機器は 5.0 秒間隔の低速レートで監視を継続（デュアルレート監視）します。</p>
                         </div>
                     </div>
 
@@ -1605,7 +1605,7 @@
                             </button>
                         </div>
                         <p class="config-desc" style="margin-top:4px;">機器の追加・削除や設定変更の直前に自動保存されたスナップショット（最新20世代）から、ワンクリックで以前の状態へ安全に戻します。</p>
-                        <div id="snapshot-history-container" style="margin-top:10px; max-height:200px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:8px; background:rgba(0,0,0,0.15);">
+                        <div id="snapshot-history-container" style="margin-top:10px; max-height:200px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:8px; background:var(--sink-15);">
                             <div id="snapshot-history-list" style="display:flex; flex-direction:column; gap:2px; padding:6px;">
                                 <div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:10px;">スナップショットを読み込み中...</div>
                             </div>
@@ -1641,7 +1641,7 @@
                         <h4 class="config-section-title">⚡ 手動即時クリーンアップ</h4>
                         <p class="config-desc">今すぐ上記の日数設定に基づいて古いレポートフォルダーをスキャンし、不要な過去ログを削除してディスク容量を解放します。</p>
                         <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
-                            <button type="button" id="btn-manual-cleanup-reports" class="btn secondary-btn" style="color:#ef4444; border-color:rgba(239,68,68,0.3);">
+                            <button type="button" id="btn-manual-cleanup-reports" class="btn secondary-btn" style="color:var(--text-red-strong); border-color:rgba(239,68,68,0.3);">
                                 <span>🧹</span> 今すぐ古いレポートをクリーンアップ
                             </button>
                             <span id="manual-cleanup-status" style="font-size:0.8rem; color:var(--text-muted);"></span>
@@ -1663,7 +1663,7 @@
                         </p>
 
                         <!-- Overall status banner -->
-                        <div id="prereq-overall-banner" style="margin-top:12px; padding:10px 14px; border-radius:8px; display:flex; align-items:center; gap:10px; font-size:0.85rem; font-weight:600; background:rgba(255,255,255,0.05); border:1px solid var(--glass-border);">
+                        <div id="prereq-overall-banner" style="margin-top:12px; padding:10px 14px; border-radius:8px; display:flex; align-items:center; gap:10px; font-size:0.85rem; font-weight:600; background:var(--lift-05); border:1px solid var(--glass-border);">
                             <span id="prereq-overall-icon" style="font-size:1.2rem;">⏳</span>
                             <span id="prereq-overall-text">前提環境を診断中...</span>
                         </div>
@@ -1671,18 +1671,18 @@
                         <!-- Check item list -->
                         <div id="prereq-items-container" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">
                             <!-- SNMP Module Card -->
-                            <div class="prereq-card" style="background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                            <div class="prereq-card" style="background:var(--lift-03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
                                 <div style="display:flex; align-items:flex-start; gap:10px;">
                                     <span id="prereq-status-snmp" style="font-size:1.3rem;">⏳</span>
                                     <div>
                                         <div style="font-size:0.88rem; font-weight:700; color:var(--text-light); display:flex; align-items:center; gap:8px;">
                                             <span>SNMP 通信モジュール (PowerShell)</span>
-                                            <span id="prereq-badge-snmp" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
+                                            <span id="prereq-badge-snmp" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:var(--lift-10);">確認中</span>
                                         </div>
                                         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
                                             SNMPトラフィック帯域監視、機器詳細情報、隣接トポロジー探索に必要です。
                                         </div>
-                                        <div id="prereq-detail-snmp" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
+                                        <div id="prereq-detail-snmp" style="font-size:0.72rem; color:var(--text-blue-soft); font-family:monospace; margin-top:2px;"></div>
                                     </div>
                                 </div>
                                 <div>
@@ -1693,35 +1693,35 @@
                             </div>
 
                             <!-- Iperf3 Tool Card -->
-                            <div class="prereq-card" style="background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                            <div class="prereq-card" style="background:var(--lift-03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
                                 <div style="display:flex; align-items:flex-start; gap:10px;">
                                     <span id="prereq-status-iperf" style="font-size:1.3rem;">⏳</span>
                                     <div>
                                         <div style="font-size:0.88rem; font-weight:700; color:var(--text-light); display:flex; align-items:center; gap:8px;">
                                             <span>Iperf3 帯域計測ツール (iperf3.exe)</span>
-                                            <span id="prereq-badge-iperf" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
+                                            <span id="prereq-badge-iperf" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:var(--lift-10);">確認中</span>
                                         </div>
                                         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
                                             回線の実効通信速度（スループット）およびジッター計測に必要です。
                                         </div>
-                                        <div id="prereq-detail-iperf" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
+                                        <div id="prereq-detail-iperf" style="font-size:0.72rem; color:var(--text-blue-soft); font-family:monospace; margin-top:2px;"></div>
                                     </div>
                                 </div>
                             </div>
 
                             <!-- Pester Module Card -->
-                            <div class="prereq-card" style="background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                            <div class="prereq-card" style="background:var(--lift-03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
                                 <div style="display:flex; align-items:flex-start; gap:10px;">
                                     <span id="prereq-status-pester" style="font-size:1.3rem;">⏳</span>
                                     <div>
                                         <div style="font-size:0.88rem; font-weight:700; color:var(--text-light); display:flex; align-items:center; gap:8px;">
                                             <span>Pester 自動テストフレームワーク</span>
-                                            <span id="prereq-badge-pester" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
+                                            <span id="prereq-badge-pester" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:var(--lift-10);">確認中</span>
                                         </div>
                                         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
                                             単体テスト・機能結合テスト（system/tests/Run-Tests.ps1）の実行に必要です。
                                         </div>
-                                        <div id="prereq-detail-pester" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
+                                        <div id="prereq-detail-pester" style="font-size:0.72rem; color:var(--text-blue-soft); font-family:monospace; margin-top:2px;"></div>
                                     </div>
                                 </div>
                                 <div>
@@ -1732,18 +1732,18 @@
                             </div>
 
                             <!-- PowerShell & Runtime Card -->
-                            <div class="prereq-card" style="background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                            <div class="prereq-card" style="background:var(--lift-03); border:1px solid var(--glass-border); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
                                 <div style="display:flex; align-items:flex-start; gap:10px;">
                                     <span id="prereq-status-ps" style="font-size:1.3rem;">⏳</span>
                                     <div>
                                         <div style="font-size:0.88rem; font-weight:700; color:var(--text-light); display:flex; align-items:center; gap:8px;">
                                             <span>PowerShell 実行環境 & ポリシー</span>
-                                            <span id="prereq-badge-ps" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:rgba(255,255,255,0.1);">確認中</span>
+                                            <span id="prereq-badge-ps" style="font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:600; background:var(--lift-10);">確認中</span>
                                         </div>
                                         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
                                             Windows PowerShell 5.1 以上およびスクリプト実行権限。
                                         </div>
-                                        <div id="prereq-detail-ps" style="font-size:0.72rem; color:#93c5fd; font-family:monospace; margin-top:2px;"></div>
+                                        <div id="prereq-detail-ps" style="font-size:0.72rem; color:var(--text-blue-soft); font-family:monospace; margin-top:2px;"></div>
                                     </div>
                                 </div>
                             </div>
@@ -2084,7 +2084,7 @@
                 <div class="modal-title-group">
                     <span style="font-size:1.5rem;">🛑</span>
                     <div>
-                        <h2 class="modal-title" style="margin:0; font-size:1.15rem; color:#f87171;">監視セッションの終了</h2>
+                        <h2 class="modal-title" style="margin:0; font-size:1.15rem; color:var(--text-red);">監視セッションの終了</h2>
                         <span style="font-size:0.75rem; color:var(--text-muted);">本日の監視データを集計し、安全にサーバーを停止します</span>
                     </div>
                 </div>
@@ -2103,7 +2103,7 @@
             </div>
             <div class="modal-footer" style="justify-content:flex-end; gap:10px;">
                 <button class="btn secondary-btn" id="cancel-shutdown-btn">キャンセル</button>
-                <button class="btn" id="confirm-shutdown-btn" style="background:#ef4444; color:#fff; font-weight:700; border:none; padding:8px 18px; border-radius:8px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <button class="btn" id="confirm-shutdown-btn" style="background:var(--danger-solid); color:#fff; font-weight:700; border:none; padding:8px 18px; border-radius:8px; display:flex; align-items:center; gap:6px; cursor:pointer;">
                     <span>🛑</span> 終了して報告書を開く
                 </button>
             </div>
@@ -2117,7 +2117,7 @@
                 <div class="modal-title-group">
                     <span style="font-size:1.6rem;" id="remote-confirm-icon">⚠️</span>
                     <div>
-                        <h2 class="modal-title" style="margin:0; font-size:1.15rem; color:#f87171;">リモート操作の二重確認</h2>
+                        <h2 class="modal-title" style="margin:0; font-size:1.15rem; color:var(--text-red);">リモート操作の二重確認</h2>
                         <span style="font-size:0.75rem; color:var(--text-muted);">実行前に対象機器と実行内容を必ずご確認ください</span>
                     </div>
                 </div>
@@ -2134,18 +2134,18 @@
                         </div>
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <span style="color:var(--text-muted); font-size:0.8rem;">IPアドレス:</span>
-                            <code style="color:#60a5fa; font-weight:700; font-size:1rem;" id="remote-confirm-device-ip">192.168.1.1</code>
+                            <code style="color:var(--text-blue); font-weight:700; font-size:1rem;" id="remote-confirm-device-ip">192.168.1.1</code>
                         </div>
-                        <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed rgba(255,255,255,0.15); padding-top:6px; margin-top:2px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed var(--line-15); padding-top:6px; margin-top:2px;">
                             <span style="color:var(--text-muted); font-size:0.8rem;">実行動作 / コマンド:</span>
-                            <span style="font-weight:700; color:#fbbf24;" id="remote-confirm-action-text">再起動 (Reboot)</span>
+                            <span style="font-weight:700; color:var(--text-amber);" id="remote-confirm-action-text">再起動 (Reboot)</span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Clear Warning Message -->
                 <div style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px;">
-                    <p style="margin:0 0 6px 0; color:#f87171; font-weight:700;">⚠ 業務通信およびサービス停止へのご注意：</p>
+                    <p style="margin:0 0 6px 0; color:var(--text-red); font-weight:700;">⚠ 業務通信およびサービス停止へのご注意：</p>
                     <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4px;">
                         <li>再起動中は対象機器およびその配下の通信が一時的に切断され、業務に影響を与える可能性があります。</li>
                         <li>コマンド実行による予期しない設定変更や通信断のリスクを理解した上で実行してください。</li>
@@ -2153,7 +2153,7 @@
                 </div>
 
                 <!-- Safety Confirmation Checkbox -->
-                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem; font-weight:600; padding:8px 12px; background:rgba(255,255,255,0.04); border-radius:8px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem; font-weight:600; padding:8px 12px; background:var(--lift-04); border-radius:8px;">
                     <input type="checkbox" id="confirm-safety-checkbox" style="width:16px; height:16px; cursor:pointer;">
                     <span>上記の対象機器および通信影響を確認しました</span>
                 </label>
@@ -2162,7 +2162,7 @@
             <div class="modal-footer" style="justify-content:flex-end; gap:10px;">
                 <button class="btn secondary-btn" id="btn-remote-confirm-cancel">キャンセル</button>
                 <button class="btn" id="btn-remote-confirm-execute" style="
-                    background: #ef4444;
+                    background: var(--danger-solid);
                     color: #fff;
                     font-weight: 700;
                     border: none;
