@@ -989,60 +989,67 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 </li>
 </ul>
 <h3 id="2-実行されるテストスイート検査内容の内訳">2. 実行されるテストスイート（検査内容）の内訳</h3>
-<p>本システムでは、6つの異なる階層から総合的な品質検証を行っています。</p>
+<p>本システムでは、次のテストで品質を確かめています。件数は変わっていくので、実行後の画面で確認してください。</p>
 <div class="table-wrap"><table><thead><tr>
 <th align="left">テスト種別</th>
 <th align="left">対象ファイル</th>
-<th align="left">テスト数</th>
 <th align="left">主な検証内容</th>
 </tr>
 </thead><tbody><tr>
 <td align="left"><strong>📋 機器ログ取得テスト</strong></td>
 <td align="left"><code>system/tests/DeviceLog.Tests.ps1</code></td>
-<td align="left">32テスト</td>
 <td align="left">機器ログ遠隔取得機能・安全性・バッファ制限・API検証（Cisco/Yamaha/Linux/Windows各プリセット整合性、タイムアウト強制終了、1MB画面切り詰め・5MBディスク保存ガード、監査ログ連携、パストラバーサル遮断）</td>
 </tr>
 <tr>
 <td align="left"><strong>🚀 E2Eライフサイクル検証</strong></td>
 <td align="left"><code>system/tests/E2E-Lifecycle.Tests.ps1</code></td>
-<td align="left">9テスト</td>
 <td align="left">サーバー起動から監視・終了・CSV出力までの一連の動作検証（テスト用ポートでの起動、死活監視確認、安全なシャットダウン、レポート出力確認）</td>
 </tr>
 <tr>
 <td align="left"><strong>🔬 ユニットテスト</strong></td>
 <td align="left"><code>system/tests/Monitor.Tests.ps1</code></td>
-<td align="left">29テスト</td>
 <td align="left">コアモジュールの個別機能検証（DPAPI暗号化、遅延・パケットロス閾値判定、TCPポート監視、サマリー集計、古いログの自動削除、静的アセット存在確認）</td>
 </tr>
 <tr>
 <td align="left"><strong>🔧 リモート制御テスト</strong></td>
 <td align="left"><code>system/tests/RemoteExec.Tests.ps1</code></td>
-<td align="left">18テスト</td>
 <td align="left">リモート制御エンジンの個別機能・安全機構検証（SSH/WinRM/カスタム実行、タイムアウトによるプロセス強制終了、DPAPIパスワード暗号化保存、二重確認・入力バリデーション、監査ログ出力）</td>
 </tr>
 <tr>
 <td align="left"><strong>🔄 Runspace統合テスト</strong></td>
 <td align="left"><code>system/tests/Runspace.Tests.ps1</code></td>
-<td align="left">25テスト</td>
 <td align="left">マルチスレッド並行動作・競合耐性・API契約・24時間連続稼働耐障害性検証（6大ヘルパーモジュールの並行読み込み、高負荷状態でのデータ共有排他制御、REST APIスキーマ検証、ホスト瞬断復旧、例外生存性、無人運用モード）</td>
 </tr>
 <tr>
 <td align="left"><strong>🌐 ブラウザUI自動テスト</strong></td>
 <td align="left"><code>system/tests/ui_verification.py</code></td>
-<td align="left">—</td>
 <td align="left">画面描画と切断・再接続バナーの動作検証（Playwrightを用いたヘッドレスブラウザでの画面要素描画、ボタンクリック操作、ネットワーク切断・再接続時のバナー挙動検証）</td>
 </tr>
 <tr>
-<td align="left"><strong>合計 (Pester)</strong></td>
-<td align="left"><strong>全5スイート</strong></td>
-<td align="left"><strong>計113テスト</strong></td>
-<td align="left"><strong>すべてのテストスイートで100%合格保証（失敗0件）</strong></td>
+<td align="left"><strong>🔔 通知テスト</strong></td>
+<td align="left"><code>system/tests/AlertManager.Tests.ps1</code></td>
+<td align="left">Webhook とメールの送信を、このPC内の模擬サーバーで検証</td>
+</tr>
+<tr>
+<td align="left"><strong>🧰 ツールの部品テスト</strong></td>
+<td align="left"><code>system/tests/Tools.Tests.ps1</code></td>
+<td align="left">iperf3 のオプションの組み立てと安全確認、ログの巻き戻し、文字コード検査ツールを検証</td>
+</tr>
+<tr>
+<td align="left"><strong>🟨 app.js の関数テスト</strong></td>
+<td align="left"><code>system/tests/AppJs.Tests.ps1</code></td>
+<td align="left">画面に触らない関数を Node.js で検証（Node.js がなければ省略）</td>
+</tr>
+<tr>
+<td align="left"><strong>📶 OBR の通しテスト</strong></td>
+<td align="left"><code>system/tests/ObrScenario.Tests.ps1</code></td>
+<td align="left">模擬 OBR を相手にサーバーを実際に動かし、確認間隔、ログイン、履歴の画面用データを検証（80番ポートが使えなければ省略）</td>
 </tr>
 </tbody></table></div>
 <h4 id="各テストスイートの詳細解説">各テストスイートの詳細解説</h4>
 <ol>
 <li><strong>📋 機器ログ取得テスト (<code>DeviceLog.Tests.ps1</code>)</strong>:<ul>
-<li>遠隔から機器カルテ（ログ）を安全に回収する機能全体を網羅的に検証します（全32テスト）。</li>
+<li>遠隔から機器カルテ（ログ）を安全に回収する機能全体を網羅的に検証します。</li>
 <li><strong>セクション1（プリセット整合性）</strong>: Cisco、Yamaha、Linux（journalctl/dmesg/syslog）、Windows（System/App/wevtutil）、カスタムの全8種以上のプリセットが定義され、行数制限やページャー抑止オプションが正しく付加されているかを検証します。</li>
 <li><strong>セクション2（実行エンジン・バッファ保護・監査）</strong>: 有効なコマンド実行、リモート無効時の安全遮断（<code>REMOTE_DISABLED</code>）、1MB超過時のstdoutレスポンス切り詰め警告、5MB超過時のディスク保存ガード、プロセスハング時のタイムアウト強制終了（<code>proc.Kill()</code>）、自己記述型ヘッダー付きファイル保存、名前付きミューテックス（<code>Local\NDM_AuditLog_Mutex</code>）を経由した <code>Reports/audit.log</code> への <code>LOG_RETRIEVAL</code> 記録、および定期パージに対する非破壊保護（ログフォルダが消去されないこと）を検証します。</li>
 <li><strong>セクション3（HTTP REST API ＆ セキュリティ検証）</strong>: エフェメラル（一時）Webサーバーを立て、<code>/api/device/fetch-log</code>、<code>/api/device/logs</code>、<code>/api/device/log-download</code>、<code>/api/device/log-presets</code> の各エンドポイントが正しいステータスコード（200 / 400 / 404 / 500）を返すこと、および <code>../</code> によるパストラバーサル攻撃や不正拡張子（<code>.exe</code>, <code>.bat</code> 等）の要求が確実に遮断されることを検証します。</li>
@@ -1050,24 +1057,24 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 </li>
 <li><strong>🔬 ユニットテスト (<code>Monitor.Tests.ps1</code>)</strong>:<ul>
 <li>各機能モジュール（部品）が単体で正しく動くかを検査します。</li>
-<li>パスワード等の秘密情報が Windows 標準の暗号化（DPAPI）で安全に保護されるか、設定した閾値を超えた際に正しく警告判定が下されるか、保持期間を過ぎた古いセッションログが自動クリーンアップされるか等を精密に検査します（全29テスト）。</li>
+<li>パスワード等の秘密情報が Windows 標準の暗号化（DPAPI）で安全に保護されるか、設定した閾値を超えた際に正しく警告判定が下されるか、保持期間を過ぎた古いセッションログが自動クリーンアップされるか等を精密に検査します。</li>
 </ul>
 </li>
 <li><strong>🔧 リモート制御テスト (<code>RemoteExec.Tests.ps1</code>)</strong>:<ul>
 <li>遠隔操作エンジンの安全性と制御ロジックを網羅的に検査します。</li>
-<li>リモート無効時のブロック、存在しないコマンドや不備のあるパラメータの拒否、カスタムコマンドの変数展開（<code>{ip}</code>, <code>{name}</code> 等）、長時間実行プロセスのタイムアウト強制終了（Timeout Kill）、DPAPI暗号化によるパスワード保護、および <code>Reports/audit.log</code> への操作履歴記録が正しく行われるかを厳密に検証します（全18テスト）。</li>
+<li>リモート無効時のブロック、存在しないコマンドや不備のあるパラメータの拒否、カスタムコマンドの変数展開（<code>{ip}</code>, <code>{name}</code> 等）、長時間実行プロセスのタイムアウト強制終了（Timeout Kill）、DPAPI暗号化によるパスワード保護、および <code>Reports/audit.log</code> への操作履歴記録が正しく行われるかを厳密に検証します。</li>
 </ul>
 </li>
 <li><strong>🔄 Runspace統合テスト (<code>Runspace.Tests.ps1</code>)</strong>:<ul>
 <li>複数の作業員（Runspace）がバックグラウンドで同時に並行処理を行っても、データの衝突や不整合が起きないかを検査します。</li>
 <li>6つの主要ヘルパーモジュール（Ping、SNMP、レポート、アラート、帯域計測、共通処理）が並行スレッドで確実にロードされるか、多数のスレッドが同時にステータス更新や設定保存を行ってもデッドロック（処理停止）が起きないかを高負荷ストレステストで検証します。</li>
 <li>また、Web画面が利用する REST API（<code>/api/health</code>, <code>/api/status</code>, <code>/api/devices</code>, <code>/api/syslog</code>, <code>/api/shutdown</code>）が仕様通りの正しい形式でデータを返しているか（API契約）を検証します。</li>
-<li>さらに、<strong>24時間365日の連続稼働を支える耐障害性（レジリエンス）</strong> として、機器の一時的な瞬断から復旧までのステータス遷移（連続失敗回数・瞬断継続秒数・最大瞬断秒数・瞬断明細記録）、ソケット切断例外発生時のRunspace生存性、並行状態アクセスのスレッドセーフティ、そしてブラウザ不在時の24時間無人モード（<code>autoShutdownOnDisconnect = false</code>）の挙動を厳密に検証します（全25テスト）。</li>
+<li>さらに、<strong>24時間365日の連続稼働を支える耐障害性（レジリエンス）</strong> として、機器の一時的な瞬断から復旧までのステータス遷移（連続失敗回数・瞬断継続秒数・最大瞬断秒数・瞬断明細記録）、ソケット切断例外発生時のRunspace生存性、並行状態アクセスのスレッドセーフティ、そしてブラウザ不在時の24時間無人モード（<code>autoShutdownOnDisconnect = false</code>）の挙動を厳密に検証します。</li>
 </ul>
 </li>
 <li><strong>🚀 E2Eライフサイクル検証 (<code>E2E-Lifecycle.Tests.ps1</code>)</strong>:<ul>
 <li>実際のサーバー起動から終了までの一連の流れ（最初から最後まで＝End-to-End）を通しで検証します。</li>
-<li>テスト用ポートでサーバープロセスを起動し、死活監視ループが回転していること（<code>pingAgeSec &lt; 5.0</code>）、各機器の監視データが取得できること、シャットダウン要求で安全に停止し、セッション終了後にサマリー付きCSVログが確実に書き出されることを保証します（全9テスト）。</li>
+<li>テスト用ポートでサーバープロセスを起動し、死活監視ループが回転していること（<code>pingAgeSec &lt; 5.0</code>）、各機器の監視データが取得できること、シャットダウン要求で安全に停止し、セッション終了後にサマリー付きCSVログが確実に書き出されることを保証します。</li>
 </ul>
 </li>
 <li><strong>🌐 ブラウザUI自動テスト (<code>ui_verification.py</code>)</strong>:<ul>
@@ -1081,15 +1088,15 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 <pre><code>==========================================================
   Test Suite Summary (Pester 3.4.0)
 ==========================================================
-  Total:   113
-  Passed:  113
+  Total:   （テストの総数）
+  Passed:  （合格した数）
   Failed:  0
 ==========================================================
 [OK] すべての自動テストに正常合格しました。
 </code></pre>
 <ul>
-<li><strong>Passed（合格数）</strong>: 正常にパスしたテスト項目の数です（全113テスト100%合格保証）。</li>
-<li><strong>Failed（失敗数）</strong>: <code>0</code> であればシステム全体の健全性が完全に保証されています。</li>
+<li><strong>Passed（合格数）</strong>: 正常にパスしたテスト項目の数です。</li>
+<li><strong>Failed（失敗数）</strong>: <code>0</code> であれば、自動テストの範囲では問題が見つからなかったことを示します。実機の OBR や SNMP 機器での動作は別途確認が必要です。</li>
 <li>万が一 <code>Failed</code> が 1 以上になった場合は、エラーメッセージに対象のテスト名や原因が表示されます。</li>
 </ul>
 <hr>
