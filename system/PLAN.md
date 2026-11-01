@@ -48,7 +48,7 @@
 - [x] 13. `ObrStatus.psm1` と `PingEngine.psm1` に説明文を追加する
 - [x] 14. `Common.psm1` に説明文を追加する
 - [x] 15. `RemoteExec.psm1` に説明文を追加する
-- [ ] 16. `SnmpService.psm1` と `ReportGenerator.psm1` に説明文を追加する
+- [x] 16. `SnmpService.psm1` と `ReportGenerator.psm1` に説明文を追加する
 
 `Server.ps1`（約 7,200 行）と `app.js`（約 9,400 行）は 1 サイクルでは終わらないので、説明文の分け方を PROGRESS.md で提案します。
 

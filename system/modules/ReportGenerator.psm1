@@ -1,6 +1,18 @@
 ﻿# ==============================================================================
 # ReportGenerator.psm1 - 点検報告書・CSVサマリー・ロールアップ高速化モジュール
 # ==============================================================================
+# 【初心者向けの簡単な解説】
+# 監視の結果をまとめる部品です。主な内容は次のとおりです。
+#   - 点検報告書 (report.html) の作成: グラフ用のプログラムも中に入れるので、1 ファイルで開けます
+#   - 古いセッションのフォルダの削除: 保存日数を過ぎたものを消します
+#   - グラフ用データの事前の間引き: 長時間の記録でも報告書をすぐ作るためです
+#   - 失敗した iperf の計測ログの除去
+#
+# 【変更するときの注意】
+# - 機器名など外から来た値は、必ず HtmlEncode してから報告書に入れてください。
+# - CSV の列の順番は Server.ps1 の書き込み処理に合わせています。片方だけ変えないでください。
+# - テストは tests/Monitor.Tests.ps1 の 4、5、6、12 です。
+# ==============================================================================
 
 # 報告書HTMLの文字エスケープで使う [System.Web.HttpUtility] は PowerShell 5.1 では既定で読み込まれないため明示的に読み込む
 # (他の処理が偶然読み込んでいない環境では、報告書生成が「型が見つかりません」で失敗していた)
@@ -13,6 +25,8 @@ function Clean-IperfLogLines {
     .SYNOPSIS
         Iperf3のログ行配列から、有効な帯域転送データ（bits/sec）を含まない
         コネクションエラー・失敗試行のブロックのみを検知して除外します。
+    .OUTPUTS
+        残す行の配列。「=== iperf3 Execution」で始まる 1 回分の中に転送の行が 1 つもなければ、その回を丸ごと除きます。
     #>
     param([string[]]$lines)
     if ($null -eq $lines -or $lines.Count -eq 0) { return @() }
@@ -50,6 +64,17 @@ function Clean-IperfLogLines {
 # ── 2. レポートセッション古いフォルダ自動削除 ──────────────────────────────
 
 function Purge-OldReports {
+    <#
+    .SYNOPSIS
+        保存日数より古いフォルダを Reports から削除し、削除した数を返します。
+    .PARAMETER retentionDays
+        保存日数。0 以下なら何も削除しません。
+    .PARAMETER activeSessionDir
+        今使っているセッションのフォルダ。古くても削除しません。
+    .NOTES
+        device_logs 以外のサブフォルダがすべて対象です。Reports に残したいフォルダを増やすときは、除外に追加してください。
+        Invoke-PurgeOldReports との違い: 0 以下の扱いと、結果の詳しさです。
+    #>
     param(
         [string]$reportsDirectory,
         [int]$retentionDays = 30,
@@ -75,6 +100,16 @@ function Purge-OldReports {
 }
 
 function Invoke-PurgeOldReports {
+    <#
+    .SYNOPSIS
+        保存日数より古いフォルダを削除し、削除数と空いた容量を返します。
+    .PARAMETER retentionDays
+        保存日数。0 以下なら 30 日として扱います (Purge-OldReports は何も削除しません)。
+    .OUTPUTS
+        DeletedCount / FreedMb / Details を持つハッシュテーブル。
+    .NOTES
+        Server.ps1 にも同じ名前の関数があります。変更するときは両方を確認してください。
+    #>
     param(
         [string]$reportsDirectory,
         [int]$retentionDays = 30,
@@ -122,6 +157,10 @@ function Update-RollupCache {
     .SYNOPSIS
         監視セッション中の時系列データを事前集約（最大1,200点）し、
         _rollup.json へ非同期・安全にキャッシュ保存します。
+    .OUTPUTS
+        保存した内容。保存できないときや入力が空のときは何も返さないか $null で、例外にはしません。
+    .NOTES
+        間引きは一定の間隔で点を選ぶだけなので、短い変化が消えることがあります。
     #>
     param(
         [string]$sessionDir,
@@ -165,6 +204,21 @@ function Update-RollupCache {
 # ── 4. 点検報告書 HTML 生成 (Chart.js 埋め込み・ロールアップ優先) ─────────
 
 function Generate-SessionReportHtml {
+    <#
+    .SYNOPSIS
+        監視の結果から点検報告書 (HTML) を作ります。
+    .PARAMETER sync
+        監視の共有データ ($syncHash)。機器の一覧、状態、統計、セッションのフォルダなどを使います。
+    .PARAMETER period
+        報告書に表示する対象期間の文字。
+    .PARAMETER savePath
+        指定するとファイルにも保存します。
+    .OUTPUTS
+        HTML の文字列。
+    .NOTES
+        最初にメモリ上の未保存の記録を CSV へ書き出します。そのため、この関数は記録の書き込みも行います。
+        一時停止中の機器と、まだ計測していない機器は報告書に載りません。
+    #>
     param(
         [hashtable]$sync,
         [string]$period = "today",

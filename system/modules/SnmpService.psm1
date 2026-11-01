@@ -1,6 +1,19 @@
 ﻿# ==============================================================================
 # SnmpService.psm1 - SNMP・ネットワークトポロジー探索・Web/SSL監視モジュール
 # ==============================================================================
+# 【初心者向けの簡単な解説】
+# SNMP は、機器から通信量やポートの状態などを読み取るための決まりごとです。
+# このファイルには次の部品があります。
+#   - Web サイトの応答と SSL 証明書の有効期限の確認
+#   - 機器への問い合わせ (Get は指定した項目だけ、Walk はまとめて読む)
+#   - 機器から届く SNMP Trap (通知) の読み解き
+#
+# 【変更するときの注意】
+# - 問い合わせの関数は SharpSnmpLib に依存します。Trap の読み解きは外部ライブラリなしで動きます。
+# - 問い合わせの失敗は例外にせず、空の配列を返します。「値が 0」と「読めなかった」を混同しないでください。
+# - Trap は外部から届くデータなので、形式が不正でも止まらないよう、範囲の確認を外さないでください。
+# - Trap のテストは tests/Monitor.Tests.ps1 の 8b です。問い合わせは実機がないと確かめられません。
+# ==============================================================================
 
 # Common モジュール（秘密情報復号など）をインポート
 Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
@@ -8,6 +21,7 @@ Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking -Erro
 # ── 1. SharpSnmpLib の初期化 ────────────────────────────────────────────────
 
 function Initialize-SnmpLibrary {
+    # moduleDir にある SharpSnmpLib.dll を読み込む。ファイルがなければ何もしない
     param([string]$moduleDir)
     if ([string]::IsNullOrWhiteSpace($moduleDir)) { return }
     $dllPath = Join-Path $moduleDir "SharpSnmpLib.dll"
@@ -19,6 +33,16 @@ function Initialize-SnmpLibrary {
 # ── 2. Web / SSL証明書チェック ─────────────────────────────────────────────
 
 function Check-WebAndSslEndpoint {
+    <#
+    .SYNOPSIS
+        URL に接続して、応答と SSL 証明書の残り日数を確認します。
+    .OUTPUTS
+        Success / StatusCode / ResponseTimeMs / SslDaysRemaining / SslSubject / SslIssuer / Error を持つハッシュテーブル。
+        404 や 500 が返ると Success は $false で、StatusCode に番号が入ります。
+    .NOTES
+        監視対象の機器は自己署名証明書が多いので、証明書の検証はしません。
+        期限を読むための確認で、相手が本物かどうかは確かめていません。
+    #>
     param([string]$url, [int]$timeoutMs = 4000)
     $res = @{
         Success = $false
@@ -84,6 +108,20 @@ public static class TrustAllCertsPolicy {
 # ── 3. SNMP Get / Walk Unified (v1 / v2c / v3) ──────────────────────────────
 
 function Invoke-SnmpGetUnified {
+    <#
+    .SYNOPSIS
+        指定した項目 (OID) の値を機器から読み取ります。v1 / v2c / v3 に対応します。
+    .PARAMETER Community
+        v1 / v2c の合言葉。v3 では使いません。
+    .PARAMETER AuthPass
+        v3 の認証パスワード。暗号化された値 ("enc:" で始まる) は自動で復号します。PrivPass も同じです。
+    .PARAMETER Oids
+        読み取る項目の番号の一覧。
+    .OUTPUTS
+        OID と Data を持つオブジェクトの配列。失敗すると空の配列を返し、例外にはしません。
+    .NOTES
+        v3 の認証は MD5 / SHA、暗号化は DES だけに対応します。AES を指定しても暗号化なしの扱いになります。
+    #>
     param(
         [string]$IP,
         [int]$Port = 161,
@@ -185,6 +223,14 @@ function Invoke-SnmpGetUnified {
 }
 
 function Invoke-SnmpWalkUnified {
+    <#
+    .SYNOPSIS
+        OIDStart より下の項目をまとめて読み取ります (例: すべてのポートの通信量)。
+    .OUTPUTS
+        OID と Data を持つオブジェクトの配列。失敗すると空の配列を返し、例外にはしません。
+    .NOTES
+        引数と認証の扱いは Invoke-SnmpGetUnified と同じです。v3 の設定を直すときは両方を直してください。
+    #>
     param(
         [string]$IP,
         [int]$Port = 161,
@@ -303,6 +349,8 @@ function Read-BerElement {
 }
 
 function ConvertFrom-BerOid {
+    # OID の 2 進データを "1.3.6.1..." の文字に直す
+    # 先頭の 1 バイトに最初の 2 つの番号が入り、以降は 1 バイトの 7 ビットずつをつなげて 1 つの番号にする (最上位ビットが 1 なら続きがある)
     param([byte[]]$buffer, [int]$start, [int]$length)
     if ($length -lt 1) { return "" }
     $first = [int]$buffer[$start]
@@ -371,6 +419,11 @@ function ConvertFrom-SnmpTrapPacket {
     .SYNOPSIS
         受信した UDP データを SNMP Trap (v1 / v2c Trap / v2c Inform) として解析します。
         SNMPv3 は暗号化されていて読めないため Version = "v3" だけを返します。形式が不正なときは例外を投げます。
+    .OUTPUTS
+        Version / Pdu ("Trap" または "Inform") / PduTagOffset / TrapOid / Enterprise / AgentAddress / UptimeTicks / VarBinds を持つハッシュテーブル。
+        Server.ps1 は PduTagOffset の位置の 1 バイトを書き換えて、Inform への返事を作ります。
+    .NOTES
+        コミュニティ名の確認はしていません。どの機器からの通知でも読み解きます。
     #>
     param([Parameter(Mandatory = $true)][byte[]]$Packet)
 
@@ -456,6 +509,10 @@ function Get-SnmpTrapDisplay {
     <#
     .SYNOPSIS
         解析済みの Trap を、画面に出す重要度と説明文に直します。
+    .OUTPUTS
+        Severity と Message を持つハッシュテーブル。知らない番号は「機器固有の通知」(Notice) にします。
+    .NOTES
+        画面の負担を抑えるため、Message は 2,000 文字で切ります。外部から届く文字を含むので、画面では escapeHTML を通してください。
     #>
     param([Parameter(Mandatory = $true)][hashtable]$Trap)
 

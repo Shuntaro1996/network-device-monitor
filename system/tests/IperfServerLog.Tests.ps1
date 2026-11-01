@@ -44,6 +44,25 @@ Describe "iperf3 のサーバー側ログの取得 (UDP)" {
         return $freePort
     }
 
+    # 相手役の iperf3 に使うポートを、5300〜5399 から空いているものを選ぶ
+    # Windows が接続元に自動で割り当てる番号 (49152 以降) を使うと、相手が待ち受ける前に接続したとき、
+    # 接続元と宛先が同じ番号になって自分自身につながり、計測が接続直後に失敗することがある
+    $getFreeIperfPort = {
+        foreach ($candidate in 5300..5399) {
+            $probe = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $candidate)
+            try { $probe.Start(); $probe.Stop(); return $candidate } catch {}
+        }
+        throw "No free port for iperf3."
+    }
+
+    # 相手役の iperf3 を起動して待つ。PC に負荷がかかっていると起動が遅いので 3 秒待つ
+    # 待ち受けの一覧 (netstat など) はこの iperf3 を正しく表示しない環境があるので使わない
+    $startIperfServer = {
+        $process = Start-Process -FilePath $iperfExe -ArgumentList "-s", "-p", "$iperfPort" -PassThru -WindowStyle Hidden
+        Start-Sleep -Seconds 3
+        return $process
+    }
+
     try {
         # ── 準備: 実機の設定を含まないコピーとサーバーの起動 ───────────────────────
         $copySystem = Join-Path $workDir "system"
@@ -54,7 +73,7 @@ Describe "iperf3 のサーバー側ログの取得 (UDP)" {
         [System.IO.File]::WriteAllText((Join-Path $copySystem "config.json"), '{"autoShutdownOnDisconnect": true, "loggingEnabled": true}', $noBom)
 
         $port = & $getFreePort
-        $iperfPort = & $getFreePort
+        $iperfPort = & $getFreeIperfPort
         $baseUrl = "http://localhost:$port"
         $startInfo = New-Object System.Diagnostics.ProcessStartInfo
         $startInfo.FileName = "powershell.exe"
@@ -91,8 +110,7 @@ Describe "iperf3 のサーバー側ログの取得 (UDP)" {
         }
 
         # 相手役の iperf3 は、サーバーの起動が終わってから動かす (サーバーは起動時に残っている iperf3 を片付けるため)
-        $iperfServer = Start-Process -FilePath $iperfExe -ArgumentList "-s", "-p", "$iperfPort" -PassThru -WindowStyle Hidden
-        Start-Sleep -Seconds 1
+        $iperfServer = & $startIperfServer
 
         It "計測前は、サーバー側のログのダウンロードが 404 になること" {
             $code = 0
@@ -168,7 +186,7 @@ Describe "iperf3 のサーバー側ログの取得 (UDP)" {
         # 新しいセッションになるので、1 回目のログとは別のファイルになる
         if ($null -ne $iperfServer -and -not $iperfServer.HasExited) { $iperfServer.Kill(); $null = $iperfServer.WaitForExit(3000) }
         $port = & $getFreePort
-        $iperfPort = & $getFreePort
+        $iperfPort = & $getFreeIperfPort
         $baseUrl = "http://localhost:$port"
         $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $copySystem 'Server.ps1')`" -Port $port"
         $serverProcess = [System.Diagnostics.Process]::Start($startInfo)
@@ -176,8 +194,7 @@ Describe "iperf3 のサーバー側ログの取得 (UDP)" {
             try { if ((Invoke-RestMethod -Uri "$baseUrl/api/health" -TimeoutSec 2).status -eq "ok") { break } }
             catch { Start-Sleep -Seconds 1 }
         }
-        $iperfServer = Start-Process -FilePath $iperfExe -ArgumentList "-s", "-p", "$iperfPort" -PassThru -WindowStyle Hidden
-        Start-Sleep -Seconds 1
+        $iperfServer = & $startIperfServer
 
         It "UDP の計測中に「監視終了」で終了すると、完了を待つことが応答で分かること" {
             $null = & $startMeasure 8 "-u -b 1M"
@@ -202,7 +219,7 @@ Describe "iperf3 のサーバー側ログの取得 (UDP)" {
         # ── 3 台目のサーバー: TCP の計測中は「監視終了」で待たない ──
         if ($null -ne $iperfServer -and -not $iperfServer.HasExited) { $iperfServer.Kill(); $null = $iperfServer.WaitForExit(3000) }
         $port = & $getFreePort
-        $iperfPort = & $getFreePort
+        $iperfPort = & $getFreeIperfPort
         $baseUrl = "http://localhost:$port"
         $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $copySystem 'Server.ps1')`" -Port $port"
         $serverProcess = [System.Diagnostics.Process]::Start($startInfo)
@@ -210,8 +227,7 @@ Describe "iperf3 のサーバー側ログの取得 (UDP)" {
             try { if ((Invoke-RestMethod -Uri "$baseUrl/api/health" -TimeoutSec 2).status -eq "ok") { break } }
             catch { Start-Sleep -Seconds 1 }
         }
-        $iperfServer = Start-Process -FilePath $iperfExe -ArgumentList "-s", "-p", "$iperfPort" -PassThru -WindowStyle Hidden
-        Start-Sleep -Seconds 1
+        $iperfServer = & $startIperfServer
 
         It "TCP の計測中に「監視終了」で終了すると、完了を待たずに終了すること" {
             $null = & $startMeasure 60 "-R"
