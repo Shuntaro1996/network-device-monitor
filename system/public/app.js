@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const scanAddSelectedBtn = document.getElementById('scan-add-selected-btn');
 
     let scannedIps = [];
+    let scannedHosts = {};   // スキャンで分かった機器の情報 (IP アドレスがキー)
 
     if (scanStartBtn) {
         scanStartBtn.addEventListener('click', async () => {
@@ -41,7 +42,9 @@ document.addEventListener('DOMContentLoaded', () => {
             scanStartBtn.textContent = 'スキャン中...';
             scanStatus.style.display = 'block';
             scanStatus.textContent = 'ネットワークをスキャン中... (時間がかかる場合があります)';
-            scanResultsContainer.style.display = 'none';
+            // 一覧の表示と非表示は hidden クラスで切り替える
+            // (style.css の .hidden は !important なので、style.display を変えても表示されない)
+            scanResultsContainer.classList.add('hidden');
             scanResultsList.innerHTML = '';
             scannedIps = [];
 
@@ -52,10 +55,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (data.activeIps && data.activeIps.length > 0) {
                         scannedIps = data.activeIps;
                         scanStatus.textContent = `${scannedIps.length} 台の稼働中の機器が見つかりました。`;
-                        scanResultsContainer.style.display = 'block';
-                        
+                        scanResultsContainer.classList.remove('hidden');
+                        // 機器の情報 (名前・機器番号・種類の説明)。取れない項目は空になる
+                        scannedHosts = {};
+                        (data.hosts || []).forEach(host => { scannedHosts[host.ip] = host; });
+
                         scannedIps.forEach(ip => {
                             const isAlreadyAdded = devices.some(d => d.ip === ip);
+                            const host = scannedHosts[ip] || {};
+                            const details = [host.name, host.mac].filter(Boolean).join(' / ');
                             const div = document.createElement('div');
                             div.style.cssText = `
                                 padding: 4px 8px;
@@ -68,10 +76,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                 gap: 6px;
                                 opacity: ${isAlreadyAdded ? '0.5' : '1'};
                             `;
+                            // 機器の名前や説明は機器側で自由に決められる値なので、必ず escapeHTML を通す
                             div.innerHTML = `
-                                <input type="checkbox" value="${ip}" ${isAlreadyAdded ? 'disabled' : 'checked'}>
-                                <span>${ip}</span>
-                                ${isAlreadyAdded ? '<span style="font-size:0.6rem;">(登録済み)</span>' : ''}
+                                <input type="checkbox" value="${escapeHTML(ip)}" ${isAlreadyAdded ? 'disabled' : 'checked'}>
+                                <div style="min-width:0; overflow-wrap:anywhere;">
+                                    <div><strong>${escapeHTML(ip)}</strong>${isAlreadyAdded ? ' <span style="font-size:0.6rem;">(登録済み)</span>' : ''}</div>
+                                    ${details ? `<div>${escapeHTML(details)}</div>` : ''}
+                                    <div style="color:var(--text-muted);">${escapeHTML(host.kind || '不明')}</div>
+                                </div>
                             `;
                             scanResultsList.appendChild(div);
                         });
@@ -98,7 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const newDevices = selectedIps.map(ip => ({
                 ip: ip,
-                name: ip,
+                // 機器の名前が分かっていれば、その名前で登録する
+                name: (scannedHosts[ip] && scannedHosts[ip].name) || ip,
                 group: 'Scanned',
                 community: 'public',
                 enabled: true
@@ -113,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (res.ok) {
                     showToast('info', '機器の追加', `${selectedIps.length} 台の機器を追加しました。`, 3000);
                     await fetchDevices();
-                    scanResultsContainer.style.display = 'none';
+                    scanResultsContainer.classList.add('hidden');
                 } else {
                     alert('機器の追加に失敗しました。');
                 }

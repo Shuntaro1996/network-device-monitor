@@ -6675,10 +6675,11 @@ sslWarnDays              = $syncHash.SslWarnDays
                             if ($startNum -gt $endNum) { $tmpNum = $startNum; $startNum = $endNum; $endNum = $tmpNum }
                             $respRef = $response
 
-                            Start-BackgroundScript -ArgumentList @($respRef, $base, $startNum, $endNum) -ScriptBlock {
-                                param($respRef, $base, $startNum, $endNum)
+                            Start-BackgroundScript -ArgumentList @($respRef, $base, $startNum, $endNum, $modulesDir) -ScriptBlock {
+                                param($respRef, $base, $startNum, $endNum, $moduleFolder)
                                 try {
                                     $activeIps = [System.Collections.Generic.List[string]]::new()
+                                    $ttlByIp = @{}
                                     $pingTasks = @()
                                     for ($i = $startNum; $i -le $endNum; $i++) {
                                         $target = "$base.$i"
@@ -6696,13 +6697,48 @@ sslWarnDays              = $syncHash.SslWarnDays
                                         try {
                                             if ($pt.Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $pt.Task.Result.Status -eq 'Success') {
                                                 $activeIps.Add($pt.IP)
+                                                if ($pt.Task.Result.Options) { $ttlByIp[$pt.IP] = $pt.Task.Result.Options.Ttl }
                                             }
                                         }
                                         catch {}
                                         try { $pt.Ping.Dispose() } catch {}
                                     }
 
-                                    Write-JsonResponse $respRef @{ activeIps = $activeIps.ToArray() }
+                                    # 見つかった機器の情報を集める。情報が取れなくても IP アドレスの一覧は返せるよう、それぞれの失敗では止めない
+                                    # 名前 (DNS)、機器番号 (ARP)、機器の説明 (SNMP) で、それぞれ機器によって取れないことがある
+                                    Import-Module (Join-Path $moduleFolder "PingEngine.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
+                                    Import-Module (Join-Path $moduleFolder "SnmpService.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
+                                    $ipList = [string[]]$activeIps.ToArray()
+                                    $snmpInfo = @{}
+                                    try { if ($ipList.Count -gt 0) { $snmpInfo = Get-SnmpSystemInfoBulk -Ips $ipList } } catch {}
+                                    $macByIp = @{}
+                                    try { $macByIp = ConvertFrom-ArpTable -ArpOutput (& arp.exe -a | Out-String) } catch {}
+                                    # DNS は応答が遅いことがあるので、全台を同時に問い合わせて 1.5 秒で打ち切る
+                                    $dnsTasks = @{}
+                                    foreach ($scanIp in $ipList) {
+                                        try { $dnsTasks[$scanIp] = [System.Net.Dns]::GetHostEntryAsync($scanIp) } catch {}
+                                    }
+                                    try {
+                                        if ($dnsTasks.Count -gt 0) { $null = [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($dnsTasks.Values), 1500) }
+                                    } catch {}
+
+                                    $hosts = foreach ($scanIp in $ipList) {
+                                        $dnsName = ""
+                                        try {
+                                            $dnsTask = $dnsTasks[$scanIp]
+                                            if ($dnsTask -and $dnsTask.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion -and $dnsTask.Result.HostName -ne $scanIp) { $dnsName = $dnsTask.Result.HostName }
+                                        } catch {}
+                                        $snmp = $snmpInfo[$scanIp]
+                                        $description = if ($snmp) { $snmp.Description } else { "" }
+                                        @{
+                                            ip   = $scanIp
+                                            name = if ($snmp -and $snmp.Name) { $snmp.Name } else { $dnsName }
+                                            mac  = if ($macByIp.ContainsKey($scanIp)) { $macByIp[$scanIp] } else { "" }
+                                            kind = Get-ScanDeviceHint -SnmpDescription $description -Ttl $ttlByIp[$scanIp]
+                                        }
+                                    }
+
+                                    Write-JsonResponse $respRef @{ activeIps = $ipList; hosts = @($hosts) }
                                 }
                                 catch {
                                     Write-JsonResponse $respRef @{ error = "Scan failed: $($_.Exception.Message)" } 500

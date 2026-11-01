@@ -124,4 +124,52 @@ function Evaluate-DeviceStatus {
     return "Success"
 }
 
-Export-ModuleMember -Function Test-TcpPortEndpoint, Evaluate-DeviceStatus
+function ConvertFrom-ArpTable {
+    <#
+    .SYNOPSIS
+        arp.exe -a の出力から、IP アドレスと機器番号 (MAC アドレス) の対応を取り出します。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        MAC アドレスは機器ごとの番号です。Ping を送った直後なら、同じネットワークの機器の番号を Windows が覚えています。
+        ルーターの先の機器は番号が分からないので、一覧に出ません。
+    .OUTPUTS
+        IP アドレスをキー、"aa-bb-cc-dd-ee-ff" を値とするハッシュテーブル。
+    .NOTES
+        列の見出しは Windows の言語で変わるので、見出しではなく値の形で読み取ります。
+    #>
+    param([string]$ArpOutput)
+
+    $table = @{}
+    foreach ($match in [regex]::Matches([string]$ArpOutput, '(?m)^\s*(\d{1,3}(?:\.\d{1,3}){3})\s+([0-9a-fA-F]{2}(?:-[0-9a-fA-F]{2}){5})\s')) {
+        $table[$match.Groups[1].Value] = $match.Groups[2].Value.ToLower()
+    }
+    return $table
+}
+
+function Get-ScanDeviceHint {
+    <#
+    .SYNOPSIS
+        スキャンで見つけた機器が「どんな機器か」の説明を作ります。
+    .DESCRIPTION
+        機器自身が SNMP で教えてくれた説明があれば、それを使います。
+        なければ Ping の応答の TTL (通過できる機器の数の残り) から推測します。OS ごとに初期値が違うためです。
+    .OUTPUTS
+        説明の文字列。TTL からの推測は確実ではないので「可能性」と書きます。
+    .NOTES
+        TTL は設定で変えられ、途中の機器を通るたびに減ります。推測の根拠としては弱いので、断定する表現にしないでください。
+    #>
+    param([string]$SnmpDescription, $Ttl)
+
+    if (-not [string]::IsNullOrWhiteSpace($SnmpDescription)) {
+        $oneLine = ($SnmpDescription -replace '\s+', ' ').Trim()
+        if ($oneLine.Length -gt 160) { return $oneLine.Substring(0, 160) + "..." }
+        return $oneLine
+    }
+    $ttlValue = 0
+    if (-not [int]::TryParse([string]$Ttl, [ref]$ttlValue) -or $ttlValue -le 0) { return "不明" }
+    if ($ttlValue -le 64) { return "Linux 系の機器やネットワーク機器の可能性" }
+    if ($ttlValue -le 128) { return "Windows の可能性" }
+    return "ネットワーク機器の可能性"
+}
+
+Export-ModuleMember -Function Test-TcpPortEndpoint, Evaluate-DeviceStatus, ConvertFrom-ArpTable, Get-ScanDeviceHint

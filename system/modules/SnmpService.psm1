@@ -505,6 +505,94 @@ function ConvertFrom-SnmpTrapPacket {
     return $result
 }
 
+function Get-SnmpSystemInfoBulk {
+    <#
+    .SYNOPSIS
+        複数の機器に SNMP (v2c) で機器名と説明を一度に問い合わせます。スキャンの結果の表示に使います。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        SNMP に対応した機器は、自分の名前 (sysName) と説明 (sysDescr: 機種や OS など) を教えてくれます。
+        1 台ずつ応答を待つと遅いので、全台へ先に送ってから、届いた順に受け取ります。
+        SNMP モジュールが入っていない PC でも動くよう、外部ライブラリは使いません。
+    .PARAMETER Ips
+        問い合わせる機器のアドレス。
+    .PARAMETER Community
+        SNMP の合言葉。
+    .PARAMETER TimeoutMs
+        応答を待つ時間の合計。応答しない機器があっても、この時間で終わります。
+    .OUTPUTS
+        IP アドレスをキー、Name と Description を持つハッシュテーブルを値とするハッシュテーブル。応答のない機器は含みません。
+    .NOTES
+        応答がないのは珍しくありません (SNMP が無効、合言葉が違うなど)。失敗は例外にしません。
+        機器によっては、合言葉の違う問い合わせを受けると警告の通知 (authenticationFailure) を出します。
+    #>
+    param(
+        [string[]]$Ips,
+        [string]$Community = "public",
+        [int]$Port = 161,
+        [int]$TimeoutMs = 1200
+    )
+
+    $results = @{}
+    if (-not $Ips -or $Ips.Count -eq 0) { return $results }
+
+    # BER 形式 (種類・長さ・中身) の 1 要素を作る。ここで作るデータは短いので、長さは 1 バイトで足りる
+    $ber = { param([int]$tag, [byte[]]$value) ,[byte[]](@($tag, $value.Length) + $value) }
+    $sysDescrOid = [byte[]](0x2B, 6, 1, 2, 1, 1, 1, 0)   # 1.3.6.1.2.1.1.1.0
+    $sysNameOid = [byte[]](0x2B, 6, 1, 2, 1, 1, 5, 0)    # 1.3.6.1.2.1.1.5.0
+    $bindOf = { param([byte[]]$oid) & $ber 0x30 ([byte[]]((& $ber 0x06 $oid) + (& $ber 0x05 ([byte[]]@())))) }
+    $bindList = [byte[]]((& $bindOf $sysDescrOid) + (& $bindOf $sysNameOid))
+    $zero = & $ber 0x02 ([byte[]](0))
+    $pdu = & $ber 0xA0 ([byte[]]((& $ber 0x02 ([byte[]](1))) + $zero + $zero + (& $ber 0x30 $bindList)))
+    $packet = & $ber 0x30 ([byte[]]((& $ber 0x02 ([byte[]](1))) + (& $ber 0x04 ([System.Text.Encoding]::ASCII.GetBytes($Community))) + $pdu))
+
+    $client = New-Object System.Net.Sockets.UdpClient(0)
+    try {
+        foreach ($ip in $Ips) {
+            try { $null = $client.Send($packet, $packet.Length, $ip, $Port) } catch {}
+        }
+        $client.Client.ReceiveTimeout = 200
+        $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+        $remote = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+        while ((Get-Date) -lt $deadline -and $results.Count -lt $Ips.Count) {
+            try { $reply = $client.Receive([ref]$remote) }
+            catch { continue }   # 時間切れと、相手のポートが閉じているときの通知は、どちらも次の受信へ進む
+            $source = $remote.Address.ToString()
+            if ($Ips -notcontains $source) { continue }
+            try {
+                $message = Read-BerElement $reply 0 $reply.Length
+                $version = Read-BerElement $reply $message.ValueStart $message.End
+                $communityEl = Read-BerElement $reply $version.End $message.End
+                $response = Read-BerElement $reply $communityEl.End $message.End
+                if ($response.Tag -ne 0xA2) { continue }
+                $requestId = Read-BerElement $reply $response.ValueStart $response.End
+                $errorStatus = Read-BerElement $reply $requestId.End $response.End
+                $errorIndex = Read-BerElement $reply $errorStatus.End $response.End
+                $list = Read-BerElement $reply $errorIndex.End $response.End
+                $info = @{ Name = ""; Description = "" }
+                $pos = $list.ValueStart
+                while ($pos -lt $list.End) {
+                    $bind = Read-BerElement $reply $pos $list.End
+                    $oidEl = Read-BerElement $reply $bind.ValueStart $bind.End
+                    $valueEl = Read-BerElement $reply $oidEl.End $bind.End
+                    $oid = ConvertFrom-BerOid $reply $oidEl.ValueStart $oidEl.Length
+                    # 0x04 (文字) 以外は「その項目はありません」の知らせなどなので使わない
+                    if ($valueEl.Tag -eq 0x04) {
+                        $value = ConvertFrom-BerValue $reply $valueEl
+                        if ($oid -eq "1.3.6.1.2.1.1.1.0") { $info.Description = $value }
+                        elseif ($oid -eq "1.3.6.1.2.1.1.5.0") { $info.Name = $value }
+                    }
+                    $pos = $bind.End
+                }
+                $results[$source] = $info
+            }
+            catch { continue }   # 外部から届くデータなので、形式が不正なものは読み飛ばす
+        }
+    }
+    finally { $client.Close() }
+    return $results
+}
+
 function Get-SnmpTrapDisplay {
     <#
     .SYNOPSIS
@@ -533,4 +621,4 @@ function Get-SnmpTrapDisplay {
     return @{ Severity = $info.Severity; Message = $message }
 }
 
-Export-ModuleMember -Function Initialize-SnmpLibrary, Check-WebAndSslEndpoint, Invoke-SnmpGetUnified, Invoke-SnmpWalkUnified, ConvertFrom-SnmpTrapPacket, Get-SnmpTrapDisplay
+Export-ModuleMember -Function Initialize-SnmpLibrary, Check-WebAndSslEndpoint, Invoke-SnmpGetUnified, Invoke-SnmpWalkUnified, Get-SnmpSystemInfoBulk, ConvertFrom-SnmpTrapPacket, Get-SnmpTrapDisplay

@@ -720,7 +720,7 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | `GET` | `/api/iperf/server/log`| - | IPerf3 サーバーログのダウンロード | ファイル読込 |
 | `POST`| `/api/iperf/server/clear-log`| - | IPerf3 サーバーの画面出力のクリア | 即時応答 |
 | `GET` | `/api/iperf/server/status` | - | IPerf3 サーバー稼働状態取得 | 即時応答 |
-| `GET` | `/api/scan` | `?start=192.168.1.1&end=192.168.1.254` | IPレンジ並列Pingスキャン (最大20並列) | **`ThreadPool` 非同期実行** |
+| `GET` | `/api/scan` | `?start=192.168.1.1&end=192.168.1.254` | IPレンジ並列Pingスキャン (最大20並列)。応答: `activeIps`（IP の配列）と `hosts`（`ip` / `name`: SNMP sysName か逆引き DNS / `mac`: ARP / `kind`: SNMP sysDescr か TTL からの推測）。SNMP は v2c の `public` で全台へ 1 回だけ問い合わせ、応答待ちは最大 1.2 秒、DNS は最大 1.5 秒 | **`ThreadPool` 非同期実行** |
 | `GET` | `/api/traceroute` | `?target=192.168.1.1` | 経路トレース（最大 20 区間）。`hops`（`ip` は応答なしなら null、`latency`）と `reached` を返す。構成図の右クリックメニューから使用 | 完了時に応答（最大 30 秒ほど） |
 | `GET` | `/api/web-check` | `?url=https://...` | 指定URLのHTTP応答ステータスおよびSSL証明書有効期限チェック | 即時応答 |
 
