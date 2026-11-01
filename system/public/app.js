@@ -899,11 +899,60 @@ return 'http://' + u;
             }
             // 3. サーバーにシャットダウンリクエストを送信
             try {
-                await fetch('/api/shutdown', { method: 'POST' });
+                const res = await fetch('/api/shutdown', { method: 'POST' });
+                const data = await res.json();
+                // 4. UDP の計測中なら、サーバーは完了まで待つので、完了後にサーバー側のログを保存する
+                if (data.waitingForIperf) await waitForIperfAndSaveRemoteLog();
             } catch (e) {
                 console.log('Shutdown signal dispatched');
             }
         });
+    }
+
+    // UDP 計測の完了を待って、サーバー側のログをダウンロードする (「監視終了＆報告書」ボタンの終了から呼ぶ)
+    // サーバーは計測の完了後 15 秒で終了するので、状態の確認はそれより十分短い間隔で行う
+    // サーバーに接続できなくなったときなどは Reports フォルダーのファイルを案内する (ログ自体はサーバーが保存済み)
+    async function waitForIperfAndSaveRemoteLog() {
+        const titleEl = document.getElementById('shutdown-complete-title');
+        const messageEl = document.getElementById('shutdown-complete-message');
+        const doneTitle = titleEl ? titleEl.textContent : '';
+        const doneMessage = messageEl ? messageEl.innerHTML : '';
+        if (titleEl) titleEl.textContent = 'UDP 計測の完了を待っています...';
+        if (messageEl) messageEl.textContent = '計測が終わると、相手側（サーバー側）のログを自動で保存してから終了します。このタブを閉じても、ログは Reports フォルダーに保存されます。';
+
+        let saved = false;
+        try {
+            let running = true;
+            while (running) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const status = await (await fetch('/api/iperf?action=status')).json();
+                running = !!status.running;
+            }
+            const logRes = await fetch('/api/iperf/remote-log');
+            if (logRes.ok) {
+                const url = URL.createObjectURL(await logRes.blob());
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'remote_iperf.log';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+                saved = true;
+            }
+        } catch (e) {
+            console.log('Could not download the server-side log', e);
+        }
+        if (titleEl) titleEl.textContent = doneTitle;
+        if (messageEl) {
+            messageEl.innerHTML = doneMessage;
+            const note = document.createElement('div');
+            note.style.marginTop = '8px';
+            note.textContent = saved
+                ? '相手側（サーバー側）のログも保存しました。'
+                : '相手側（サーバー側）のログを自動で保存できませんでした。ログがある場合は Reports フォルダーの remote_iperf_<IPアドレス>.log を開いてください。';
+            messageEl.appendChild(note);
+        }
     }
 
     // ── Global Config DOM Elements ──────────────────────────────────────────

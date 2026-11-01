@@ -6,6 +6,8 @@
 # - UDP の計測だけ --get-server-output が付き、サーバー側のログが別ファイルに分かれること
 # - サーバー側のログは画面の出力にも計測ログにも混ざらず、ダウンロードできること
 # - 計測中にブラウザを閉じても、計測とログの取得が終わってからサーバーが終了すること
+# - UDP の計測中に「監視終了」ボタンで終了しても、完了を待ち、サーバー側のログをダウンロードできること
+# Enter キーでの終了は、画面のないテストからキーを送れないので、ここでは確かめていません。
 #
 # 【実機の設定を守るしくみ】
 # 一時フォルダへ system をコピーして動かします。実際の devices.json / config.json は使いません。
@@ -160,6 +162,62 @@ Describe "iperf3 のサーバー側ログの取得 (UDP)" {
             # UDP の計測は 3 秒と 15 秒の 2 回
             [regex]::Matches($text, "iperf3 Server Output").Count | Should Be 2
             $text | Should Match "14\.\d+-15\.\d+\s+sec"
+        }
+
+        # ── 2 台目のサーバー: 「監視終了」ボタンの終了 (reason なしの POST /api/shutdown) ──
+        # 新しいセッションになるので、1 回目のログとは別のファイルになる
+        if ($null -ne $iperfServer -and -not $iperfServer.HasExited) { $iperfServer.Kill(); $null = $iperfServer.WaitForExit(3000) }
+        $port = & $getFreePort
+        $iperfPort = & $getFreePort
+        $baseUrl = "http://localhost:$port"
+        $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $copySystem 'Server.ps1')`" -Port $port"
+        $serverProcess = [System.Diagnostics.Process]::Start($startInfo)
+        for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            try { if ((Invoke-RestMethod -Uri "$baseUrl/api/health" -TimeoutSec 2).status -eq "ok") { break } }
+            catch { Start-Sleep -Seconds 1 }
+        }
+        $iperfServer = Start-Process -FilePath $iperfExe -ArgumentList "-s", "-p", "$iperfPort" -PassThru -WindowStyle Hidden
+        Start-Sleep -Seconds 1
+
+        It "UDP の計測中に「監視終了」で終了すると、完了を待つことが応答で分かること" {
+            $null = & $startMeasure 8 "-u -b 1M"
+            Start-Sleep -Seconds 1
+            (Invoke-RestMethod -Uri "$baseUrl/api/shutdown" -Method Post -TimeoutSec 15).waitingForIperf | Should Be $true
+            Start-Sleep -Seconds 4
+            $serverProcess.HasExited | Should Be $false
+        }
+
+        It "計測が終わったあと、サーバーの終了前にサーバー側のログをダウンロードできること" {
+            $null = & $waitMeasure
+            $remoteLog = [string](& $getText "/api/iperf/remote-log")
+            $remoteLog | Should Match "iperf3 Server Output"
+            $remoteLog | Should Match "7\.\d+-8\.\d+\s+sec"
+        }
+
+        It "そのあとサーバーが自分で終了すること" {
+            $serverProcess.WaitForExit(40000) | Should Be $true
+            $serverProcess.ExitCode | Should Be 0
+        }
+
+        # ── 3 台目のサーバー: TCP の計測中は「監視終了」で待たない ──
+        if ($null -ne $iperfServer -and -not $iperfServer.HasExited) { $iperfServer.Kill(); $null = $iperfServer.WaitForExit(3000) }
+        $port = & $getFreePort
+        $iperfPort = & $getFreePort
+        $baseUrl = "http://localhost:$port"
+        $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $copySystem 'Server.ps1')`" -Port $port"
+        $serverProcess = [System.Diagnostics.Process]::Start($startInfo)
+        for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            try { if ((Invoke-RestMethod -Uri "$baseUrl/api/health" -TimeoutSec 2).status -eq "ok") { break } }
+            catch { Start-Sleep -Seconds 1 }
+        }
+        $iperfServer = Start-Process -FilePath $iperfExe -ArgumentList "-s", "-p", "$iperfPort" -PassThru -WindowStyle Hidden
+        Start-Sleep -Seconds 1
+
+        It "TCP の計測中に「監視終了」で終了すると、完了を待たずに終了すること" {
+            $null = & $startMeasure 60 "-R"
+            Start-Sleep -Seconds 1
+            (Invoke-RestMethod -Uri "$baseUrl/api/shutdown" -Method Post -TimeoutSec 15).waitingForIperf | Should Be $false
+            $serverProcess.WaitForExit(30000) | Should Be $true
         }
     }
     finally {

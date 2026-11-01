@@ -3157,25 +3157,51 @@ $keyScript = {
         $state = $syncHash.IperfState
         return ($state -and $state.Running -and $state.DeadlineUtc -and [DateTime]::UtcNow -lt $state.DeadlineUtc)
     }
+    # UDP の計測中か。サーバー側のログがあるのは UDP だけなので、明示の終了操作は UDP のときだけ待つ
+    $isUdpMeasuring = { return ((& $isIperfMeasuring) -and $syncHash.IperfState.IsUdp) }
+    $enterPressedOnce = $false     # Enter キーを押して、計測の完了を待っているか
+    $waitedForIperf = $false       # 「監視終了」ボタンの終了で、計測の完了を待っていたか
     while ($true) {
         # 1. Console key detection (if console handle is available)
         try {
             if ([System.Console]::KeyAvailable) {
                 $key = [System.Console]::ReadKey($true)
                 if ($key.Key -eq [System.ConsoleKey]::Enter) {
-                    Write-Host "[Enter] key pressed. Shutting down server gracefully..." -ForegroundColor Yellow
-                    break
+                    # UDP の計測中は、1 回目は完了を待つ。急ぐときのために、2 回目はすぐに終了する
+                    if ((& $isUdpMeasuring) -and -not $enterPressedOnce) {
+                        $enterPressedOnce = $true
+                        Write-Host "[Enter] key pressed. Waiting for the UDP measurement to save the server-side log. Press Enter again to stop now." -ForegroundColor Yellow
+                    }
+                    else {
+                        Write-Host "[Enter] key pressed. Shutting down server gracefully..." -ForegroundColor Yellow
+                        break
+                    }
                 }
             }
         }
         catch { }
 
-        # 2. Browser shutdown signal (/api/shutdown beacon)
-        # 「監視終了」ボタンによる終了 (PendingShutdownForced) は利用者の明示の操作なので、計測の完了を待たない
-        if ($syncHash.PendingShutdown -and [DateTime]::UtcNow -gt $syncHash.PendingShutdownTime -and
-            ($syncHash.PendingShutdownForced -or -not (& $isIperfMeasuring))) {
-            Write-Host "Browser shutdown signal received. Shutting down server gracefully..." -ForegroundColor Yellow
+        if ($enterPressedOnce -and -not (& $isUdpMeasuring)) {
+            Write-Host "UDP measurement finished. Shutting down server gracefully..." -ForegroundColor Yellow
             break
+        }
+
+        # 2. Browser shutdown signal (/api/shutdown beacon)
+        if ($syncHash.PendingShutdown -and [DateTime]::UtcNow -gt $syncHash.PendingShutdownTime) {
+            # ブラウザを閉じたときはすべての計測を、「監視終了」ボタンのときは UDP の計測だけ、完了まで待つ
+            $mustWait = if ($syncHash.PendingShutdownForced) { & $isUdpMeasuring } else { & $isIperfMeasuring }
+            if ($mustWait) {
+                $waitedForIperf = $true
+            }
+            elseif ($waitedForIperf -and $syncHash.PendingShutdownForced) {
+                # 画面がサーバー側のログをダウンロードする時間を残すため、完了後 15 秒は動かしておく
+                $waitedForIperf = $false
+                $syncHash.PendingShutdownTime = [DateTime]::UtcNow.AddSeconds(15)
+            }
+            else {
+                Write-Host "Browser shutdown signal received. Shutting down server gracefully..." -ForegroundColor Yellow
+                break
+            }
         }
 
         # 3. Client heartbeat & disconnect detection (Auto-shutdown when browser closed)
@@ -5770,6 +5796,7 @@ sslWarnDays              = $syncHash.SslWarnDays
                             $syncHash.IperfState.Process = $null
                             # 計測時間に、接続とサーバー側のログの受け取りの余裕 (120 秒) を足した時刻まで、ブラウザを閉じても終了を待つ
                             $syncHash.IperfState.DeadlineUtc = [DateTime]::UtcNow.AddSeconds([int]$duration + 120)
+                            $syncHash.IperfState.IsUdp = (Test-IperfUdpOptions -Options $safeOpts)
                             # Parse bandwidth threshold (default from config or 10 Mbps)
                             $bwThreshMbps = if ($null -ne $syncHash.BwThreshMbps -and $syncHash.BwThreshMbps -gt 0) { [double]$syncHash.BwThreshMbps } else { 10.0 }
                             if ($bwThreshParam -match '^\d+(\.\d+)?$') { $bwThreshMbps = [double]$bwThreshParam }
@@ -6936,7 +6963,9 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                         # 「監視終了」ボタンからの終了は、画面の定期通信が来ても取り消さない
                         if (-not $isUnloadSignal) { $syncHash.PendingShutdownForced = $true }
                         $syncHash.PendingShutdownTime = [DateTime]::UtcNow.AddSeconds($waitSec)
-                        Write-JsonResponse $response @{ status = "success"; message = "Shutdown initiated" }
+                        # UDP の計測中なら、画面に完了を待つことを伝える (完了後にサーバー側のログをダウンロードするため)
+                        $waitingForIperf = [bool]($syncHash.IperfState.Running -and $syncHash.IperfState.IsUdp)
+                        Write-JsonResponse $response @{ status = "success"; message = "Shutdown initiated"; waitingForIperf = $waitingForIperf }
                         Write-Host "Shutdown signal received from browser." -ForegroundColor Yellow
                     }
                 }
