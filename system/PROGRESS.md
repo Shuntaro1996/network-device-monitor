@@ -132,3 +132,12 @@
 - 確かめたこと: 通しテストを 4 件追加し、全自動テストと画面テストがすべて合格しました。実際のブラウザ（ヘッドレスの Edge）でボタンを押し、完了を待ってログがダウンロードされることも確かめました。
 - 未確認: Enter キーでの終了（画面のないテストからキーを送れないため）。別の機器との計測。
 - 次にやるべきこと: タスク 19（プロジェクト直下の整理）。
+
+## 2026-11-01 タスク 19: プロジェクト直下の整理
+
+- やったこと: 直下に見えるものを `Start-Monitor.bat` / `利用手順書.html` / `Reports/` / `system/` だけにしました。`Stop-All.bat` と `GEMINI.md` は `system/` へ、`README.md` と `LICENSE` は `.github/` へ、`CLAUDE.md` は `.claude/` へ移しました。`Start-Monitor.bat` が `.gitignore` / `.github` / `.claude` を隠し属性にします。停止の合図 `.stop_signal` も直下に出ないよう `system/` に置くようにしました。
+- 確かめたこと: 全自動テストと画面テストがすべて合格しました。`Stop-All.bat` が同じフォルダに合図を置くことをテストに追加しました。
+- 未確認: GitHub のトップページでの README の表示とライセンスの認識（プッシュ前のため）。Antigravity / Gemini が `system/GEMINI.md` を自動で読むか。`Start-Monitor.bat` の隠し属性の設定は手で同じコマンドを実行して確かめたもので、バッチの実行では試していません。
+- 気づいたこと: 隠し属性は Git に記録されないので、別の PC では `Start-Monitor.bat` を一度起動するまで見えたままです。エクスプローラーで「隠しファイルを表示」にしていると見えます。
+- 自律サイクルの手順を `system/CYCLE.md` に書きました。
+- 次にやるべきこと: タスク 16（`SnmpService.psm1` と `ReportGenerator.psm1` の説明文）。

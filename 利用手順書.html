@@ -143,11 +143,11 @@ li { margin: 4px 0; }
 ├── 📂 【ユーザー操作部】（プロジェクトルート）
 │   ├── Start-Monitor.bat              # 🚀 監視サーバー起動スクリプト（ダブルクリックで即座に開始）
 │   ├── 利用手順書.html                  # 📘 本手順書（運用管理者・一般ユーザー向け操作マニュアル）
-│   ├── README.md                      # 📖 システム概要・仕様・機能一覧ドキュメント
-│   └── LICENSE                        # 📄 ライセンス情報
+│   └── Reports/                       # 📊 ログ・点検報告書の保存先
 │
 ├── 📂 【システム内部実装部】（system/ フォルダ）
 │   ├── Server.ps1                     # メインバックエンドHTTPサーバー＆監視コーディネーター
+│   ├── Stop-All.bat                   # 機器ごとの監視ウィンドウを一括終了
 │   ├── Watchdog.ps1                   # 監視サーバーの死活監視・自己治癒（自動再起動プロセス）
 │   ├── Check-Prerequisites.ps1        # 起動前モジュール診断＆自動インストール
 │   ├── Ensure-Utf8Bom.ps1             # 文字化け防止のための文字コード（UTF-8 BOM）検証ツール
@@ -1340,7 +1340,7 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 </tr>
 <tr>
 <td align="left"><strong>機器ごとの監視ウィンドウ（Launcher.ps1）をまとめて閉じたい</strong></td>
-<td align="left">プロジェクト直下の <code>Stop-All.bat</code> をダブルクリックします。各ウィンドウが結果を保存してから自動で閉じます。メインの監視画面には影響しません。</td>
+<td align="left"><code>system</code> フォルダの <code>Stop-All.bat</code> をダブルクリックします。各ウィンドウが結果を保存してから自動で閉じます。メインの監視画面には影響しません。</td>
 </tr>
 <tr>
 <td align="left"><strong>音声アラートが鳴らない</strong></td>

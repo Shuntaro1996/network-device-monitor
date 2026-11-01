@@ -107,11 +107,15 @@ NetworkDeviceMonitor/
 ├── 📂 【ユーザー操作部】（プロジェクトルート）
 │   ├── Start-Monitor.bat              # 🚀 起動用バッチファイル（Windows監視サーバー一発起動）
 │   ├── 利用手順書.html                  # 📘 エンドユーザー・運用担当者向け利用マニュアル（平易な用語解説付き）
-│   ├── README.md                      # 📖 プロジェクト概要・仕様書（本ドキュメント）
-│   └── LICENSE                        # 📄 MIT License
+│
+├── 📂 【隠しフォルダ】（普段は見えません）
+│   ├── .github/                       # 📖 README.md（本ドキュメント）・LICENSE
+│   └── .claude/                       # 開発ツール用の CLAUDE.md
 │
 ├── 📂 【システム内部実装部】（system/ フォルダ）
 │   ├── Server.ps1                     # メインバックエンドHTTPサーバー＆監視コーディネーター
+│   ├── Stop-All.bat                   # 機器ごとの監視ウィンドウを一括終了
+│   ├── GEMINI.md / CYCLE.md           # 開発の運用ルール・自律サイクルの手順
 │   ├── Watchdog.ps1                   # 監視サーバー外形死活監視＆自己治癒（自動再起動）
 │   ├── Check-Prerequisites.ps1        # 前提モジュール自動検査・インストール
 │   ├── Ensure-Utf8Bom.ps1             # PowerShell 5.1 文字化け防止（UTF-8 BOM）検証ツール
@@ -232,11 +236,11 @@ NetworkDeviceMonitor/
 
 ## 📖 ドキュメント (Documentation)
 
-* **運用者・一般ユーザー向け操作マニュアル**: [利用手順書.html](利用手順書.html)
+* **運用者・一般ユーザー向け操作マニュアル**: [利用手順書.html](../利用手順書.html)
   - 初心者・運用者向けに **専門用語（Runspace、Pester、ジッター、E2E、AST構文解析など）の平易なやさしい解説** を掲載しています。
-* **管理者・開発者向け詳細設計書**: [system/管理者向け設計書.html](system/管理者向け設計書.html)
-* **同梱ソフトウェアのライセンス表記**: [system/public/third-party-notices.html](system/public/third-party-notices.html)
-* **機能詳細仕様書**: [system/SPECIFICATION.md](system/SPECIFICATION.md)
+* **管理者・開発者向け詳細設計書**: [system/管理者向け設計書.html](../system/管理者向け設計書.html)
+* **同梱ソフトウェアのライセンス表記**: [system/public/third-party-notices.html](../system/public/third-party-notices.html)
+* **機能詳細仕様書**: [system/SPECIFICATION.md](../system/SPECIFICATION.md)
 
 ---
 

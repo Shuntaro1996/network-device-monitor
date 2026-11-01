@@ -15,6 +15,11 @@ setlocal
 chcp 932 >nul
 cd /d "%~dp0"
 
+REM 利用者が迷わないよう、操作に使わないものを隠す (GitHub や開発ツール用のファイルです)
+attrib +h ".gitignore" >nul 2>&1
+attrib +h ".github" >nul 2>&1
+attrib +h ".claude" >nul 2>&1
+
 echo ==============================================
 echo   Network Monitor (Single UI Version - PS)
 echo ==============================================

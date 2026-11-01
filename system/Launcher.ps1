@@ -24,8 +24,8 @@ if ($addresses.Count -eq 0) {
     exit
 }
 
-# ルートディレクトリの停止シグナルを削除
-$stopSignal = Join-Path $rootDir ".stop_signal"
+# system フォルダの停止シグナル (Stop-All.bat が置く) を削除
+$stopSignal = Join-Path $PSScriptRoot ".stop_signal"
 if (Test-Path $stopSignal) {
     Remove-Item $stopSignal -Force
 }

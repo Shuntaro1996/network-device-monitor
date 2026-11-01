@@ -2,7 +2,7 @@
 
 運用ルール・行動規範は GEMINI.md を正とし、そのまま従うこと。
 
-@GEMINI.md
+@../system/GEMINI.md
 
 ## 概要
 
@@ -46,10 +46,15 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
 - リモート実行の引数は `ConvertTo-ProcessArgument` でエスケープする。パスワードやコマンドは環境変数経由で渡し、コマンドライン文字列に直接埋め込まない。
 - UI で動的な値を `innerHTML` に入れるときは、必ず `escapeHTML()` を通す。
 
+## 自律サイクル
+
+`system/PLAN.md` のタスクを進めるよう指示されたとき（「タスクの実行」など）は、`system/CYCLE.md` の手順とルールに従って 1 サイクルだけ実行する。
+
 ## 作業上の注意
 
-- 仕様・機能を変更したら、`README.md` / `system/SPECIFICATION.md` / `利用手順書.html` を同時に更新する（GEMINI.md の §2）。
+- 仕様・機能を変更したら、`.github/README.md` / `system/SPECIFICATION.md` / `利用手順書.html` を同時に更新する（GEMINI.md の §2）。
 - `利用手順書.html` はビルド工程のない 1 枚の HTML なので、直接編集する（CSS と JS もファイル内に含まれ、外部ファイルは読み込まない）。`system/管理者向け設計書.html` と `system/public/third-party-notices.html` も同じ作りで、直接編集する。
-- プロジェクト直下には、利用者が使うもの（`Start-Monitor.bat` / `Stop-All.bat` / `利用手順書.html` / `Reports/`）と、ツールや GitHub が直下を前提とするもの（`README.md` / `LICENSE` / `CLAUDE.md` / `GEMINI.md` / `.gitignore`）だけを置く。それ以外は `system/` に入れる。
+- プロジェクト直下に見えるものは、利用者が使う `Start-Monitor.bat` / `利用手順書.html` / `Reports/` と `system/` だけにする。他は `system/` に入れる。
+- 直下に置く必要があるものは、ドットで始まる隠しフォルダに入れる（GitHub 用の `README.md` と `LICENSE` は `.github/`、この `CLAUDE.md` は `.claude/`）。`.gitignore` だけは直下に置く。`Start-Monitor.bat` がこれらを隠し属性にする。
 - コード内のコメントは日本語で、「初心者向けの簡単な解説」という既存のスタイルに合わせる。
 - コードを追加・修正するときは、あとから修正しやすいよう、事細かく説明を書く。関数や処理のまとまりごとに、目的・入力と結果・なぜその方法にしたのか・変更するときの注意点を書く。コードをそのまま言い換えるだけの説明にはしない。

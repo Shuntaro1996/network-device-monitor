@@ -126,9 +126,8 @@ li { margin: 4px 0; }
 <pre><code>NetworkDeviceMonitor/
 ├── Start-Monitor.bat              # 起動スクリプト（管理者不要）
 ├── 利用手順書.html                  # 現場運用者向けマニュアル
-├── Stop-All.bat                   # 機器ごとの監視ウィンドウを一括終了
-├── README.md                      # プロジェクト概要
-├── LICENSE                        # MIT License
+├── .github/                       # GitHub 用の README.md・LICENSE（隠しフォルダ）
+├── .claude/                       # 開発ツール用の CLAUDE.md（隠しフォルダ）
 ├── Reports/                       # 実行時ログ・CSVレポート出力先（自動生成）
 │   └── .gitkeep
 └── system/
@@ -136,6 +135,7 @@ li { margin: 4px 0; }
     ├── SPECIFICATION.md           # 開発者向け機能仕様書
     ├── Watchdog.ps1               # サーバーの死活監視と自動再起動
     ├── Server.ps1                 # ★メインバックエンドサーバー（Runspace並列処理）
+    ├── Stop-All.bat               # 機器ごとの監視ウィンドウを一括終了
     ├── Launcher.ps1               # 個別デバイス監視ランチャー
     ├── Monitor-SingleDevice.ps1   # 単体デバイス監視スクリプト
     ├── Start-BandwidthServer.ps1  # 帯域監視補助サーバー
@@ -158,7 +158,7 @@ li { margin: 4px 0; }
 <h3>起動</h3>
 <p><code>Start-Monitor.bat</code> をダブルクリックします。内部では <code>system/Watchdog.ps1 -RunPreflight -LaunchBrowser</code> が事前検査のあと <code>system/Server.ps1</code> を起動し、動作を見守ります。<br>サーバー初期化後、自動的にブラウザで <code>http://localhost:8081</code> が開きます。</p>
 <h3>停止</h3>
-<p>画面の <strong>「監視終了＆報告書」</strong> ボタンを押すか、PowerShell のウィンドウで Enter キーを押します。<code>Stop-All.bat</code> は機器ごとの監視ウィンドウ（<code>Launcher.ps1</code>）用で、メインの監視画面には影響しません。<br>停止時に全監視機器の直近サマリー（到達率・パケロス率・ジッター・最大瞬断時間）が CSV に追記され、ポート・Runspace が安全に解放されます。</p>
+<p>画面の <strong>「監視終了＆報告書」</strong> ボタンを押すか、PowerShell のウィンドウで Enter キーを押します。<code>system/Stop-All.bat</code> は機器ごとの監視ウィンドウ（<code>Launcher.ps1</code>）用で、メインの監視画面には影響しません。<br>停止時に全監視機器の直近サマリー（到達率・パケロス率・ジッター・最大瞬断時間）が CSV に追記され、ポート・Runspace が安全に解放されます。</p>
 <h2 id="sec-5">5. 設定ファイル仕様（config.json / devices.json）</h2>
 <h3><code>system/config.json</code></h3>
 <p>システム全体の監視・通知・保守パラメータ。UI設定からの変更が即座に同期・保存されます。</p>

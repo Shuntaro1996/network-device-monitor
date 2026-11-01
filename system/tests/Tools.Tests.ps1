@@ -24,6 +24,26 @@ function New-TestFolder {
     return $path
 }
 
+Describe "Stop-All.bat (機器ごとの監視ウィンドウの一括終了)" {
+    It "Stop-All.bat と同じフォルダに停止の合図を置くこと" {
+        # 実際のフォルダに合図を残さないよう、一時フォルダへコピーして実行する
+        $dir = New-TestFolder
+        try {
+            Copy-Item -LiteralPath (Join-Path $systemDir "Stop-All.bat") -Destination $dir
+            $null = & cmd.exe /c (Join-Path $dir "Stop-All.bat") 2>&1
+            (Test-Path -LiteralPath (Join-Path $dir ".stop_signal")) | Should Be $true
+        } finally {
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "合図を読む側も system フォルダを見ていること" {
+        foreach ($name in @("Launcher.ps1", "Monitor-SingleDevice.ps1")) {
+            [System.IO.File]::ReadAllText((Join-Path $systemDir $name), [System.Text.Encoding]::UTF8) | Should Match 'Join-Path \$PSScriptRoot "\.stop_signal"'
+        }
+    }
+}
+
 Describe "IperfRunner Get-IperfCommandLine (iperf3 のオプションの組み立て)" {
     It "指定がなければ TCP の既定値にすること" {
         (Get-IperfCommandLine -target "10.0.0.1") -join " " | Should Be "-c 10.0.0.1 -p 5201 -t 10"

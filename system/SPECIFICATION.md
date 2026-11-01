@@ -1003,16 +1003,19 @@ while ($syncHash.Running) {
 
 ```text
 NetworkDeviceMonitor/
-├── README.md                 # 簡易概要・クイックスタート
+├── .github/                  # GitHub 用の README.md・LICENSE (隠しフォルダ)
+├── .claude/                  # 開発ツール用の CLAUDE.md (隠しフォルダ)
 ├── 利用手順書.html             # エンドユーザー向け操作マニュアル
 ├── Start-Monitor.bat         # ワンクリック起動バッチ
-├── Stop-All.bat              # Launcher.ps1 で開いた機器ごとの監視ウィンドウを一括終了 (.stop_signal を置く)
 ├── Reports/                  # 永続ログ・レポート保存先
 │   ├── audit.log             # 操作監査ログ
 │   ├── Configs/              # 機器コンフィグバックアップ保存先
 │   └── (起動日時)/           # 各セッションのPing履歴CSV・点検報告書
 └── system/                   # システムコアディレクトリ
     ├── Server.ps1            # バックエンドサーバー & 監視コアエンジン
+    ├── Stop-All.bat          # Launcher.ps1 で開いた機器ごとの監視ウィンドウを一括終了 (system に .stop_signal を置く)
+    ├── GEMINI.md             # 開発の運用ルール
+    ├── CYCLE.md              # 自律サイクルの手順
     ├── Watchdog.ps1          # サーバーの死活監視と自動再起動
     ├── Launcher.ps1          # 機器ごとの監視ウィンドウを開くランチャー
     ├── SPECIFICATION.md      # システム完全技術仕様書 (本書)
