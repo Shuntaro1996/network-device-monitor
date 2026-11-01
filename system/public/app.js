@@ -123,8 +123,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     // Utility function to escape HTML special characters
+    // 画面に入れる値の HTML の特殊文字を置き換えて、スクリプトとして動かないようにする
+    // 値がないもの (null, undefined, 空文字, false) は空文字を返す。数値の 0 は有効な値なので "0" にする
+    // (0 まで消すと、件数や遅延が 0 のときに画面が空欄になる。テストは tests/app-functions.check.js)
     function escapeHTML(str) {
-        if (!str) return '';
+        if (!str && str !== 0) return '';
         return str.toString()
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')

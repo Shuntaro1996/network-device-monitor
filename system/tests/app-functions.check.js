@@ -73,6 +73,12 @@ check('escapeHTML が null と空文字を空文字にすること', () => {
     assert.strictEqual(context.escapeHTML(''), '');
 });
 
+check('escapeHTML が数値の 0 を消さず、値がないものだけ空文字にすること', () => {
+    assert.strictEqual(context.escapeHTML(0), '0');
+    assert.strictEqual(context.escapeHTML(undefined), '');
+    assert.strictEqual(context.escapeHTML(false), '');
+});
+
 check('safeLinkUrl がスクリプトを動かす URL を無効にすること', () => {
     for (const url of ['javascript:alert(1)', ' JAVASCRIPT:alert(1)', 'data:text/html,x', 'vbscript:x']) {
         assert.strictEqual(context.safeLinkUrl(url), '', url);
