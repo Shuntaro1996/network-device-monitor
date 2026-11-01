@@ -142,6 +142,8 @@ NetworkDeviceMonitor/
 │   ├── Run-Tests.bat                  # 🧪 自動テスト一括実行ランチャー（ワンクリック実行）
 │   ├── Run-Tests.ps1                  # ⚙️ 自動テスト総合管理スクリプト（PowerShell実行用）
 │   ├── Run-InCopy.ps1                 # 🧳 一時フォルダのコピーで全テストを実行（実機の設定を使わない）
+│   ├── AppJs.Tests.ps1                # 🟨 app.js の関数のテスト（Node.js がなければ省略）
+│   ├── app-functions.check.js         # 🟨 上のテストの本体
 │   ├── AlertManager.Tests.ps1         # 🔔 Webhook・メール通知テスト（このPC内の模擬サーバーで確認）
 │   ├── DeviceLog.Tests.ps1            # 📋 機器ログ取得テスト（プリセット・安全性・バッファ保護・API検証）
 │   ├── Monitor.Tests.ps1              # 🔬 ユニットテスト（個別モジュール機能検証）
