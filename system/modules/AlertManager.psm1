@@ -1,6 +1,21 @@
 ﻿# ==============================================================================
 # AlertManager.psm1 - Webhook・メール通知・多段アラート管理モジュール
 # ==============================================================================
+# 【初心者向けの簡単な解説】
+# 機器に障害が起きたときなどに、外部へ知らせる部品です。
+# - Webhook: Slack / Teams / Discord などが用意した URL へ、通知の内容を送ります。
+# - メール: SMTP サーバー (メールを配送するサーバー) を通して送ります。
+# 音で知らせる機能は画面側 (app.js) にあり、このファイルにはありません。
+#
+# 【呼び出し元】
+# Server.ps1 の Ping 監視 (障害と復旧の通知) と、設定画面の「テスト送信」です。
+# 監視の処理を止めないよう、Server.ps1 は別スレッドからこの関数を呼びます。
+#
+# 【変更するときの注意】
+# - 通知に失敗しても監視を止めないよう、通常は例外を投げずに $false を返します。
+#   テスト送信だけは失敗の理由を画面に出すため、-ThrowOnError で例外にします。
+# - テストは tests/AlertManager.Tests.ps1 です。送信内容を変えたら確認してください。
+# ==============================================================================
 
 # Common モジュールの Unprotect-SecretString を利用可能にする
 Import-Module (Join-Path $PSScriptRoot "Common.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
@@ -10,6 +25,10 @@ function Send-WebhookNotification {
     .SYNOPSIS
         Webhook（Discord, Slack, Teams等）へJSON通知を送信します。
         Warning（注意）/ Critical（障害）の多段階レベルに対応。
+    .OUTPUTS
+        送れたら $true、失敗したら $false。URL が空のときは通知を使わない設定なので、何も返しません。
+    .NOTES
+        4 秒で打ち切ります。相手が応答しないときに、通知の待ち時間が長引かないようにするためです。
     #>
     param(
         [string]$url,
@@ -29,6 +48,7 @@ function Send-WebhookNotification {
         return $false
     }
 
+    # 出来事の種類ごとの絵文字と見出し。種類を増やすときは、下の 2 つの switch の両方に追加する
     $emoji = switch ($eventType.ToLower()) {
         "offline"   { [char]::ConvertFromUtf32(0x1F534) } # 🔴
         "online"    { [char]::ConvertFromUtf32(0x1F7E2) } # 🟢
@@ -52,6 +72,8 @@ function Send-WebhookNotification {
     $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     $msgText = "$emoji **$title**`n[重要度]: $severity`n[対象機器]: $deviceName ($ip)`n[検知日時]: $ts`n[詳細]: $details"
 
+    # 受け取るサービスによって読む項目が違うので、同じ内容を複数の項目に入れる
+    # Slack / Teams は text、Discord は content を表示する。それ以外の項目は自作の受信側が機器ごとに処理するためのもの
     $bodyObj = @{
         text       = $msgText
         content    = $msgText   # Discord compatibility
@@ -83,6 +105,8 @@ function Send-WebhookNotification {
             $webResp = $webReq.GetResponse()
             return $true
         } catch [System.Net.WebException] {
+            # 接続の失敗に加え、相手が 500 などを返したときもここに来る
+            # 応答を閉じないと接続が残り続けるので、失敗のときも閉じる
             $webErr = $_.Exception
             if ($webErr.Response) {
                 try { $webErr.Response.Close(); $webErr.Response.Dispose() } catch {}
@@ -105,6 +129,14 @@ function Send-EmailNotification {
     .SYNOPSIS
         SMTP経由でアラートメールを送信します。
         パスワードがDPAPI暗号化（enc:...）されている場合は自動復号して利用します。
+    .PARAMETER to
+        宛先。カンマまたはセミコロンで区切って複数指定できます。
+    .PARAMETER from
+        差出人。省略すると monitor@localhost を使います。
+    .OUTPUTS
+        送れたら $true、失敗したら $false。失敗の理由は警告として出力し、例外にはしません。
+    .NOTES
+        8 秒で打ち切ります。smtpUser が空のときは認証なしで送ります。
     #>
     param(
         [string]$smtpHost,
