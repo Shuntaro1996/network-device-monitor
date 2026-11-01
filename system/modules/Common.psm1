@@ -272,6 +272,65 @@ function Test-ClientAddressAllowed {
     return [System.Net.IPAddress]::IsLoopback($Address)
 }
 
+function Get-AppAuthToken {
+    <#
+    .SYNOPSIS
+        画面と API の利用に必要な合言葉を返します。まだなければ作って保存します。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        同じPCの別のユーザーや別のブラウザから操作されないよう、起動したユーザーだけが読める場所に
+        長いランダムな合言葉を置きます。Start-Monitor.bat がこれをブラウザに渡し、ブラウザが記憶します。
+        保存先は Windows のユーザーごとのフォルダ (AppData\Local) で、他のユーザーは標準では読めません。
+        プロジェクトの中に置かないのは、Git やフォルダの同期で外に出ないようにするためです。
+    .PARAMETER Path
+        保存先。テスト以外では省略します。
+    .OUTPUTS
+        64 文字の合言葉 (0-9 と a-f)。保存できないときは例外になります。
+    .NOTES
+        同じ Windows ユーザーで動くプログラムと管理者は、このファイルを読めます。それらからの操作は防げません。
+        ファイルを消すと次の起動で作り直され、それまでブラウザが記憶していた合言葉は使えなくなります。
+    #>
+    param([string]$Path = (Join-Path $env:LOCALAPPDATA "NetworkDeviceMonitor\auth_token.txt"))
+
+    $readToken = {
+        if (-not (Test-Path -LiteralPath $Path)) { return "" }
+        $text = ([System.IO.File]::ReadAllText($Path)).Trim()
+        if ($text -cmatch '^[0-9a-f]{64}$') { return $text }
+        return ""
+    }
+    $existing = & $readToken
+    if ($existing) { return $existing }
+
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $dir)) { $null = New-Item -ItemType Directory -Path $dir -Force }
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    $token = (($bytes | ForEach-Object { $_.ToString("x2") }) -join "")
+    [System.IO.File]::WriteAllText($Path, $token, (New-Object System.Text.UTF8Encoding($false)))
+    # Watchdog とサーバーがほぼ同時に作ったときに食い違わないよう、保存された内容を読み直して返す
+    return (& $readToken)
+}
+
+function Test-AuthTokenValid {
+    <#
+    .SYNOPSIS
+        渡された合言葉が正しいかを判定します。
+    .OUTPUTS
+        一致すれば $true。どちらかが空なら $false (合言葉を用意できなかったときに、誰でも通してしまわないようにするため)。
+    .NOTES
+        途中で比較を打ち切らず最後まで比べます。一致した文字数を応答時間から推測されにくくするためです。
+    #>
+    param([string]$Provided, [string]$Expected)
+
+    if ([string]::IsNullOrEmpty($Provided) -or [string]::IsNullOrEmpty($Expected) -or $Provided.Length -ne $Expected.Length) { return $false }
+    $difference = 0
+    for ($index = 0; $index -lt $Expected.Length; $index++) {
+        $difference = $difference -bor ([int]$Provided[$index] -bxor [int]$Expected[$index])
+    }
+    return ($difference -eq 0)
+}
+
 function Test-LogSourceAllowed {
     <#
     .SYNOPSIS
@@ -1048,4 +1107,4 @@ function New-AppRunspace {
     return $rs
 }
 
-Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Test-ApiRequestAllowed, Test-ClientAddressAllowed, Test-LogSourceAllowed, ConvertTo-SafeIperfOptions, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule, New-AppRunspace
+Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Test-ApiRequestAllowed, Test-ClientAddressAllowed, Get-AppAuthToken, Test-AuthTokenValid, Test-LogSourceAllowed, ConvertTo-SafeIperfOptions, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule, New-AppRunspace

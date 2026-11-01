@@ -17,6 +17,11 @@ $systemDir = Join-Path $projectRoot "system"
 $serverScript = Join-Path $systemDir "Server.ps1"
 $reportsDir = Join-Path $projectRoot "Reports"
 
+# サーバーの API には合言葉が必要なので、このファイルの呼び出しすべてにヘッダーを付ける
+Import-Module (Join-Path $systemDir "modules\Common.psm1") -Force -DisableNameChecking
+$authHeaders = @{ "X-NDM-Auth" = (Get-AppAuthToken) }
+$PSDefaultParameterValues = @{ "Invoke-RestMethod:Headers" = $authHeaders; "Invoke-WebRequest:Headers" = $authHeaders }
+
 # Pester非実行環境（直接 powershell -File で実行された場合）の自動フォールバック
 if (-not (Get-Command "Describe" -ErrorAction SilentlyContinue)) {
     $runTestsScript = Join-Path $here "Run-Tests.ps1"

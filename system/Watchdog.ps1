@@ -48,6 +48,33 @@ function Write-WatchdogLog([string]$msg, [string]$color = "Cyan") {
     } catch {}
 }
 
+# ブラウザで開く URL。合言葉を付けて開くと、サーバーがブラウザに記憶させてから「/」へ移動させる
+# 合言葉を読めないときは合言葉なしで開く (「開けません」の案内が表示されるので、原因に気づける)
+function Get-MonitorUrl {
+    try {
+        Import-Module (Join-Path $scriptDir "modules\Common.psm1") -DisableNameChecking -ErrorAction Stop
+        return "http://localhost:$Port/?auth=$(Get-AppAuthToken)"
+    } catch {
+        Write-WatchdogLog "[WARNING] Could not read the access token: $($_.Exception.Message)" "Yellow"
+        return "http://localhost:$Port/"
+    }
+}
+
+# すでに起動中なら、2 つ目のサーバーを起動せず、画面だけ開いて終わる
+# (別のブラウザで「開けません」と出たときに Start-Monitor.bat で開き直すための動作)
+try {
+    $probe = [System.Net.HttpWebRequest]::Create("http://localhost:$Port/api/health")
+    $probe.Timeout = 2000
+    $probeResponse = $probe.GetResponse()
+    $probeCode = [int]$probeResponse.StatusCode
+    $probeResponse.Close()
+    if ($probeCode -eq 200) {
+        Write-WatchdogLog "Server is already running on port $Port." "Green"
+        if ($LaunchBrowser) { Start-Process (Get-MonitorUrl) }
+        exit 0
+    }
+} catch {}
+
 Write-WatchdogLog "Watchdog started (Target: http://localhost:$Port/api/health, Interval: ${CheckIntervalSec}s)" "Green"
 
 $crashCount = 0
@@ -98,7 +125,7 @@ while ($true) {
         if ($LaunchBrowser -and -not $browserLaunched) {
             Write-WatchdogLog "Opening Web UI in browser (http://localhost:$Port)..." "Cyan"
             try {
-                Start-Process "http://localhost:$Port"
+                Start-Process (Get-MonitorUrl)
                 $browserLaunched = $true
             } catch {}
         }

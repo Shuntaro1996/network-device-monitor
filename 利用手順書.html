@@ -467,7 +467,13 @@ Windows OSが標準提供する強固な暗号化機構「<strong>DPAPI（Data P
 <blockquote>
 <p><strong>🚧 他のパソコンからの接続の遮断</strong>:
 監視画面と操作の窓口は、監視ツールを動かしているこのパソコンからしか使えません。他のパソコンから接続してきた場合は、相手のアドレスを確認して門前払い（エラー <code>403</code>）します。他のパソコンから監視画面を見ることはできないので、このパソコンで操作してください。
-ただし、このパソコンを一緒に使っている他のユーザーや、このパソコンで動いている他のプログラムからの接続は区別できません。信頼できる人だけが使うパソコンで動かしてください。</p>
+</p>
+</blockquote>
+<blockquote>
+<p><strong>🔑 同じパソコンの別のユーザーからの操作の遮断</strong>:
+監視画面を開くには合言葉が必要です。合言葉はツールが自動で作り、<code>Start-Monitor.bat</code> で開いたブラウザが記憶するので、入力や管理は必要ありません。同じブラウザなら、ブックマークからもそのまま開けます。
+別のブラウザなどで「このブラウザでは監視画面を開けません」と表示されたら、<code>Start-Monitor.bat</code> をダブルクリックしてください。すでに起動中でも、もう 1 つ起動することなく画面が開きます（既定のブラウザで開きます）。
+合言葉は Windows のユーザーごとのフォルダに保存されるので、別の Windows ユーザーからは使えません。ただし、同じ Windows ユーザーで動いているプログラムと、管理者権限を持つユーザーからの操作は防げません。信頼できるソフトだけを入れたパソコンで動かしてください。</p>
 </blockquote>
 <blockquote>
 <p><strong>🛡️ 外部サイトからの「なりすまし操作」の遮断</strong>:
@@ -1055,6 +1061,11 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 <td align="left"><strong>🚀 iperf3 のサーバー側ログのテスト</strong></td>
 <td align="left"><code>system/tests/IperfServerLog.Tests.ps1</code></td>
 <td align="left">このPC内で iperf3 を動かし、UDP のサーバー側ログの取得と、ブラウザを閉じたときの動作を検証（iperf3.exe がなければ省略）</td>
+</tr>
+<tr>
+<td align="left"><strong>🔑 認証のテスト</strong></td>
+<td align="left"><code>system/tests/Auth.Tests.ps1</code></td>
+<td align="left">合言葉のない要求の拒否と、Start-Monitor.bat からの開き方を、サーバーを動かして検証</td>
 </tr>
 <tr>
 <td align="left"><strong>📡 送信元の絞り込みのテスト</strong></td>

@@ -17,6 +17,10 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $systemDir = Split-Path -Parent $here
 Import-Module (Join-Path $systemDir "modules\Common.psm1") -Force -DisableNameChecking
 
+# サーバーの API には合言葉が必要なので、このファイルの呼び出しすべてにヘッダーを付ける
+$authHeaders = @{ "X-NDM-Auth" = (Get-AppAuthToken) }
+$PSDefaultParameterValues = @{ "Invoke-RestMethod:Headers" = $authHeaders; "Invoke-WebRequest:Headers" = $authHeaders }
+
 Describe "Test-LogSourceAllowed (送信元の判定)" {
     It "登録済みのアドレスだけを許可すること" {
         Test-LogSourceAllowed -SourceIp "192.168.1.10" -Devices @("192.168.1.10", "192.168.1.11") | Should Be $true

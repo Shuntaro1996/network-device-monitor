@@ -95,6 +95,11 @@ if ($args) {
         }
     }
 }
+# 画面と API の利用に必要な合言葉。用意できないときは空のままにして、すべての要求を拒否する (誰でも使える状態にしないため)
+$appAuthToken = ""
+try { $appAuthToken = Get-AppAuthToken }
+catch { Write-Host "[ERROR] Could not prepare the access token: $($_.Exception.Message)" -ForegroundColor Red }
+
 $rootDir = Split-Path -Parent $PSScriptRoot
 $publicDir = Join-Path $PSScriptRoot "public"
 # devices.txt is now inside the system folder
@@ -3294,6 +3299,43 @@ try {
             if (-not $apiAllowed) {
                 Write-Host "Blocked cross-site API request: $method $urlPath (Origin: $reqOrigin, Sec-Fetch-Site: $reqFetchSite)" -ForegroundColor Red
                 try { Write-JsonResponse $response @{ error = "Cross-site request blocked"; success = $false; status = "FORBIDDEN_ORIGIN" } 403 } catch {}
+                try { $response.Close() } catch {}
+                continue
+            }
+        }
+
+        # 合言葉の確認。/api/health だけは Watchdog の死活確認に使うので対象外にする
+        # ブラウザはクッキー、テストなどのプログラムは X-NDM-Auth ヘッダーで渡す
+        if ($urlPath -ne "/api/health") {
+            # Start-Monitor.bat が開く「/?auth=合言葉」: ブラウザに記憶させ、アドレス欄から合言葉を消すために「/」へ移動させる
+            # HttpOnly: ページのスクリプトから読めない  SameSite=Strict: 別のサイトからの要求には付かない
+            $queryToken = $request.QueryString["auth"]
+            if ($urlPath -eq "/" -and $method -eq "GET" -and $queryToken -and (Test-AuthTokenValid -Provided $queryToken -Expected $appAuthToken)) {
+                $response.AppendHeader("Set-Cookie", "NDM_Auth=$appAuthToken; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000")
+                $response.StatusCode = 302
+                $response.AddHeader("Location", "/")
+                try { $response.Close() } catch {}
+                continue
+            }
+
+            $authCookie = $request.Cookies["NDM_Auth"]
+            $providedToken = if ($authCookie) { $authCookie.Value } else { $request.Headers["X-NDM-Auth"] }
+            $isAuthorized = $false
+            try { $isAuthorized = Test-AuthTokenValid -Provided $providedToken -Expected $appAuthToken } catch {}
+            if (-not $isAuthorized) {
+                if ($urlPath.StartsWith("/api/")) {
+                    try { Write-JsonResponse $response @{ error = "Authentication required. Open the monitor from Start-Monitor.bat."; success = $false; status = "UNAUTHORIZED" } 401 } catch {}
+                }
+                else {
+                    $deniedHtml = '<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>Network Device Monitor</title></head><body style="font-family:sans-serif;margin:48px;line-height:1.8;"><h1 style="font-size:1.4rem;">このブラウザでは監視画面を開けません</h1><p>監視ツールを動かしているパソコンで <strong>Start-Monitor.bat</strong> をダブルクリックして開いてください。すでに起動中でも、そのまま画面が開きます。</p></body></html>'
+                    $deniedBytes = [System.Text.Encoding]::UTF8.GetBytes($deniedHtml)
+                    try {
+                        $response.StatusCode = 401
+                        $response.ContentType = "text/html; charset=utf-8"
+                        $response.ContentLength64 = $deniedBytes.Length
+                        $response.OutputStream.Write($deniedBytes, 0, $deniedBytes.Length)
+                    } catch {}
+                }
                 try { $response.Close() } catch {}
                 continue
             }

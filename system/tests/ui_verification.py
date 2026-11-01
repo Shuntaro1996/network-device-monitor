@@ -67,6 +67,13 @@ def find_available_port(start_port=8091, max_tries=30):
     return start_port
 
 
+def read_auth_token():
+    """Reads the access token that Server.ps1 creates (Get-AppAuthToken in Common.psm1)."""
+    token_path = os.path.join(os.environ["LOCALAPPDATA"], "NetworkDeviceMonitor", "auth_token.txt")
+    with open(token_path, encoding="utf-8") as token_file:
+        return token_file.read().strip()
+
+
 def is_server_healthy(port, timeout_sec=2):
     """Checks if /api/health responds with status 'ok' on the given port."""
     url = f"http://localhost:{port}/api/health"
@@ -114,7 +121,7 @@ def stop_test_server(proc, port):
     if proc.poll() is None:
         try:
             shutdown_url = f"http://localhost:{port}/api/shutdown"
-            req = urllib.request.Request(shutdown_url, data=b"{}", headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(shutdown_url, data=b"{}", headers={"Content-Type": "application/json", "X-NDM-Auth": read_auth_token()})
             urllib.request.urlopen(req, timeout=3)
             proc.wait(timeout=10)
         except Exception:
@@ -228,7 +235,8 @@ def run_ui_verification(port, headless=True, preferred_browser=None):
 
             print(f"\n{BOLD}=== Test Phase 1: Dashboard Loading & Visual Shell Rendering ==={RESET}")
             # Navigate to application
-            page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
+            # Start-Monitor.bat と同じく合言葉を付けて開く (サーバーがブラウザに記憶させて「/」へ移動させる)
+            page.goto(f"{target_url}?auth={read_auth_token()}", wait_until="domcontentloaded", timeout=15000)
             page.wait_for_selector(".container", timeout=10000)
 
             title = page.title()

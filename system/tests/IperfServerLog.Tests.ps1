@@ -24,6 +24,11 @@
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $systemDir = Split-Path -Parent $here
 
+# サーバーの API には合言葉が必要なので、このファイルの呼び出しすべてにヘッダーを付ける
+Import-Module (Join-Path $systemDir "modules\Common.psm1") -Force -DisableNameChecking
+$authHeaders = @{ "X-NDM-Auth" = (Get-AppAuthToken) }
+$PSDefaultParameterValues = @{ "Invoke-RestMethod:Headers" = $authHeaders; "Invoke-WebRequest:Headers" = $authHeaders }
+
 Describe "iperf3 のサーバー側ログの取得 (UDP)" {
     $iperfExe = Join-Path $systemDir "iperf3.18_64\iperf3.exe"
     if (-not (Test-Path -LiteralPath $iperfExe)) {

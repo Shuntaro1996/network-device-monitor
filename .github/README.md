@@ -155,6 +155,7 @@ NetworkDeviceMonitor/
 │   ├── Tools.Tests.ps1                # 🧰 帯域計測の部品・文字コード検査ツールのテスト
 │   ├── Runspace.Tests.ps1             # 🔄 Runspace統合テスト（並行スレッド動作・API契約検証）
 │   ├── ObrScenario.Tests.ps1          # 📶 模擬 OBR を相手にした無線確認の通しテスト（80番ポートが使えなければ省略）
+│   ├── Auth.Tests.ps1                 # 🔑 合言葉による認証のテスト
 │   ├── LogSource.Tests.ps1            # 📡 Syslog / Trap の送信元の絞り込みのテスト
 │   ├── IperfServerLog.Tests.ps1       # 🚀 iperf3 のサーバー側ログの取得の通しテスト（iperf3.exe がなければ省略）
 │   ├── E2E-Lifecycle.Tests.ps1        # 🚀 E2Eライフサイクル検証（起動→監視→終了→CSV生成の通し確認）

@@ -42,6 +42,7 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
 ## セキュリティ上の前提（変更時に崩さないこと）
 
 - 全リクエストはルーティングの前に `Test-ClientAddressAllowed`（接続元がこのPC自身かの検査）を通す。`Host` ヘッダーは偽れるので判定に使わない。
+- `/api/health` を除く全リクエストは `Test-AuthTokenValid`（合言葉の確認）を通す。プログラムから API を呼ぶときは、`Get-AppAuthToken` の値を `X-NDM-Auth` ヘッダーで渡す。
 - `/api/*` はルーティングの前に `Test-ApiRequestAllowed`（`Origin` / `Sec-Fetch-Site` の検査）を通す。`Access-Control-Allow-Origin: *` は返さない。
 - リモート実行の引数は `ConvertTo-ProcessArgument` でエスケープする。パスワードやコマンドは環境変数経由で渡し、コマンドライン文字列に直接埋め込まない。
 - UI で動的な値を `innerHTML` に入れるときは、必ず `escapeHTML()` を通す。

@@ -28,9 +28,15 @@
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $systemDir = Split-Path -Parent $here
 
+# サーバーの API には合言葉が必要なので、このファイルの呼び出しすべてにヘッダーを付ける
+Import-Module (Join-Path $systemDir "modules\Common.psm1") -Force -DisableNameChecking
+$authHeaders = @{ "X-NDM-Auth" = (Get-AppAuthToken) }
+$PSDefaultParameterValues = @{ "Invoke-RestMethod:Headers" = $authHeaders; "Invoke-WebRequest:Headers" = $authHeaders }
+
 function Get-ObrTestStatusCode {
     # 400 や 403 は例外になるので、状態コードを取り出して返す
     param([string]$Url, [hashtable]$Headers = @{}, [string]$Method = "GET")
+    $Headers = $Headers + $authHeaders
     try {
         return [int](Invoke-WebRequest -Uri $Url -Headers $Headers -Method $Method -UseBasicParsing -TimeoutSec 15).StatusCode
     } catch [System.Net.WebException] {
