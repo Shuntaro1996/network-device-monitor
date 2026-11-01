@@ -834,6 +834,8 @@ stateDiagram-v2
   * IPerf3 帯域グラフ（`iperfChart`）: 最大 60 点でスライス（`slice(-60)`）。
 * **メモリリーク対策**:
   タブ切り替え時やモーダル破棄時に Chart.js インスタンスの `destroy()` を確実に呼び出し、DOM参照を解放。
+* **点検報告書のグラフの横軸**:
+  CSV の時刻は秒までなので、`Get-ChartTimeAxis`（`ReportGenerator.psm1`）が 0 時からの秒数を作り、同じ秒の点をその 1 秒の中に均等に並べる（`timeX`）。横軸は数値（`type: 'linear'`）で描き、目盛りと案内だけ `HH:mm:ss` で表示する。全機器のグラフの案内は、機器ごとにマウスの位置に一番近い点を出す（`eachNearestX`）。
 
 ---
 

@@ -152,6 +152,51 @@ function Invoke-PurgeOldReports {
 
 # ── 3. ロールアップ事前集約キャッシュ (長期データ高速化) ──────────────────
 
+function Get-ChartTimeAxis {
+    <#
+    .SYNOPSIS
+        グラフの横軸に使う位置 (0 時からの秒数) を、記録の時刻から作ります。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        CSV の時刻は秒までです。0.1 秒ごとに測ると同じ時刻の点が約 10 個でき、そのまま描くと縦に重なって
+        線が乱れます。そこで同じ秒の点を、その 1 秒の中に均等に並べます。
+    .PARAMETER Times
+        "HH:mm:ss" 形式の時刻の配列 (古い順)。
+    .OUTPUTS
+        Times と同じ順番の数値。時刻として読めないものは $null です。JavaScript 側はその点を描きません。
+    .NOTES
+        並べる位置は表示のための推定で、実際に測った瞬間ではありません。
+        時刻が前より小さくなったら日付が変わったと判断し、1 日分 (86400 秒) を足して線が左へ戻らないようにします。
+    #>
+    param([string[]]$Times)
+
+    $positions = [System.Collections.Generic.List[object]]::new()
+    $dayOffset = 0
+    $previousSeconds = -1
+    $index = 0
+    $count = if ($Times) { $Times.Count } else { 0 }
+    while ($index -lt $count) {
+        # 同じ時刻が何個続くかを数える
+        $runEnd = $index
+        while (($runEnd + 1) -lt $count -and $Times[$runEnd + 1] -eq $Times[$index]) { $runEnd++ }
+        $runLength = $runEnd - $index + 1
+
+        if ($Times[$index] -match '^(\d{2}):(\d{2}):(\d{2})$') {
+            $seconds = [int]$Matches[1] * 3600 + [int]$Matches[2] * 60 + [int]$Matches[3]
+            if ($seconds -lt $previousSeconds) { $dayOffset += 86400 }
+            $previousSeconds = $seconds
+            for ($i = 0; $i -lt $runLength; $i++) {
+                $positions.Add([math]::Round($seconds + $dayOffset + ($i / $runLength), 3))
+            }
+        }
+        else {
+            for ($i = 0; $i -lt $runLength; $i++) { $positions.Add($null) }
+        }
+        $index = $runEnd + 1
+    }
+    return $positions.ToArray()
+}
+
 function Update-RollupCache {
     <#
     .SYNOPSIS
@@ -506,6 +551,8 @@ function Generate-SessionReportHtml {
             group      = $dGroup
             color      = $color
             timeSeries = $timeSeries
+            # グラフの横軸の位置。timeSeries と同じ順番で、同じ秒の点を重ならないように並べたもの
+            timeX      = @(Get-ChartTimeAxis -Times @($timeSeries | ForEach-Object { [string]$_.t }))
         }
 
         $devCardsHtml += @"
@@ -920,32 +967,91 @@ $chartDataJson
             return;
         }
 
-        // 1. 統一X軸の生成
-        var timeSet = {};
+        // 1. 時刻の軸の準備
+        // 横軸は文字の時刻ではなく数値 (0 時からの秒数。サーバー側の Get-ChartTimeAxis が作る timeX) を使う。
+        // 文字の時刻だと同じ秒の点が同じ位置に重なり、測定の間隔が違う機器の点の位置もずれるため。
+        var firstValues = devices.map(function(d) {
+            return (d.timeX || []).filter(function(x) { return x !== null; })[0];
+        }).filter(function(x) { return x !== undefined; });
+        var latestFirst = firstValues.length ? Math.max.apply(null, firstValues) : 0;
         devices.forEach(function(d) {
-            if (d.timeSeries && d.timeSeries.length > 0) {
-                d.timeSeries.forEach(function(p) {
-                    if (p.t) { timeSet[p.t] = true; }
-                });
-            }
+            // 記録の開始の直前に日付が変わった機器も、ほかの機器と同じ日の位置にそろえる
+            var first = (d.timeX || []).filter(function(x) { return x !== null; })[0];
+            d.dayOffset = (first !== undefined && latestFirst - first > 43200) ? 86400 : 0;
         });
-        var allTimestamps = Object.keys(timeSet).sort();
+
+        // 機器の記録から、グラフの点 ({ x: 横軸の位置, y: 値 }) を作る。時刻が読めなかった点は除く
+        function getPlotPoints(d, key) {
+            var points = [];
+            (d.timeSeries || []).forEach(function(p, i) {
+                var x = (d.timeX || [])[i];
+                if (x !== null && x !== undefined) { points.push({ x: x + d.dayOffset, y: p[key] }); }
+            });
+            return points;
+        }
+
+        // 0 時からの秒数を HH:mm:ss の文字に戻す (日付をまたいだ分は取り除く)
+        function formatClock(value) {
+            var total = Math.floor(value) % 86400;
+            var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+            return pad(Math.floor(total / 3600)) + ':' + pad(Math.floor(total / 60) % 60) + ':' + pad(total % 60);
+        }
+
+        // 時刻の横軸の共通設定。precision: 0 は目盛りを整数の秒にして、同じ時刻の文字が並ばないようにする指定
+        function createTimeAxis(minValue, maxValue, maxTicks, fontSize, gridColor) {
+            return {
+                type: 'linear',
+                min: minValue,
+                max: maxValue,
+                grid: { color: gridColor },
+                ticks: {
+                    maxTicksLimit: maxTicks,
+                    precision: 0,
+                    maxRotation: 0,
+                    minRotation: 0,
+                    font: { size: fontSize },
+                    callback: function(value) { return formatClock(value); }
+                },
+                title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: fontSize } }
+            };
+        }
+
+        // 全機器のグラフの案内用。機器ごとに、マウスの位置に一番近い点を 1 つ選ぶ。
+        // 標準の index は「同じ番号の点」を選ぶので、測定の間隔が違う機器では別の時刻の値が出てしまう
+        Chart.Interaction.modes.eachNearestX = function(chart, e) {
+            var items = [];
+            chart.getSortedVisibleDatasetMetas().forEach(function(meta) {
+                var best = null;
+                meta.data.forEach(function(element, index) {
+                    if (element.skip) { return; }
+                    var distance = Math.abs(element.x - e.x);
+                    if (best === null || distance < best.distance) {
+                        best = { element: element, datasetIndex: meta.index, index: index, distance: distance };
+                    }
+                });
+                if (best) { items.push(best); }
+            });
+            return items;
+        };
+
+        var allPoints = [];
+        devices.forEach(function(d) { allPoints = allPoints.concat(getPlotPoints(d, 'lat')); });
+        var allX = allPoints.map(function(p) { return p.x; });
+        var minX = allX.length ? Math.min.apply(null, allX) : undefined;
+        var maxX = allX.length ? Math.max.apply(null, allX) : undefined;
 
         // 2. 応答遅延 (Latency) 統合グラフ
         var latencyDatasets = devices.map(function(d) {
             var devLabel = (d.name || d.ip) + ' (' + d.ip + ')';
-            var pts = (d.timeSeries || []).map(function(p) {
-                return { x: p.t, y: p.lat };
-            });
             return {
                 label: devLabel,
-                data: pts,
+                data: getPlotPoints(d, 'lat'),
                 borderColor: d.color,
                 backgroundColor: 'transparent',
                 borderWidth: 1.8,
                 pointRadius: 0,
                 pointHoverRadius: 4,
-                tension: 0.2,
+                tension: 0,
                 fill: false,
                 spanGaps: true
             };
@@ -955,15 +1061,16 @@ $chartDataJson
         if (latCtx) {
             new Chart(latCtx, {
                 type: 'line',
-                data: { labels: allTimestamps, datasets: latencyDatasets },
+                data: { datasets: latencyDatasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
+                    interaction: { mode: 'eachNearestX', intersect: false },
                     plugins: {
                         legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: {
                             callbacks: {
+                                title: function(items) { return items.length ? formatClock(items[0].parsed.x) : ''; },
                                 label: function(ctx) {
                                     return ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '応答なし');
                                 }
@@ -971,11 +1078,7 @@ $chartDataJson
                         }
                     },
                     scales: {
-                        x: {
-                            grid: { color: '#f1f5f9' },
-                            ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 10 } },
-                            title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: 10 } }
-                        },
+                        x: createTimeAxis(minX, maxX, 12, 10, '#f1f5f9'),
                         y: {
                             beginAtZero: true,
                             grid: { color: '#f1f5f9' },
@@ -989,17 +1092,14 @@ $chartDataJson
         // 3. ジッター (Jitter) 統合グラフ
         var jitterDatasets = devices.map(function(d) {
             var devLabel = (d.name || d.ip) + ' (' + d.ip + ')';
-            var pts = (d.timeSeries || []).map(function(p) {
-                return { x: p.t, y: p.jit };
-            });
             return {
                 label: devLabel,
-                data: pts,
+                data: getPlotPoints(d, 'jit'),
                 borderColor: d.color,
                 borderWidth: 1.5,
                 pointRadius: 0,
                 pointHoverRadius: 4,
-                tension: 0.2,
+                tension: 0,
                 fill: false,
                 spanGaps: true
             };
@@ -1009,15 +1109,16 @@ $chartDataJson
         if (jitCtx) {
             new Chart(jitCtx, {
                 type: 'line',
-                data: { labels: allTimestamps, datasets: jitterDatasets },
+                data: { datasets: jitterDatasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
+                    interaction: { mode: 'eachNearestX', intersect: false },
                     plugins: {
                         legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: {
                             callbacks: {
+                                title: function(items) { return items.length ? formatClock(items[0].parsed.x) : ''; },
                                 label: function(ctx) {
                                     return ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y + ' ms' : '-');
                                 }
@@ -1025,11 +1126,7 @@ $chartDataJson
                         }
                     },
                     scales: {
-                        x: {
-                            grid: { color: '#f1f5f9' },
-                            ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 10 } },
-                            title: { display: true, text: '時刻 (HH:mm:ss)', font: { size: 10 } }
-                        },
+                        x: createTimeAxis(minX, maxX, 12, 10, '#f1f5f9'),
                         y: {
                             beginAtZero: true,
                             grid: { color: '#f1f5f9' },
@@ -1045,10 +1142,9 @@ $chartDataJson
             var canvasEl = document.getElementById('device-chart-' + idx);
             if (!canvasEl || !d.timeSeries || d.timeSeries.length === 0) return;
 
-            var labels = d.timeSeries.map(function(p) { return p.t; });
-            var latData = d.timeSeries.map(function(p) { return { x: p.t, y: p.lat }; });
-            var txData = d.timeSeries.map(function(p) { return { x: p.t, y: p.tx }; });
-            var rxData = d.timeSeries.map(function(p) { return { x: p.t, y: p.rx }; });
+            var latData = getPlotPoints(d, 'lat');
+            var txData = getPlotPoints(d, 'tx');
+            var rxData = getPlotPoints(d, 'rx');
             var hasTraffic = (d.timeSeries || []).some(function(p) { return (p.tx != null && p.tx > 0) || (p.rx != null && p.rx > 0); });
 
             var datasets = [
@@ -1059,7 +1155,7 @@ $chartDataJson
                     backgroundColor: 'rgba(59, 130, 246, 0.08)',
                     borderWidth: 1.5,
                     pointRadius: 0,
-                    tension: 0.2,
+                    tension: 0,
                     spanGaps: true,
                     yAxisID: 'y'
                 }
@@ -1072,7 +1168,7 @@ $chartDataJson
                     borderColor: '#10b981',
                     borderWidth: 1.2,
                     pointRadius: 0,
-                    tension: 0.2,
+                    tension: 0,
                     borderDash: [3, 3],
                     spanGaps: true,
                     yAxisID: 'yTraffic'
@@ -1083,7 +1179,7 @@ $chartDataJson
                     borderColor: '#f59e0b',
                     borderWidth: 1.2,
                     pointRadius: 0,
-                    tension: 0.2,
+                    tension: 0,
                     borderDash: [3, 3],
                     spanGaps: true,
                     yAxisID: 'yTraffic'
@@ -1091,10 +1187,7 @@ $chartDataJson
             }
 
             var scales = {
-                x: {
-                    grid: { color: '#f8fafc' },
-                    ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0, minRotation: 0, font: { size: 9 } }
-                },
+                x: createTimeAxis(latData.length ? latData[0].x : undefined, latData.length ? latData[latData.length - 1].x : undefined, 8, 9, '#f8fafc'),
                 y: {
                     beginAtZero: true,
                     grid: { color: '#f1f5f9' },
@@ -1112,13 +1205,18 @@ $chartDataJson
 
             new Chart(canvasEl, {
                 type: 'line',
-                data: { labels: labels, datasets: datasets },
+                data: { datasets: datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
-                        legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } }
+                        legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } },
+                        tooltip: {
+                            callbacks: {
+                                title: function(items) { return items.length ? formatClock(items[0].parsed.x) : ''; }
+                            }
+                        }
                     },
                     scales: scales
                 }
@@ -1369,4 +1467,4 @@ function Safe-ExportCsv {
     }
 }
 
-Export-ModuleMember -Function Clean-IperfLogLines, Purge-OldReports, Invoke-PurgeOldReports, Update-RollupCache, Generate-SessionReportHtml, Safe-ExportCsv
+Export-ModuleMember -Function Clean-IperfLogLines, Purge-OldReports, Invoke-PurgeOldReports, Get-ChartTimeAxis, Update-RollupCache, Generate-SessionReportHtml, Safe-ExportCsv

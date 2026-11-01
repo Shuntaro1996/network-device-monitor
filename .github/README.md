@@ -164,6 +164,7 @@ NetworkDeviceMonitor/
 │   ├── ObrScenario.Tests.ps1          # 📶 模擬 OBR を相手にした無線確認の通しテスト（80番ポートが使えなければ省略）
 │   ├── Auth.Tests.ps1                 # 🔑 合言葉による認証のテスト
 │   ├── Scan.Tests.ps1                 # 🔍 スキャン結果の機器情報のテスト
+│   ├── ReportChart.Tests.ps1          # 📈 点検報告書のグラフの横軸のテスト
 │   ├── LogSource.Tests.ps1            # 📡 Syslog / Trap の送信元の絞り込みのテスト
 │   ├── IperfServerLog.Tests.ps1       # 🚀 iperf3 のサーバー側ログの取得の通しテスト（iperf3.exe がなければ省略）
 │   ├── E2E-Lifecycle.Tests.ps1        # 🚀 E2Eライフサイクル検証（起動→監視→終了→CSV生成の通し確認）
