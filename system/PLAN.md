@@ -39,12 +39,14 @@
 
 - [x] 17. iperf の UDP 計測で `--get-server-output` を自動で付け、サーバー側のログを別ファイルに保存してダウンロードできるようにする（画面には表示しない。ブラウザを閉じても取得まで完了させる）
 
+- [ ] 18. 「監視終了＆報告書」ボタンと Enter キーで終了するときも、UDP 計測の完了を待ってサーバー側のログを保存する（ボタンのときは自動でダウンロードする）
+
 ### コードの説明文（動作は変えない）
 
 - [x] 12. `AlertManager.psm1` と `IperfRunner.psm1` に説明文を追加する
 - [x] 13. `ObrStatus.psm1` と `PingEngine.psm1` に説明文を追加する
 - [x] 14. `Common.psm1` に説明文を追加する
-- [ ] 15. `RemoteExec.psm1` に説明文を追加する
+- [x] 15. `RemoteExec.psm1` に説明文を追加する
 - [ ] 16. `SnmpService.psm1` と `ReportGenerator.psm1` に説明文を追加する
 
 `Server.ps1`（約 7,200 行）と `app.js`（約 9,400 行）は 1 サイクルでは終わらないので、説明文の分け方を PROGRESS.md で提案します。

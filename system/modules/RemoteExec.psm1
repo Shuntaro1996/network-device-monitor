@@ -6,6 +6,19 @@
 # SSH接続、Windowsリモート管理（WinRM / shutdown.exe）、またはカスタムコマンドを
 # 使って「再起動」や「任意コマンドの実行」を安全に行うためのバックエンドエンジンです。
 # タイムアウト監視により、機器が応答しない場合でもプロセスが残り続けるのを防ぎます。
+#
+# 【処理の流れ】
+#   Server.ps1 の /api/device/remote-exec または /api/device/fetch-log
+#   → Invoke-RemoteDeviceCommand (設定の確認と実行するコマンドの決定)
+#   → Invoke-RemoteSsh / Invoke-RemoteWinRm / Invoke-RemoteCustom (プロトコルごとの実行)
+#   → Invoke-ProcessWithTimeout (外部プログラムの起動と時間切れの監視)
+#
+# 【変更するときの注意】
+# - パスワードやコマンドをコマンドラインの文字列に直接入れないでください。
+#   他のプログラムから見えるうえ、記号で引数がずれて意図しないコマンドが動くおそれがあります。
+#   引数は ConvertTo-ProcessArgument を通し、パスワードは環境変数で渡します。
+# - 失敗は例外にせず、status に理由を入れた結果を返します。画面はこの status で表示を分けています。
+# - テストは tests/RemoteExec.Tests.ps1 と tests/DeviceLog.Tests.ps1 です。
 # ==============================================================================
 
 # ── 1. 外部プロセス実行エンジン (タイムアウト強制終了 & 非同期I/O対応) ────────
@@ -15,6 +28,15 @@ function Invoke-ProcessWithTimeout {
     .SYNOPSIS
         外部プロセスを起動し、指定秒数以内に終了しない場合は強制終了（Kill）します。
         標準出力・標準エラー出力をデッドロックなしで非同期取得します。
+    .PARAMETER Arguments
+        コマンドライン引数の文字列。外部から来た値は ConvertTo-ProcessArgument を通してから入れてください。
+    .PARAMETER EnvironmentVariables
+        起動するプログラムだけに渡す環境変数。パスワードの受け渡しに使います。
+    .OUTPUTS
+        success / status / exitCode / stdout / stderr / executionTimeMs を持つハッシュテーブル。
+        status は COMPLETED (終了コード 0)、FAILED (0 以外)、TIMEOUT、START_FAILED、ERROR のいずれかです。
+    .NOTES
+        時間切れのときは、途中までの出力を返さず stdout を空にします。
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -131,6 +153,8 @@ function Invoke-ProcessWithTimeout {
 # ── 2. ヘルパー: プロパティ取得 ──────────────────────────────────────────────
 
 function Get-ObjectProperty {
+    # ハッシュテーブルと、JSON から読んだオブジェクトのどちらからでも値を取り出す。なければ defaultValue を返す
+    # 機器の設定は、読み込み元によって形が違うために使っている
     param($obj, [string]$propertyName, $defaultValue = $null)
     if ($null -eq $obj) { return $defaultValue }
     if ($obj -is [System.Collections.IDictionary] -or $obj -is [hashtable]) {
@@ -203,6 +227,20 @@ function Get-SshAskPassScript {
 # ── 3. プロトコル別リモート実行実装 ───────────────────────────────────────────
 
 function Invoke-RemoteSsh {
+    <#
+    .SYNOPSIS
+        Windows 標準の ssh.exe で、相手の機器でコマンドを実行します。
+    .PARAMETER authType
+        key は鍵ファイル、password はパスワード。それ以外は認証情報なしで試します。
+    .OUTPUTS
+        Invoke-ProcessWithTimeout と同じ形の結果。
+    .NOTES
+        - 初めて接続する相手の鍵は自動で登録します (StrictHostKeyChecking=accept-new)。
+          登録済みの鍵が変わったときは、なりすましの可能性があるので接続を拒否します。
+        - パスワード認証では、パスワードを受け渡す小さな .cmd を一時フォルダに作り、終わったら消します。
+          .cmd にパスワード自体は書きません。
+        - BatchMode=yes は、入力を求められたときに待たず失敗させる設定です。
+    #>
     param(
         [string]$hostName,
         [int]$port,
@@ -277,6 +315,17 @@ function Invoke-RemoteSsh {
 }
 
 function Invoke-RemoteWinRm {
+    <#
+    .SYNOPSIS
+        Windows のリモート管理 (WinRM) で、相手の Windows でコマンドを実行します。再起動にも使います。
+    .PARAMETER rebootCommand
+        再起動のときに使うコマンド。空なら、下のコメントの順で再起動の方法を選びます。
+    .OUTPUTS
+        Invoke-ProcessWithTimeout と同じ形の結果。
+    .NOTES
+        引数の port は現在使っていません (Invoke-Command は既定のポートで接続します)。
+        パスワードは環境変数で渡し、起動した PowerShell の中で読み取ったらすぐ消します。
+    #>
     param(
         [string]$hostName,
         [int]$port,
@@ -343,6 +392,16 @@ function Invoke-RemoteWinRm {
 }
 
 function Invoke-RemoteCustom {
+    <#
+    .SYNOPSIS
+        登録されたコマンドを、このPC上で cmd.exe から実行します (相手の機器ではありません)。
+    .OUTPUTS
+        Invoke-ProcessWithTimeout と同じ形の結果。
+    .NOTES
+        【注意】{ip} {name} {user} {port} は、エスケープせず文字のまま置き換えます。
+        機器名などに & や | が含まれると、cmd.exe が別のコマンドとして実行します。
+        信頼できる設定だけで使う前提の機能です。
+    #>
     param(
         [string]$hostName,
         [string]$deviceName,
@@ -378,6 +437,21 @@ function Invoke-RemoteDeviceCommand {
     .SYNOPSIS
         対象機器に対して、設定されたプロトコル（SSH / WinRM / Custom）に基づき
         リモート再起動または任意コマンドを実行し、統一された結果オブジェクトを返します。
+    .PARAMETER Device
+        機器の設定。remote の中、または直下に enabled / protocol / host / user などを持ちます。
+        password は復号したものを渡します (復号は呼び出し側の Server.ps1 で行います)。
+    .PARAMETER Action
+        reboot は再起動、command はコマンド実行です。
+    .PARAMETER CommandId
+        登録済みコマンドの ID。CustomCommand があれば、そちらを優先します。
+    .PARAMETER TimeoutSec
+        時間切れまでの秒数。1〜300 の範囲外なら 15 秒にします。
+    .OUTPUTS
+        success / status / exitCode / target / deviceName / remoteType / action / command / stdout / stderr /
+        executionTimeMs / timestamp を持つハッシュテーブル。実行前に止めたときの status は次のとおりです。
+        REMOTE_DISABLED / INVALID_TARGET / NO_REBOOT_COMMAND / COMMAND_NOT_FOUND / NO_COMMAND_SPECIFIED / UNSUPPORTED_PROTOCOL
+    .NOTES
+        status を増やしたら、画面 (app.js) の表示も確認してください。
     #>
     [CmdletBinding()]
     param(
