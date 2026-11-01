@@ -2702,8 +2702,9 @@ $syslogScriptBlock = {
                 $srcIp = $remoteEP.Address.ToString()
                 # 登録済みの機器からのログだけを受け付ける。無視した数と送信元は画面の受信状態に出す
                 if (-not (Test-LogSourceAllowed -SourceIp $srcIp -Devices $syncHash.Devices)) {
-                    $syncHash.LogRejectedCount = [int]$syncHash.LogRejectedCount + 1
+                    # 送信元を先に書く。逆だと、画面が間に読んだとき「数は増えたのに送信元が空」に見える
                     $syncHash.LogRejectedLastIp = $srcIp
+                    $syncHash.LogRejectedCount = [int]$syncHash.LogRejectedCount + 1
                     continue
                 }
                 $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
@@ -2851,8 +2852,9 @@ $trapScriptBlock = {
             $srcIp = $remoteEP.Address.ToString()
             # 登録済みの機器からの Trap だけを受け付ける。未登録の相手には Inform の返事も送らない
             if (-not (Test-LogSourceAllowed -SourceIp $srcIp -Devices $syncHash.Devices)) {
-                $syncHash.LogRejectedCount = [int]$syncHash.LogRejectedCount + 1
+                # 送信元を先に書く。逆だと、画面が間に読んだとき「数は増えたのに送信元が空」に見える
                 $syncHash.LogRejectedLastIp = $srcIp
+                $syncHash.LogRejectedCount = [int]$syncHash.LogRejectedCount + 1
                 continue
             }
             $trap = ConvertFrom-SnmpTrapPacket -Packet $bytes
