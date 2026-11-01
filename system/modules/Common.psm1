@@ -1,6 +1,20 @@
 ﻿# ==============================================================================
 # Common.psm1 - 共通ユーティリティ・セキュリティ・ログモジュール
 # ==============================================================================
+# 【初心者向けの簡単な解説】
+# 他のファイルから共通で使う部品を集めたファイルです。主な内容は次のとおりです。
+#   1. パスワードの暗号化と復号        2. 操作履歴とログの記録
+#   3. HTTP の応答とセキュリティの判定  4. 機器一覧の保存
+#   5. 設定のスナップショット (自動の控え) と復元
+#   6. 必要なモジュールの確認とインストール  7. バックグラウンド処理の土台 (Runspace) の作成
+#
+# 【変更するときの注意】
+# - 関数を追加したら、ファイル末尾の Export-ModuleMember にも追加してください。
+#   追加しないと、他のファイルから呼び出せません。
+# - Runspace (別スレッド) の中ではこのモジュールの関数が見えないことがあります。
+#   各スクリプトブロックで Import-Module するか、New-AppRunspace で読み込んでください。
+# - テストは tests/Monitor.Tests.ps1、tests/RemoteExec.Tests.ps1、tests/Tools.Tests.ps1 にあります。
+# ==============================================================================
 
 Add-Type -AssemblyName System.Security
 
@@ -10,6 +24,15 @@ function Protect-SecretString {
     <#
     .SYNOPSIS
         平文文字列を現在のWindowsユーザーの資格情報を用いてDPAPIで暗号化します。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        DPAPI は Windows の暗号化の機能で、鍵の管理を Windows に任せられます。
+        暗号化したユーザー本人しか復号できないので、devices.json を別のPCや別のユーザーへコピーすると読めなくなります。
+    .OUTPUTS
+        "enc:" で始まる暗号文。入力が空なら空文字。すでに "enc:" で始まる値はそのまま返すので、二重には暗号化しません。
+    .NOTES
+        【注意】暗号化に失敗すると、警告を出して入力をそのまま (平文のまま) 返します。
+        呼び出し側は、結果が "enc:" で始まるとは限らないことに注意してください。
     #>
     param([string]$plainText)
     if ([string]::IsNullOrEmpty($plainText)) { return "" }
@@ -32,6 +55,9 @@ function Unprotect-SecretString {
     <#
     .SYNOPSIS
         DPAPIで暗号化された文字列（enc:...）を復号します。平文の場合はそのまま返します。
+    .OUTPUTS
+        復号した文字列。復号できないとき (別のユーザーが暗号化した値など) は、警告を出して空文字を返します。
+        例外にしないので、呼び出し側は空文字かどうかで失敗を判断してください。
     #>
     param([string]$cipherText)
     if ([string]::IsNullOrEmpty($cipherText)) { return "" }
@@ -54,6 +80,16 @@ function Unprotect-SecretString {
 # ── 2. ログ記録 ─────────────────────────────────────────────────────────────
 
 function Log-Audit {
+    <#
+    .SYNOPSIS
+        設定の変更やリモート操作などを、操作履歴 (reportsDirectory の audit.log) に 1 行追記します。
+    .DESCRIPTION
+        複数のスレッドやプログラムが同時に書いても行が混ざらないよう、名前付きミューテックス
+        (プログラムをまたいで使える順番待ちの札) で順番に書き込みます。5MB を超えると audit_1.log に切り替えます。
+    .NOTES
+        記録の失敗で本来の操作を止めないよう、失敗しても例外にしません。パスワードを details に入れないでください。
+        順番待ちが 3 秒を超えても書き込みは続けます (記録を落とさないことを優先しています)。
+    #>
     param(
         [string]$action,
         [string]$target,
@@ -117,6 +153,14 @@ function Log-Audit {
 }
 
 function Write-ServerLog {
+    <#
+    .SYNOPSIS
+        メッセージを画面に色付きで表示し、baseDir を指定したときは debug.log にも追記します。
+    .PARAMETER level
+        INFO / WARN / ERROR / SUCCESS。表示の色だけが変わります。
+    .NOTES
+        debug.log は 5MB を超えると debug_1.log に切り替えます。書き込みの失敗は無視します。
+    #>
     param(
         [string]$message,
         [string]$level = "INFO",
@@ -148,6 +192,13 @@ function Write-ServerLog {
 # ── 3. HTTP / JSON レスポンス ───────────────────────────────────────────────
 
 function Write-JsonResponse {
+    <#
+    .SYNOPSIS
+        データを JSON にして HTTP の応答として送り、接続を閉じます。
+    .NOTES
+        相手が先に切断していても処理を止めないよう、失敗は例外にしません。
+        この関数のあとは同じ応答に書き込めないので、呼び出し側はすぐに処理を終えてください。
+    #>
     param(
         $response,
         $data,
@@ -271,6 +322,8 @@ function ConvertTo-SafeIperfOptions {
 }
 
 function Get-MimeType {
+    # 拡張子 (".html" など) から、ブラウザへ伝えるファイルの種類を返す。知らない拡張子はダウンロード扱いにする
+    # 応答に nosniff を付けているので、.js や .css の種類が違うとブラウザが読み込みを拒否する
     param([string]$ext)
     switch ($ext.ToLower()) {
         ".html" { "text/html; charset=utf-8" }
@@ -294,6 +347,15 @@ function Save-DevicesJson {
     <#
     .SYNOPSIS
         同期Hashtableの最新デバイス設定を devices.json へ安全に保存します（排他ロック・バックアップ・アトミック書き込み対応）。
+    .DESCRIPTION
+        一時ファイルへ書いてから置き換えるので、書き込みの途中で止まっても devices.json が壊れません。
+        置き換える前に、今のファイルをスナップショットとして控えます。パスワードは暗号化して保存します。
+    .OUTPUTS
+        保存できたら $true、できなければ $false。
+    .NOTES
+        【注意】実際の監視中は、Server.ps1 の中にある同じ名前の関数 (-Routine 付き) が使われます。
+        こちらは主にテストから呼ばれており、OBR の設定 (obrEnabled / obrPassword) を保存しません。
+        保存する項目を増やすときは、Server.ps1 の関数を必ず直してください。
     #>
     [CmdletBinding()]
     param(
@@ -595,6 +657,8 @@ function Get-ConfigSnapshots {
     <#
     .SYNOPSIS
         system/backups/ 配下に保存されているスナップショット一覧を取得します。
+    .OUTPUTS
+        新しい順の一覧 (fileName / type / createdAt / sizeBytes)。フォルダがないときや読めないときは空の配列。
     #>
     param([string]$backupDir)
     if (-not (Test-Path $backupDir)) { return @() }
@@ -622,6 +686,10 @@ function Restore-ConfigSnapshot {
     .SYNOPSIS
         指定されたスナップショットから設定ファイルを復元します。
         安全のため、復元直前の現行ファイルも直前スナップショットとして自動退避します。
+    .OUTPUTS
+        success が $true なら restoredFile と fromSnapshot を、$false なら error を持つハッシュテーブル。
+    .NOTES
+        ファイルを書き戻すだけです。動作中の監視へ反映する処理は呼び出し側 (Server.ps1) にあります。
     #>
     param(
         [string]$snapshotFileName,
@@ -673,6 +741,12 @@ function Test-SystemPrerequisites {
     <#
     .SYNOPSIS
         Network Device Monitor の実行に必要なモジュール・ツール・実行環境を検査します。
+    .DESCRIPTION
+        起動時と画面の診断から呼ばれるので、時間のかかる Get-Module はできるだけ避け、
+        先にフォルダを直接調べています。Get-Module は最後の手段です。
+    .OUTPUTS
+        allReady (必須のものがそろっているか) と各項目の結果を持つハッシュテーブル。
+        allReady は PowerShell のバージョン、SNMP モジュール、iperf3 で判定します。実行ポリシーや Pester は含みません。
     #>
     param([string]$projectRoot = $null)
     if (-not $projectRoot) {
@@ -830,6 +904,11 @@ function Install-PrerequisiteModule {
     <#
     .SYNOPSIS
         指定された PowerShell モジュールをインストールします。
+    .OUTPUTS
+        success が $true なら message を、$false なら error を持つハッシュテーブル。
+    .NOTES
+        インターネットから取得して、現在のユーザーにインストールします。許可するモジュールは下の一覧で限定しています。
+        一覧を増やすと、API から指定できるモジュールも増えるので、必要なものだけを追加してください。
     #>
     param([string]$moduleName = "SNMP")
     # インストールすると中のプログラムが動かせるようになるので、このアプリで必要なものだけを許可する
@@ -857,6 +936,16 @@ function New-AppRunspace {
     <#
     .SYNOPSIS
         モジュール定義と共通変数がセットアップされたバックグラウンド Runspace を生成します。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        Runspace は、PowerShell の処理を別スレッドで動かすための入れ物です。
+        入れ物の中からは外の関数や変数が見えないので、最初に必要なものを渡しておきます。
+    .PARAMETER ModulesToImport
+        読み込むモジュール。パス、または modules フォルダの中の名前で指定します。省略すると modules フォルダの全部を読み込みます。
+    .PARAMETER VariablesToSet
+        Runspace の中で使う変数 (名前と値のハッシュテーブル)。syncHash は別の引数で渡します。
+    .OUTPUTS
+        開いた状態の Runspace。使い終わったら呼び出し側で閉じてください。開けないときは例外になります。
     #>
     [CmdletBinding()]
     param(

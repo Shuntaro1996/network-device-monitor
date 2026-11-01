@@ -39,7 +39,7 @@
 
 - [x] 12. `AlertManager.psm1` と `IperfRunner.psm1` に説明文を追加する
 - [x] 13. `ObrStatus.psm1` と `PingEngine.psm1` に説明文を追加する
-- [ ] 14. `Common.psm1` に説明文を追加する
+- [x] 14. `Common.psm1` に説明文を追加する
 - [ ] 15. `RemoteExec.psm1` に説明文を追加する
 - [ ] 16. `SnmpService.psm1` と `ReportGenerator.psm1` に説明文を追加する
 
