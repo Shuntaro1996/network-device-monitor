@@ -8,9 +8,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Resolve project root directory automatically
+# このファイルは system\tools にあるので、Server.ps1 は 1 つ上、プロジェクトの最上位は 2 つ上になる
 $projectRoot = if ($PSScriptRoot) {
-    if ([System.IO.File]::Exists((Join-Path $PSScriptRoot "Server.ps1"))) {
-        Split-Path -Parent $PSScriptRoot
+    $parentDir = Split-Path -Parent $PSScriptRoot
+    if ([System.IO.File]::Exists((Join-Path $parentDir "Server.ps1"))) {
+        Split-Path -Parent $parentDir
     } else {
         $PSScriptRoot
     }
@@ -21,6 +23,7 @@ $projectRoot = if ($PSScriptRoot) {
 $scanDirs = @(
     (Join-Path $projectRoot "system"),
     (Join-Path $projectRoot "system\modules"),
+    (Join-Path $projectRoot "system\tools"),
     (Join-Path $projectRoot "system\tests")
 )
 

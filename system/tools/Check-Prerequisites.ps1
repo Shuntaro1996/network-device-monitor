@@ -65,7 +65,8 @@ public class NDMConsoleFontHelper {
     }
 } catch {}
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# このファイルは system\tools にあるので、iperf3 と modules がある system フォルダは 1 つ上になる
+$scriptDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $projectRoot = Split-Path -Parent $scriptDir
 
 # Fast inline module lookup ($env:PSModulePath direct directory inspection, < 2ms)

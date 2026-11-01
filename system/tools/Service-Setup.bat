@@ -3,7 +3,7 @@ REM =========================================================================
 REM Service-Setup.bat - Windows サービス登録・管理支援ツール
 REM =========================================================================
 setlocal
-cd /d "%~dp0.."
+cd /d "%~dp0..\.."
 chcp 932 >nul
 
 echo =========================================================
@@ -37,7 +37,7 @@ goto :EOF
 :REGISTER_LOGON
 echo.
 echo ログオン時の自動起動を登録します（管理者権限が必要な場合があります）...
-schtasks /create /tn "NetworkDeviceMonitor" /tr "\"%~dp0..\Start-Monitor.bat\"" /sc onlogon /ru "%USERDOMAIN%\%USERNAME%" /it /f
+schtasks /create /tn "NetworkDeviceMonitor" /tr "\"%~dp0..\..\Start-Monitor.bat\"" /sc onlogon /ru "%USERDOMAIN%\%USERNAME%" /it /f
 goto :REGISTER_RESULT
 
 :REGISTER_STARTUP
@@ -50,7 +50,7 @@ echo         同期ドライブ上にある場合は、先に C ドライブなどへ移してから登録して
 echo.
 echo このあと「%USERDOMAIN%\%USERNAME%」の Windows パスワードを聞かれます。
 echo 入力した文字は画面に表示されません。Windows のタスク スケジューラが安全に保管します。
-schtasks /create /tn "NetworkDeviceMonitor" /tr "\"%~dp0..\Start-Monitor.bat\"" /sc onstart /ru "%USERDOMAIN%\%USERNAME%" /rp * /f
+schtasks /create /tn "NetworkDeviceMonitor" /tr "\"%~dp0..\..\Start-Monitor.bat\"" /sc onstart /ru "%USERDOMAIN%\%USERNAME%" /rp * /f
 goto :REGISTER_RESULT
 
 :REGISTER_RESULT
@@ -67,8 +67,8 @@ echo.
 echo 【NSSM によるサービス登録手順】
 echo 1. NSSM ^(https://nssm.cc/^) をダウンロードし、nssm.exe を本フォルダに配置します。
 echo 2. 管理者コマンドプロンプトで以下を実行します:
-echo      nssm install NetworkDeviceMonitor "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" "-NoProfile -ExecutionPolicy Bypass -File \"%~dp0Server.ps1\""
-echo      nssm set NetworkDeviceMonitor AppDirectory "%~dp0.."
+echo      nssm install NetworkDeviceMonitor "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" "-NoProfile -ExecutionPolicy Bypass -File \"%~dp0..\Server.ps1\""
+echo      nssm set NetworkDeviceMonitor AppDirectory "%~dp0..\.."
 echo      nssm set NetworkDeviceMonitor AppRestartDelay 3000
 echo      nssm set NetworkDeviceMonitor ObjectName "%USERDOMAIN%\%USERNAME%" "Windowsのパスワード"
 echo      nssm start NetworkDeviceMonitor

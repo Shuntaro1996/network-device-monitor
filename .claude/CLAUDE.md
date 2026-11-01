@@ -2,7 +2,7 @@
 
 運用ルール・行動規範は GEMINI.md を正とし、そのまま従うこと。
 
-@../system/GEMINI.md
+@../system/docs/GEMINI.md
 
 ## 概要
 
@@ -35,7 +35,7 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
 
 ## 文字コード・改行（壊すと PS 5.1 で文字化け・構文エラーになる）
 
-- `.ps1` / `.psm1` は **UTF-8 BOM 付き** にする。`system/Ensure-Utf8Bom.ps1` と `Run-Tests.ps1` が BOM の有無を検査・付与する。新しいファイルにも BOM を付けること。
+- `.ps1` / `.psm1` は **UTF-8 BOM 付き** にする。`system/tools/Ensure-Utf8Bom.ps1` と `Run-Tests.ps1` が BOM の有無を検査・付与する。新しいファイルにも BOM を付けること。
 - `.bat` は **Shift_JIS（CP932）** で、先頭で `chcp 932` を実行している。UTF-8 で保存し直さないこと。
 - 改行コードはファイルごとに異なる。例：`Server.ps1` と `利用手順書.html` は CRLF、`RemoteExec.psm1` は LF。編集するときは既存の改行コードに合わせる。
 
@@ -49,13 +49,14 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
 
 ## 自律サイクル
 
-`system/PLAN.md` のタスクを進めるよう指示されたとき（「タスクの実行」など）は、`system/CYCLE.md` の手順とルールに従って 1 サイクルだけ実行する。
+`system/docs/PLAN.md` のタスクを進めるよう指示されたとき（「タスクの実行」など）は、`system/docs/CYCLE.md` の手順とルールに従って 1 サイクルだけ実行する。
 
 ## 作業上の注意
 
-- 仕様・機能を変更したら、`.github/README.md` / `system/SPECIFICATION.md` / `利用手順書.html` を同時に更新する（GEMINI.md の §2）。
-- `利用手順書.html` はビルド工程のない 1 枚の HTML なので、直接編集する（CSS と JS もファイル内に含まれ、外部ファイルは読み込まない）。`system/管理者向け設計書.html` と `system/public/third-party-notices.html` も同じ作りで、直接編集する。
+- 仕様・機能を変更したら、`.github/README.md` / `system/docs/SPECIFICATION.md` / `利用手順書.html` を同時に更新する（GEMINI.md の §2）。
+- `利用手順書.html` はビルド工程のない 1 枚の HTML なので、直接編集する（CSS と JS もファイル内に含まれ、外部ファイルは読み込まない）。`system/docs/管理者向け設計書.html` と `system/public/third-party-notices.html` も同じ作りで、直接編集する。
 - プロジェクト直下に見えるものは、利用者が使う `Start-Monitor.bat` / `利用手順書.html` / `Reports/` と `system/` だけにする。他は `system/` に入れる。
+- `system/` の直下は `Server.ps1` / `Watchdog.ps1` と設定ファイルだけにする。補助のスクリプトは `system/tools/`、資料は `system/docs/` に入れる。
 - 直下に置く必要があるものは、ドットで始まる隠しフォルダに入れる（GitHub 用の `README.md` と `LICENSE` は `.github/`、この `CLAUDE.md` は `.claude/`）。`.gitignore` だけは直下に置く。`Start-Monitor.bat` がこれらを隠し属性にする。
 - コード内のコメントは日本語で、「初心者向けの簡単な解説」という既存のスタイルに合わせる。
 - コードを追加・修正するときは、あとから修正しやすいよう、事細かく説明を書く。関数や処理のまとまりごとに、目的・入力と結果・なぜその方法にしたのか・変更するときの注意点を書く。コードをそのまま言い換えるだけの説明にはしない。

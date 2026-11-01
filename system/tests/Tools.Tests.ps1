@@ -29,7 +29,7 @@ Describe "Stop-All.bat (機器ごとの監視ウィンドウの一括終了)" {
         # 実際のフォルダに合図を残さないよう、一時フォルダへコピーして実行する
         $dir = New-TestFolder
         try {
-            Copy-Item -LiteralPath (Join-Path $systemDir "Stop-All.bat") -Destination $dir
+            Copy-Item -LiteralPath (Join-Path $systemDir "tools\Stop-All.bat") -Destination $dir
             $null = & cmd.exe /c (Join-Path $dir "Stop-All.bat") 2>&1
             (Test-Path -LiteralPath (Join-Path $dir ".stop_signal")) | Should Be $true
         } finally {
@@ -37,10 +37,36 @@ Describe "Stop-All.bat (機器ごとの監視ウィンドウの一括終了)" {
         }
     }
 
-    It "合図を読む側も system フォルダを見ていること" {
+    It "合図を読む側も Stop-All.bat と同じフォルダを見ていること" {
         foreach ($name in @("Launcher.ps1", "Monitor-SingleDevice.ps1")) {
-            [System.IO.File]::ReadAllText((Join-Path $systemDir $name), [System.Text.Encoding]::UTF8) | Should Match 'Join-Path \$PSScriptRoot "\.stop_signal"'
+            [System.IO.File]::ReadAllText((Join-Path $systemDir "tools\$name"), [System.Text.Encoding]::UTF8) | Should Match 'Join-Path \$PSScriptRoot "\.stop_signal"'
         }
+    }
+}
+
+Describe "system フォルダの整理 (道具から見たファイルの場所)" {
+    It "Watchdog.ps1 が呼ぶ起動前の点検ツールが tools フォルダにあること" {
+        $watchdog = [System.IO.File]::ReadAllText((Join-Path $systemDir "Watchdog.ps1"), [System.Text.Encoding]::UTF8)
+        foreach ($name in @("Ensure-Utf8Bom.ps1", "Check-Prerequisites.ps1")) {
+            $watchdog | Should Match ([regex]::Escape("`"tools\$name`""))
+            (Test-Path -LiteralPath (Join-Path $systemDir "tools\$name")) | Should Be $true
+        }
+    }
+
+    It "tools のスクリプトが 1 つ上の system フォルダを基準にしていること" {
+        $prereq = [System.IO.File]::ReadAllText((Join-Path $systemDir "tools\Check-Prerequisites.ps1"), [System.Text.Encoding]::UTF8)
+        $prereq | Should Match ([regex]::Escape('$scriptDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)'))
+        $bandwidth = [System.IO.File]::ReadAllText((Join-Path $systemDir "tools\Start-BandwidthServer.ps1"), [System.Text.Encoding]::UTF8)
+        $bandwidth | Should Match ([regex]::Escape('$SystemDir  = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)'))
+        $launcher = [System.IO.File]::ReadAllText((Join-Path $systemDir "tools\Launcher.ps1"), [System.Text.Encoding]::UTF8)
+        $launcher | Should Match ([regex]::Escape('"system\tools\Monitor-SingleDevice.ps1"'))
+        $launcher | Should Match ([regex]::Escape('"system\devices.json"'))
+    }
+
+    It "Service-Setup.bat がプロジェクトの最上位の Start-Monitor.bat を登録すること" {
+        $setup = [System.IO.File]::ReadAllText((Join-Path $systemDir "tools\Service-Setup.bat"), [System.Text.Encoding]::GetEncoding(932))
+        $setup | Should Match ([regex]::Escape('%~dp0..\..\Start-Monitor.bat'))
+        $setup | Should Not Match ([regex]::Escape('%~dp0..\Start-Monitor.bat'))
     }
 }
 
@@ -179,9 +205,9 @@ Describe "Ensure-Utf8Bom.ps1 (BOM の検査と付与)" {
     function New-BomTestProject {
         $root = New-TestFolder
         $system = Join-Path $root "system"
-        $null = New-Item -ItemType Directory -Path $system
-        Copy-Item -LiteralPath (Join-Path $systemDir "Ensure-Utf8Bom.ps1") -Destination $system
-        # ツールは Server.ps1 があるフォルダを system と判断する。これがないと検査対象が見つからず、何もしないで終わる
+        $null = New-Item -ItemType Directory -Path (Join-Path $system "tools")
+        Copy-Item -LiteralPath (Join-Path $systemDir "tools\Ensure-Utf8Bom.ps1") -Destination (Join-Path $system "tools")
+        # ツールは 1 つ上のフォルダに Server.ps1 があれば、そこを system と判断する。これがないと検査対象が見つからず、何もしないで終わる
         [System.IO.File]::WriteAllText((Join-Path $system "Server.ps1"), "# placeholder", (New-Object System.Text.UTF8Encoding($true)))
         return $system
     }
@@ -200,9 +226,21 @@ Describe "Ensure-Utf8Bom.ps1 (BOM の検査と付与)" {
         try {
             $file = Join-Path $system "NoBom.ps1"
             [System.IO.File]::WriteAllText($file, $japanese, $noBom)
-            $null = & (Join-Path $system "Ensure-Utf8Bom.ps1") *>&1
+            $null = & (Join-Path $system "tools\Ensure-Utf8Bom.ps1") *>&1
             Test-HasBom $file | Should Be $true
             [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8) | Should Be $japanese
+        } finally {
+            Remove-Item -LiteralPath (Split-Path -Parent $system) -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "tools フォルダのファイルも検査の対象にすること" {
+        $system = New-BomTestProject
+        try {
+            $file = Join-Path $system "tools\NoBom.ps1"
+            [System.IO.File]::WriteAllText($file, $japanese, $noBom)
+            $null = & (Join-Path $system "tools\Ensure-Utf8Bom.ps1") *>&1
+            Test-HasBom $file | Should Be $true
         } finally {
             Remove-Item -LiteralPath (Split-Path -Parent $system) -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -213,7 +251,7 @@ Describe "Ensure-Utf8Bom.ps1 (BOM の検査と付与)" {
         try {
             $file = Join-Path $system "Sjis.ps1"
             [System.IO.File]::WriteAllText($file, $japanese, [System.Text.Encoding]::GetEncoding(932))
-            $null = & (Join-Path $system "Ensure-Utf8Bom.ps1") *>&1
+            $null = & (Join-Path $system "tools\Ensure-Utf8Bom.ps1") *>&1
             Test-HasBom $file | Should Be $true
             [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8) | Should Be $japanese
         } finally {
@@ -227,7 +265,7 @@ Describe "Ensure-Utf8Bom.ps1 (BOM の検査と付与)" {
             $file = Join-Path $system "HasBom.ps1"
             [System.IO.File]::WriteAllText($file, $japanese, $withBom)
             $before = [System.IO.File]::GetLastWriteTimeUtc($file)
-            $null = & (Join-Path $system "Ensure-Utf8Bom.ps1") *>&1
+            $null = & (Join-Path $system "tools\Ensure-Utf8Bom.ps1") *>&1
             [System.IO.File]::GetLastWriteTimeUtc($file) | Should Be $before
         } finally {
             Remove-Item -LiteralPath (Split-Path -Parent $system) -Recurse -Force -ErrorAction SilentlyContinue
@@ -239,11 +277,11 @@ Describe "Ensure-Utf8Bom.ps1 (BOM の検査と付与)" {
         try {
             $file = Join-Path $system "Twice.ps1"
             [System.IO.File]::WriteAllText($file, $japanese, $noBom)
-            $null = & (Join-Path $system "Ensure-Utf8Bom.ps1") -Quiet *>&1
+            $null = & (Join-Path $system "tools\Ensure-Utf8Bom.ps1") -Quiet *>&1
             # 1 回目で BOM が付いたことを確かめてから、2 回目で変わらないことを見る
             Test-HasBom $file | Should Be $true
             $size = (Get-Item -LiteralPath $file).Length
-            $null = & (Join-Path $system "Ensure-Utf8Bom.ps1") -Quiet *>&1
+            $null = & (Join-Path $system "tools\Ensure-Utf8Bom.ps1") -Quiet *>&1
             (Get-Item -LiteralPath $file).Length | Should Be $size
             [System.IO.File]::ReadAllText($file, [System.Text.Encoding]::UTF8) | Should Be $japanese
         } finally {

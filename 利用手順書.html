@@ -147,10 +147,16 @@ li { margin: 4px 0; }
 │
 ├── 📂 【システム内部実装部】（system/ フォルダ）
 │   ├── Server.ps1                     # メインバックエンドHTTPサーバー＆監視コーディネーター
-│   ├── Stop-All.bat                   # 機器ごとの監視ウィンドウを一括終了
 │   ├── Watchdog.ps1                   # 監視サーバーの死活監視・自己治癒（自動再起動プロセス）
-│   ├── Check-Prerequisites.ps1        # 起動前モジュール診断＆自動インストール
-│   ├── Ensure-Utf8Bom.ps1             # 文字化け防止のための文字コード（UTF-8 BOM）検証ツール
+│   ├── tools/                         # 起動前の点検と補助のスクリプト
+│   │   ├── Check-Prerequisites.ps1    # 起動前モジュール診断＆自動インストール
+│   │   ├── Ensure-Utf8Bom.ps1         # 文字化け防止のための文字コード（UTF-8 BOM）検証ツール
+│   │   ├── Launcher.ps1               # 機器ごとの監視ウィンドウを開く
+│   │   ├── Monitor-SingleDevice.ps1   # 1 台分の監視ウィンドウ
+│   │   ├── Stop-All.bat               # 機器ごとの監視ウィンドウを一括終了
+│   │   ├── Service-Setup.bat          # 自動起動の登録
+│   │   └── Start-BandwidthServer.ps1  # 帯域計測の受け側を起動
+│   ├── docs/                          # 開発者・管理者向けの資料
 │   ├── config.json / devices.json     # システム設定・登録機器構成データ（自動保存）
 │   ├── modules/                       # 内部機能モジュール群
 │   │   ├── Common.psm1                # 共通処理・並行スレッド生成（Runspace）・設定JSON暗号化保存（DPAPI）
@@ -1345,7 +1351,7 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 </tr>
 <tr>
 <td align="left"><strong>PC 起動時に自動で監視を始めたい</strong></td>
-<td align="left"><code>system\Service-Setup.bat</code> を実行します。[2] は Windows にログオンしたとき、[3] は PC の起動時（ログオン前）に起動します。どちらも<strong>今のWindowsユーザーで動かす</strong>ので、保存済みのパスワードを復号できます。[3] は登録時に Windows のパスワードを聞かれます。また、<strong>Google ドライブなどの同期ドライブはログオン前には使えない</strong>ため、[3] を使う場合はプロジェクトを C ドライブなどへ移してください。以前 SYSTEM で登録したタスクは同じ名前で上書きされます。</td>
+<td align="left"><code>system\tools\Service-Setup.bat</code> を実行します。[2] は Windows にログオンしたとき、[3] は PC の起動時（ログオン前）に起動します。どちらも<strong>今のWindowsユーザーで動かす</strong>ので、保存済みのパスワードを復号できます。[3] は登録時に Windows のパスワードを聞かれます。また、<strong>Google ドライブなどの同期ドライブはログオン前には使えない</strong>ため、[3] を使う場合はプロジェクトを C ドライブなどへ移してください。以前 SYSTEM で登録したタスクは同じ名前で上書きされます。</td>
 </tr>
 <tr>
 <td align="left"><strong>起動時に「保存済みのパスワードを復号できません」と表示された</strong></td>
@@ -1365,7 +1371,7 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 </tr>
 <tr>
 <td align="left"><strong>機器ごとの監視ウィンドウ（Launcher.ps1）をまとめて閉じたい</strong></td>
-<td align="left"><code>system</code> フォルダの <code>Stop-All.bat</code> をダブルクリックします。各ウィンドウが結果を保存してから自動で閉じます。メインの監視画面には影響しません。</td>
+<td align="left"><code>system\tools</code> フォルダの <code>Stop-All.bat</code> をダブルクリックします。各ウィンドウが結果を保存してから自動で閉じます。メインの監視画面には影響しません。</td>
 </tr>
 <tr>
 <td align="left"><strong>音声アラートが鳴らない</strong></td>

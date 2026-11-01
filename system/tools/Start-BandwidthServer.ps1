@@ -18,7 +18,8 @@ param(
     [switch]$AddFirewallRule
 )
 
-$SystemDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
+# このファイルは system\tools にあるので、system フォルダは 1 つ上になる
+$SystemDir  = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $ProjectRoot = Split-Path -Parent $SystemDir
 
 function Write-Banner {

@@ -114,16 +114,23 @@ NetworkDeviceMonitor/
 │
 ├── 📂 【システム内部実装部】（system/ フォルダ）
 │   ├── Server.ps1                     # メインバックエンドHTTPサーバー＆監視コーディネーター
-│   ├── Stop-All.bat                   # 機器ごとの監視ウィンドウを一括終了
-│   ├── GEMINI.md / CYCLE.md           # 開発の運用ルール・自律サイクルの手順
 │   ├── Watchdog.ps1                   # 監視サーバー外形死活監視＆自己治癒（自動再起動）
-│   ├── Check-Prerequisites.ps1        # 前提モジュール自動検査・インストール
-│   ├── Ensure-Utf8Bom.ps1             # PowerShell 5.1 文字化け防止（UTF-8 BOM）検証ツール
 │   ├── config.json                    # システム全体設定ファイル（Git の管理対象外）
 │   ├── devices.json                   # 監視対象デバイス設定ファイル（社内の機器情報が入るので Git の管理対象外）
 │   ├── devices.example.json           # devices.json の形式の見本
-│   ├── 管理者向け設計書.html            # 管理者・開発者向け詳細設計書
-│   ├── SPECIFICATION.md               # システム機能仕様書
+│   ├── tools/                         # 起動前の点検と補助のスクリプト
+│   │   ├── Check-Prerequisites.ps1    # 前提モジュール自動検査・インストール
+│   │   ├── Ensure-Utf8Bom.ps1         # PowerShell 5.1 文字化け防止（UTF-8 BOM）検証ツール
+│   │   ├── Launcher.ps1               # 機器ごとの監視ウィンドウを開く
+│   │   ├── Monitor-SingleDevice.ps1   # 1 台分の監視ウィンドウ
+│   │   ├── Stop-All.bat               # 機器ごとの監視ウィンドウを一括終了
+│   │   ├── Service-Setup.bat          # 自動起動の登録
+│   │   └── Start-BandwidthServer.ps1  # 帯域計測の受け側を起動
+│   ├── docs/                          # 資料
+│   │   ├── 管理者向け設計書.html        # 管理者・開発者向け詳細設計書
+│   │   ├── SPECIFICATION.md           # システム機能仕様書
+│   │   ├── GEMINI.md / CYCLE.md       # 開発の運用ルール・自律サイクルの手順
+│   │   └── PLAN.md / PROGRESS.md      # タスクと進捗の記録
 │   ├── modules/                       # バックエンド機能モジュール群
 │   │   ├── Common.psm1                # 共通処理・Runspace生成・設定JSON暗号化保存（DPAPI）
 │   │   ├── RemoteExec.psm1            # 🔧 リモート制御実行エンジン（SSH / WinRM / カスタム・安全タイムアウト管理）
@@ -241,9 +248,9 @@ NetworkDeviceMonitor/
 
 * **運用者・一般ユーザー向け操作マニュアル**: [利用手順書.html](../利用手順書.html)
   - 初心者・運用者向けに **専門用語（Runspace、Pester、ジッター、E2E、AST構文解析など）の平易なやさしい解説** を掲載しています。
-* **管理者・開発者向け詳細設計書**: [system/管理者向け設計書.html](../system/管理者向け設計書.html)
+* **管理者・開発者向け詳細設計書**: [system/docs/管理者向け設計書.html](../system/docs/管理者向け設計書.html)
 * **同梱ソフトウェアのライセンス表記**: [system/public/third-party-notices.html](../system/public/third-party-notices.html)
-* **機能詳細仕様書**: [system/SPECIFICATION.md](../system/SPECIFICATION.md)
+* **機能詳細仕様書**: [system/docs/SPECIFICATION.md](../system/docs/SPECIFICATION.md)
 
 ---
 

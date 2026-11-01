@@ -1015,13 +1015,21 @@ NetworkDeviceMonitor/
 │   └── (起動日時)/           # 各セッションのPing履歴CSV・点検報告書
 └── system/                   # システムコアディレクトリ
     ├── Server.ps1            # バックエンドサーバー & 監視コアエンジン
-    ├── Stop-All.bat          # Launcher.ps1 で開いた機器ごとの監視ウィンドウを一括終了 (system に .stop_signal を置く)
-    ├── GEMINI.md             # 開発の運用ルール
-    ├── CYCLE.md              # 自律サイクルの手順
     ├── Watchdog.ps1          # サーバーの死活監視と自動再起動
-    ├── Launcher.ps1          # 機器ごとの監視ウィンドウを開くランチャー
-    ├── SPECIFICATION.md      # システム完全技術仕様書 (本書)
-    ├── 管理者向け設計書.html   # 管理者向け資料
+    ├── tools/                # 起動前の点検と補助のスクリプト
+    │   ├── Check-Prerequisites.ps1 # 前提モジュールの確認
+    │   ├── Ensure-Utf8Bom.ps1      # BOM の検査と付与
+    │   ├── Launcher.ps1            # 機器ごとの監視ウィンドウを開くランチャー
+    │   ├── Monitor-SingleDevice.ps1 # 1 台分の監視ウィンドウ
+    │   ├── Stop-All.bat            # 監視ウィンドウを一括終了 (同じフォルダに .stop_signal を置く)
+    │   ├── Service-Setup.bat       # 自動起動の登録
+    │   └── Start-BandwidthServer.ps1 # 帯域計測の受け側を起動
+    ├── docs/                 # 資料
+    │   ├── SPECIFICATION.md        # システム完全技術仕様書 (本書)
+    │   ├── 管理者向け設計書.html     # 管理者向け資料
+    │   ├── GEMINI.md               # 開発の運用ルール
+    │   ├── CYCLE.md                # 自律サイクルの手順
+    │   └── PLAN.md / PROGRESS.md   # タスクと進捗の記録
     ├── config.json           # システム設定ファイル (Git の管理対象外)
     ├── devices.json          # 監視対象機器リスト (Git の管理対象外)
     ├── devices.example.json  # devices.json の形式の見本

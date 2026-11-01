@@ -1,11 +1,11 @@
 ﻿<#
 .SYNOPSIS
-    対象IPごとに個別の監視ウィンドウを立ち上げるランチャー（systemフォルダ配下用）
+    対象IPごとに個別の監視ウィンドウを立ち上げるランチャー（system\tools フォルダ配下用）
 #>
 # 入力ファイル（devices.txt または system/devices.json）
-$rootDir = (Resolve-Path "$PSScriptRoot\..").Path
+$rootDir = (Resolve-Path "$PSScriptRoot\..\..").Path
 $InputFile = Join-Path $rootDir "devices.txt"
-$devicesJson = Join-Path $PSScriptRoot "devices.json"
+$devicesJson = Join-Path $rootDir "system\devices.json"
 
 $addresses = @()
 if (Test-Path $InputFile) {
@@ -24,7 +24,7 @@ if ($addresses.Count -eq 0) {
     exit
 }
 
-# system フォルダの停止シグナル (Stop-All.bat が置く) を削除
+# このフォルダの停止シグナル (Stop-All.bat が置く) を削除
 $stopSignal = Join-Path $PSScriptRoot ".stop_signal"
 if (Test-Path $stopSignal) {
     Remove-Item $stopSignal -Force
@@ -32,12 +32,12 @@ if (Test-Path $stopSignal) {
 
 Write-Host "合計 $($addresses.Count) 個のアドレスの監視ウィンドウを立ち上げます..." -ForegroundColor Cyan
 
-# 現在のディレクトリー（system）からスクリプトを呼び出し、
+# 現在のディレクトリー（system\tools）のスクリプトを呼び出し、
 # 新ウィンドウの作業ディレクトリはルートディレクトリにする
 
 foreach ($addr in $addresses) {
     Write-Host "[$addr] の監視プロセスを起動中..."
-    Start-Process powershell -WorkingDirectory $rootDir -ArgumentList "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "system\Monitor-SingleDevice.ps1", "-TargetAddress", $addr
+    Start-Process powershell -WorkingDirectory $rootDir -ArgumentList "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "system\tools\Monitor-SingleDevice.ps1", "-TargetAddress", $addr
     Start-Sleep -Milliseconds 200
 }
 

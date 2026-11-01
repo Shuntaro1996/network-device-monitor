@@ -31,7 +31,7 @@ if (-not (Test-Path $logDir)) {
 
 $tempCsv = "$logDir\results_${safeAddr}_${startStr}_ongoing.csv"
 
-# 停止シグナルは Stop-All.bat と同じ system フォルダに置かれる
+# 停止シグナルは Stop-All.bat と同じ system\tools フォルダに置かれる
 $stopSignalPath = Join-Path $PSScriptRoot ".stop_signal"
 
 try { [console]::TreatControlCAsInput = $true } catch {}
@@ -39,7 +39,7 @@ try { [console]::TreatControlCAsInput = $true } catch {}
 Write-Host "ターゲット: [$TargetAddress]" -ForegroundColor Cyan
 Write-Host "1秒間隔での連続疎通確認を開始します..." -ForegroundColor Cyan
 Write-Host "※このウィンドウだけ終了するには [Q]キー, [Esc]キー または Ctrl+C" -ForegroundColor Yellow
-Write-Host "※全て一括終了するには system フォルダの『Stop-All.bat』をご利用ください。`n" -ForegroundColor Yellow
+Write-Host "※全て一括終了するには system\tools フォルダの『Stop-All.bat』をご利用ください。`n" -ForegroundColor Yellow
 
 $pingProvider = New-Object System.Net.NetworkInformation.Ping
 $buffer = [byte[]]@(0)

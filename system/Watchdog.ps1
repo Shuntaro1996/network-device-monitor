@@ -29,11 +29,11 @@ $debugLog = Join-Path $scriptDir "debug.log"
 # If invoked from Start-Monitor.bat with -RunPreflight, execute BOM check and Prerequisite check in-process
 # to avoid spawning multiple separate powershell.exe processes (saves ~1.5s startup time).
 if ($RunPreflight) {
-    $bomScript = Join-Path $scriptDir "Ensure-Utf8Bom.ps1"
+    $bomScript = Join-Path $scriptDir "tools\Ensure-Utf8Bom.ps1"
     if ([System.IO.File]::Exists($bomScript)) {
         try { & $bomScript -Quiet } catch {}
     }
-    $prereqScript = Join-Path $scriptDir "Check-Prerequisites.ps1"
+    $prereqScript = Join-Path $scriptDir "tools\Check-Prerequisites.ps1"
     if ([System.IO.File]::Exists($prereqScript)) {
         try { & $prereqScript } catch {}
     }

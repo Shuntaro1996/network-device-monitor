@@ -131,14 +131,21 @@ li { margin: 4px 0; }
 ├── Reports/                       # 実行時ログ・CSVレポート出力先（自動生成）
 │   └── .gitkeep
 └── system/
-    ├── 管理者向け設計書.html        # ★本ドキュメント
-    ├── SPECIFICATION.md           # 開発者向け機能仕様書
     ├── Watchdog.ps1               # サーバーの死活監視と自動再起動
     ├── Server.ps1                 # ★メインバックエンドサーバー（Runspace並列処理）
-    ├── Stop-All.bat               # 機器ごとの監視ウィンドウを一括終了
-    ├── Launcher.ps1               # 個別デバイス監視ランチャー
-    ├── Monitor-SingleDevice.ps1   # 単体デバイス監視スクリプト
-    ├── Start-BandwidthServer.ps1  # 帯域監視補助サーバー
+    ├── docs/                      # 資料
+    │   ├── 管理者向け設計書.html    # ★本ドキュメント
+    │   ├── SPECIFICATION.md       # 開発者向け機能仕様書
+    │   ├── GEMINI.md / CYCLE.md   # 開発の運用ルール・自律サイクルの手順
+    │   └── PLAN.md / PROGRESS.md  # タスクと進捗の記録
+    ├── tools/                     # 起動前の点検と補助のスクリプト
+    │   ├── Check-Prerequisites.ps1 # 前提モジュールの確認
+    │   ├── Ensure-Utf8Bom.ps1     # BOM の検査と付与
+    │   ├── Stop-All.bat           # 機器ごとの監視ウィンドウを一括終了
+    │   ├── Launcher.ps1           # 個別デバイス監視ランチャー
+    │   ├── Monitor-SingleDevice.ps1 # 単体デバイス監視スクリプト
+    │   ├── Service-Setup.bat      # 自動起動の登録
+    │   └── Start-BandwidthServer.ps1 # 帯域監視補助サーバー
     ├── devices.json               # 監視対象デバイス設定（自動保存・Git の管理対象外）
     ├── devices.example.json       # devices.json の形式の見本
     ├── config.json                # システム全体設定（自動保存・Git の管理対象外）
@@ -158,7 +165,7 @@ li { margin: 4px 0; }
 <h3>起動</h3>
 <p><code>Start-Monitor.bat</code> をダブルクリックします。内部では <code>system/Watchdog.ps1 -RunPreflight -LaunchBrowser</code> が事前検査のあと <code>system/Server.ps1</code> を起動し、動作を見守ります。<br>サーバー初期化後、自動的にブラウザで <code>http://localhost:8081</code> が開きます。</p>
 <h3>停止</h3>
-<p>画面の <strong>「監視終了＆報告書」</strong> ボタンを押すか、PowerShell のウィンドウで Enter キーを押します。<code>system/Stop-All.bat</code> は機器ごとの監視ウィンドウ（<code>Launcher.ps1</code>）用で、メインの監視画面には影響しません。<br>停止時に全監視機器の直近サマリー（到達率・パケロス率・ジッター・最大瞬断時間）が CSV に追記され、ポート・Runspace が安全に解放されます。</p>
+<p>画面の <strong>「監視終了＆報告書」</strong> ボタンを押すか、PowerShell のウィンドウで Enter キーを押します。<code>system/tools/Stop-All.bat</code> は機器ごとの監視ウィンドウ（<code>Launcher.ps1</code>）用で、メインの監視画面には影響しません。<br>停止時に全監視機器の直近サマリー（到達率・パケロス率・ジッター・最大瞬断時間）が CSV に追記され、ポート・Runspace が安全に解放されます。</p>
 <h2 id="sec-5">5. 設定ファイル仕様（config.json / devices.json）</h2>
 <h3><code>system/config.json</code></h3>
 <p>システム全体の監視・通知・保守パラメータ。UI設定からの変更が即座に同期・保存されます。</p>
@@ -244,7 +251,7 @@ li { margin: 4px 0; }
 <ul><li>サーバー起動時および定期サイクルにおいて、<code>Reports/</code> 直下のセッションフォルダー名（<code>yyyyMMdd_HHmmss</code>）を検証。</li><li><code>logRetentionDays</code>（デフォルト: 30日）を超過したフォルダーを再帰的に自動安全削除。</li></ul>
 <h2 id="sec-11">11. REST API エンドポイント一覧</h2>
 <div class="table-wrap"><table><thead><tr><th>メソッド</th><th>パス</th><th>説明</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/api/status</code></td><td>全デバイスの最新ステータス（Ping、遅延、パケロス率、ジッター、Tx/Rx、瞬断時間）</td></tr><tr><td><code>GET</code></td><td><code>/api/health</code></td><td>サーバーの稼働確認（Watchdog が使用）</td></tr><tr><td><code>GET</code></td><td><code>/api/devices</code></td><td>登録デバイス一覧の取得（トポロジーの接続・座標情報を含む）</td></tr><tr><td><code>POST</code></td><td><code>/api/device</code></td><td>デバイスの追加</td></tr><tr><td><code>POST</code></td><td><code>/api/device/edit</code></td><td>デバイスの編集（IP アドレスの変更を含む）</td></tr><tr><td><code>POST</code></td><td><code>/api/devices/delete</code></td><td>デバイスの削除</td></tr><tr><td><code>POST</code></td><td><code>/api/devices/positions</code></td><td>トポロジーの座標の保存</td></tr><tr><td><code>POST</code></td><td><code>/api/device/toggle</code></td><td>指定IPの監視一時停止/再開切り替え</td></tr><tr><td><code>GET</code></td><td><code>/api/config</code></td><td>システム設定（監視間隔、Pingサイズ、閾値、通知設定等）の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/config</code></td><td>システム設定の更新・保存</td></tr><tr><td><code>GET</code></td><td><code>/api/config/export</code></td><td>機器・システム設定の完全バックアップ JSON ダウンロード</td></tr><tr><td><code>POST</code></td><td><code>/api/config/import</code></td><td>バックアップ JSON のアップロード・復元適用</td></tr><tr><td><code>POST</code></td><td><code>/api/webhook/test</code></td><td>Webhook URL のテスト通知送信</td></tr><tr><td><code>POST</code></td><td><code>/api/email/test</code></td><td>メール設定のテスト送信</td></tr><tr><td><code>GET</code></td><td><code>/api/iperf</code></td><td>Iperf3 計測の開始（<code>ip</code> を指定）、状態取得（<code>action=status</code>）、停止（<code>action=stop</code>）</td></tr><tr><td><code>GET</code></td><td><code>/api/iperf/remote-log</code></td><td>UDP 計測で受け取ったサーバー側のログのダウンロード</td></tr><tr><td><code>GET</code></td><td><code>/api/mtr</code></td><td>MTR 経路診断の開始・結果取得</td></tr><tr><td><code>GET</code></td><td><code>/api/traceroute</code></td><td>このPCから機器までの経路トレース</td></tr><tr><td><code>POST</code></td><td><code>/api/device/remote-exec</code></td><td>登録機器へのリモートコマンド実行・再起動</td></tr><tr><td><code>POST</code></td><td><code>/api/device/fetch-log</code></td><td>機器ログの遠隔取得</td></tr><tr><td><code>GET</code></td><td><code>/api/scan</code></td><td>IP アドレスの範囲のスキャン（応答した機器の IP、名前、機器番号、種類の説明）</td></tr><tr><td><code>GET</code></td><td><code>/api/syslog</code></td><td>受信した Syslog / SNMP Trap の一覧</td></tr><tr><td><code>GET</code></td><td><code>/api/obr/history</code></td><td>OBR の無線履歴（グラフの点と出来事の一覧）</td></tr><tr><td><code>GET</code></td><td><code>/api/reports/export</code></td><td>点検報告書（HTML）の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/shutdown</code></td><td>監視の終了（POST のみ）</td></tr></tbody></table></div>
-<p>主なものだけを載せています。全エンドポイントの詳細は <code>system/SPECIFICATION.md</code> を参照してください。</p>
+<p>主なものだけを載せています。全エンドポイントの詳細は <code>system/docs/SPECIFICATION.md</code> を参照してください。</p>
 <h2 id="sec-12">12. セキュリティ &amp; 入力サニタイズ仕様</h2>
 <ul><li><strong>接続元の制限</strong>: このPC以外からの接続は、画面も API もすべて <code>403</code> で拒否します。</li><li><strong>合言葉による認証</strong>: <code>/api/health</code> 以外は、合言葉のない要求を <code>401</code> で拒否します。合言葉は <code>%LOCALAPPDATA%\NetworkDeviceMonitor\auth_token.txt</code> に自動で作り、<code>Start-Monitor.bat</code> がブラウザに渡します。同じPCの他の Windows ユーザーからの操作を防げます。同じユーザーで動くプログラムと管理者は防げません。</li><li><strong>外部サイトからの呼び出し拒否</strong>: <code>Origin</code> / <code>Sec-Fetch-Site</code> を確認し、監視画面以外からの API 呼び出しを <code>403</code> で拒否します。別サイトの画面への埋め込みも禁止しています。</li><li><strong>IPアドレス検証</strong>: 機器の登録と編集では、各数字が 0〜255 の範囲であることを正規表現で確かめます。</li><li><strong>Iperf3 オプションサニタイズ</strong>: 英数字・ハイフン・スペース以外の特殊記号（<code>;</code>, <code>&amp;</code>, <code>|</code>, `<code> </code> `<code> 等）を完全除去し、コマンドインジェクションを遮断。PC 内のファイルを読み書きするオプション（</code>-F<code> / </code>--logfile` など）も取り除きます。</li><li><strong>アトミックファイル書き込み</strong>: 設定ファイルの保存時は一時ファイル（<code>.tmp</code>）に書き込み完了後、<code>Move-Item -Force</code> でアトミックに差し替え（書き込み途中の破損防止）。</li></ul>
 <h2 id="sec-13">13. トラブルシューティング</h2>
