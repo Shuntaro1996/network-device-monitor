@@ -6,6 +6,17 @@
 #   接続中:  var stainfo = {ssid:"SAMPLE-AP(00:11:22:33:44:55)",chan:"6 (2.4GHz) 20MHz",signal:-47,txbitrate:"144.4 Mbit/s"};
 #   非接続:  var stainfo = {ssid:"---(---)",chan:"---",signal:0,txbitrate:"---"};
 # この行から、接続先の名前 (SSID)・チャンネル・電波の強さ・通信速度を取り出します。
+#
+# 【処理の流れ】
+#   Server.ps1 の確認スレッド (10 秒ごと) → Get-ObrWirelessStatus で OBR に問い合わせ
+#   → 待ち行列 → 記録スレッド (10 秒ごと) → Write-ObrHistoryRows で CSV に追記
+#   → 画面の「無線履歴」→ /api/obr/history → Get-ObrHistoryView で CSV を読む
+#
+# 【変更するときの注意】
+# - OBR の画面の形式が変わると、ConvertFrom-ObrStatusHtml の読み取りを直す必要があります。
+# - CSV の列の順番は、Write-ObrHistoryRows と Get-ObrHistoryView の両方で使っています。片方だけ変えないでください。
+# - ファイル名を変えるときは Get-ObrHistoryPaths だけを直します。
+# - テストは tests/Monitor.Tests.ps1 の 8c と tests/ObrScenario.Tests.ps1 です。
 
 function ConvertFrom-ObrStatusHtml {
     <#
@@ -262,6 +273,14 @@ function Get-ObrHistoryView {
         グラフの点は MaxPoints 以下に間引きます。短い電波の低下が隠れないよう、間引いた区間の最小値をその時刻で残します。
         区間内に切断があるときは、短い切断もグラフが途切れて分かるよう値なしの点にします。
         出来事は間引く前の全行で判定するので、短い切断も一覧から漏れません。
+    .PARAMETER Now
+        「今」の時刻。続いている出来事の長さの計算に使います。テストで時刻を固定するための引数です。
+    .PARAMETER StaleAfterSec
+        最後の記録がこの秒数より古ければ、確認が止まったとみなし、続いている出来事を「継続中」にしません。
+        再確認に 5 分かかるログイン失敗でも誤らないよう、5 分より長くしてください。
+    .OUTPUTS
+        rowCount (行数) / firstAt / lastAt / thinned (間引いたか) / olderDiscarded (古い記録が消えたか) /
+        points (グラフの点。t / signal / rate) / events (出来事) / eventsTotal (省略前の出来事の数) を持つハッシュテーブル。
     #>
     param(
         [Parameter(Mandatory = $true)][string]$SessionDir,
