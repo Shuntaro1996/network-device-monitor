@@ -141,6 +141,7 @@ NetworkDeviceMonitor/
 ├── 📂 【自動テスト検証部】（system/tests/ フォルダ）
 │   ├── Run-Tests.bat                  # 🧪 自動テスト一括実行ランチャー（ワンクリック実行）
 │   ├── Run-Tests.ps1                  # ⚙️ 自動テスト総合管理スクリプト（PowerShell実行用）
+│   ├── Run-InCopy.ps1                 # 🧳 一時フォルダのコピーで全テストを実行（実機の設定を使わない）
 │   ├── DeviceLog.Tests.ps1            # 📋 機器ログ取得テスト（プリセット・安全性・バッファ保護・API検証）
 │   ├── Monitor.Tests.ps1              # 🔬 ユニットテスト（個別モジュール機能検証）
 │   ├── RemoteExec.Tests.ps1           # 🔧 リモート制御テスト（SSH/WinRM/カスタム実行・タイムアウト・DPAPI暗号化・監査ログ）
@@ -190,6 +191,11 @@ NetworkDeviceMonitor/
   詳細な合否結果を表示したい場合は `-VerboseOutput` スイッチを付与します：
   ```powershell
   powershell.exe -ExecutionPolicy Bypass -File .\system\tests\Run-Tests.ps1 -VerboseOutput
+  ```
+
+- **実機の設定を使わずに実行（動作中の監視と重ねないとき）**:
+  ```powershell
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\system\tests\Run-InCopy.ps1
   ```
 
 ### テストスイート構成

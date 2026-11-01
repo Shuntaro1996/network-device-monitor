@@ -26,6 +26,7 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
   - pwsh 7 では一部が動かない（例：`Add-Type -OutputType ConsoleApplication`）。
   - PowerShell ツールは pwsh 7 で動くため、`powershell.exe` を明示的に呼ぶ。
 - 全体のテスト：`system\tests\Run-Tests.bat`。E2E のテストは標準で実行される。UI のテストは `-All` か `-IncludeUI` を付けたときだけ実行される。
+- コピーでの全テスト：`system\tests\Run-InCopy.ps1`。一時フォルダのコピーで実行し、`devices.json` と `config.json` は使わない。合否は終了コードで返す。
 - 個別のテスト：
   ```
   powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'Import-Module Pester -RequiredVersion 3.4.0; Invoke-Pester -Script system\tests\RemoteExec.Tests.ps1 -PassThru -Quiet'
