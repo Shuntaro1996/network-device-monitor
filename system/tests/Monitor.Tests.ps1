@@ -762,6 +762,32 @@ Describe "12. 長時間・高頻度稼働時のログ記録・ローテーショ
         }
     }
 
+    It "レポートの IP アドレス欄に HTML として動く文字が入っても、そのまま出力しないこと" {
+        # 画面や API は IP の形式を確認しているが、devices.json を手で書き換えると確認を通らない値も入り得る
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_ReportEscape_$(Get-Random)"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        try {
+            $badIp = '10.0.0.1<img src=x onerror=alert(1)>'
+            $sync = @{
+                SessionDir = $tempDir
+                PSScriptRoot = (Join-Path $projectRoot "system")
+                Devices = @($badIp)
+                Status = @{ $badIp = @{ status = "Success" } }
+                Stats = @{ $badIp = @{ Total = 1; Success = 1; Failed = 0; MinLat = 1; MaxLat = 1; SumLat = 1; LatCount = 1; MaxOutageSec = 0; Outage600msCount = 0; Outage5sCount = 0; JitterSum = 0; JitterCount = 1
+                        OutageEvents = @(@{ StartTime = "2026-10-27 10:00:00"; EndTime = "2026-10-27 10:00:01"; DurationMs = 1000; Category = "A" }) } }
+                DeviceName = @{ $badIp = "D" }
+                Group = @{ $badIp = "G" }
+                PollInterval = 1000
+                HighFreqTargetIps = ""
+            }
+            $html = Generate-SessionReportHtml -sync $sync -period "Session"
+            $html.Contains('<img src=x') | Should Be $false
+            $html.Contains('10.0.0.1&lt;img src=x') | Should Be $true
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It "Server.ps1 のPingループ内チェックポイント処理で重いCSV全行読み込みが排除されていること" {
         $serverRaw = Get-Content (Join-Path $projectRoot "system\Server.ps1") -Raw -Encoding UTF8
         # _checkpoint.json 保存箇所の直後に ReadAllLines による同期CSVパースが存在しないこと

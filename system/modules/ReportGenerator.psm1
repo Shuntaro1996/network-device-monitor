@@ -326,7 +326,7 @@ function Generate-SessionReportHtml {
 
         $reportRows += @"
 <tr>
-    <td><span class="color-dot" style="background-color:$color;"></span><strong>$([System.Web.HttpUtility]::HtmlEncode($dName))</strong><br><small style="color:#64748b;">$ip</small></td>
+    <td><span class="color-dot" style="background-color:$color;"></span><strong>$([System.Web.HttpUtility]::HtmlEncode($dName))</strong><br><small style="color:#64748b;">$([System.Web.HttpUtility]::HtmlEncode($ip))</small></td>
     <td>$([System.Web.HttpUtility]::HtmlEncode($dGroup))</td>
     <td><span class="status-tag $($st.ToLower())">$st</span></td>
     <td style="text-align:center; font-weight:600; color:#475569; white-space:nowrap;">$freqDisplay</td>
@@ -351,7 +351,8 @@ function Generate-SessionReportHtml {
         $basePrefix = $safeIp
         $csvPath = if ($sessionDir) { Join-Path $sessionDir "${safeIp}.csv" } else { "" }
         if ($csvPath -and -not (Test-Path $csvPath)) {
-            $altSafeIp = $ip -replace '[\.:_]', '_'
+            # $ip から直接作ると、ファイル名に使えない文字が残ったときに例外でレポート全体が止まるので、$safeIp から作る
+            $altSafeIp = $safeIp -replace '[\.:_]', '_'
             $altCsvPath = Join-Path $sessionDir "${altSafeIp}.csv"
             if (Test-Path $altCsvPath) {
                 $csvPath = $altCsvPath
@@ -458,7 +459,7 @@ function Generate-SessionReportHtml {
     <div class="device-card-header">
         <div>
             <span class="color-dot" style="background-color:$color;"></span>
-            <strong>$([System.Web.HttpUtility]::HtmlEncode($dName))</strong> <span style="font-size:11px; color:#64748b;">($ip)</span>
+            <strong>$([System.Web.HttpUtility]::HtmlEncode($dName))</strong> <span style="font-size:11px; color:#64748b;">($([System.Web.HttpUtility]::HtmlEncode($ip)))</span>
         </div>
         <span class="status-tag $($st.ToLower())">$st</span>
     </div>
@@ -500,7 +501,7 @@ function Generate-SessionReportHtml {
             $outageRows += @"
 <tr>
     <td style="text-align:center;">$evNo</td>
-    <td><strong>$([System.Web.HttpUtility]::HtmlEncode($ev.DeviceName))</strong><br><small style="color:#64748b;">$($ev.Ip)</small></td>
+    <td><strong>$([System.Web.HttpUtility]::HtmlEncode($ev.DeviceName))</strong><br><small style="color:#64748b;">$([System.Web.HttpUtility]::HtmlEncode($ev.Ip))</small></td>
     <td>$($ev.StartTime)</td>
     <td>$($ev.EndTime)</td>
     <td style="text-align:right; font-weight:700; color:#dc2626;">$($ev.DurationMs) ms</td>
@@ -636,7 +637,7 @@ function Generate-SessionReportHtml {
     <div class="device-card-header">
         <div>
             <span style="display:inline-block; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700; $protoBadge">$protoStr</span>
-            <strong style="margin-left:6px;">$([System.Web.HttpUtility]::HtmlEncode($dName))</strong> <span style="font-size:12px; color:#64748b;">($targetIp)</span>
+            <strong style="margin-left:6px;">$([System.Web.HttpUtility]::HtmlEncode($dName))</strong> <span style="font-size:12px; color:#64748b;">($([System.Web.HttpUtility]::HtmlEncode($targetIp)))</span>
         </div>
         <span style="font-size:12px; font-weight:600; color:#16a34a;">$([System.Web.HttpUtility]::HtmlEncode($summaryObj.Evaluation))</span>
     </div>
