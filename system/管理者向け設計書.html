@@ -121,7 +121,7 @@ li { margin: 4px 0; }
 <h2 id="sec-1">1. システム概要</h2>
 <p>本システムは <strong>PowerShell 5.1 / 7+ 製のマルチスレッド非同期 HTTP バックエンド</strong> と、ブラウザ上で動作する <strong>Vanilla JS + Vis-Network + Chart.js 製の軽量SPAフロントエンド</strong> で構成された、エージェントレス型のネットワーク監視・診断基盤です。</p>
 <h3>核心機能</h3>
-<ul><li><strong>デュアルレート死活監視 (Ping)</strong>: 最重要機器（最大2台）を 0.1秒、他機器を 5.0秒で並行高精度監視。</li><li><strong>通信品質解析</strong>: パケットロス率 (%)、RFC 3550 準拠ジッター (ms)、最大瞬断時間 (ms)、閾値別瞬断回数のリアルタイム算出。</li><li><strong>稼働ヒートマップ</strong>: 直近サンプリングの到達品質をカラーバーで時系列表示。</li><li><strong>外部 Webhook &amp; Web Audio 通知</strong>: Slack/Teams/Discord 等への非同期 POST およびブラウザ上での音波合成アラート。</li><li><strong>動的トポロジー可視化</strong>: 機器間リンクの障害・遅延ステータスに応じた動的カラーチェンジ。</li><li><strong>設定バックアップ &amp; リストア</strong>: 監視設定・機器情報を1つの JSON でエクスポート/インポート。</li><li><strong>自動ログローテーション &amp; パージ</strong>: 保持日数を超過した過去ログの自動削除。</li></ul>
+<ul><li><strong>デュアルレート死活監視 (Ping)</strong>: 最重要機器（最大2台）を 0.1秒、他機器を 5.0秒で並行高精度監視。</li><li><strong>通信品質解析</strong>: パケットロス率 (%)、ジッター (ms)、最大瞬断時間 (ms)、閾値別瞬断回数のリアルタイム算出。</li><li><strong>稼働ヒートマップ</strong>: 直近サンプリングの到達品質をカラーバーで時系列表示。</li><li><strong>外部 Webhook &amp; Web Audio 通知</strong>: Slack/Teams/Discord 等への非同期 POST およびブラウザ上での音波合成アラート。</li><li><strong>動的トポロジー可視化</strong>: 機器間リンクの障害・遅延ステータスに応じた動的カラーチェンジ。</li><li><strong>設定バックアップ &amp; リストア</strong>: 監視設定・機器情報を1つの JSON でエクスポート/インポート。</li><li><strong>自動ログローテーション &amp; パージ</strong>: 保持日数を超過した過去ログの自動削除。</li></ul>
 <h2 id="sec-2">2. ファイル・ディレクトリ構成</h2>
 <pre><code>NetworkDeviceMonitor/
 ├── Start-Monitor.bat              # 起動スクリプト（管理者不要）
@@ -142,6 +142,8 @@ li { margin: 4px 0; }
     ├── devices.json               # 監視対象デバイス設定（自動保存・Git の管理対象外）
     ├── devices.example.json       # devices.json の形式の見本
     ├── config.json                # システム全体設定（自動保存・Git の管理対象外）
+    ├── modules/                   # 機能ごとのモジュール
+    ├── tests/                     # 自動テスト（Run-Tests.bat / Run-InCopy.ps1）
     ├── iperf3.18_64/              # Iperf3バイナリ（同梱）
     └── public/                    # フロントエンド静的アセット
         ├── index.html             # メインUI（日本語化・グラスモーフィズム）
@@ -154,7 +156,7 @@ li { margin: 4px 0; }
 <div class="table-wrap"><table><thead><tr><th>項目</th><th>要件</th></tr></thead><tbody><tr><td><strong>OS</strong></td><td>Windows 10 / 11 / Windows Server 2016 以降</td></tr><tr><td><strong>PowerShell</strong></td><td>Windows PowerShell 5.1 または PowerShell 7+</td></tr><tr><td><strong>ブラウザ</strong></td><td>Google Chrome / Microsoft Edge / Mozilla Firefox（最新版）</td></tr><tr><td><strong>通信ポート</strong></td><td>TCP <code>8081</code>（HTTP API・Web画面用）</td></tr><tr><td><strong>ネットワーク</strong></td><td>監視対象機器への ICMP Echo（Ping）疎通</td></tr><tr><td><strong>SNMP (任意)</strong></td><td>対象機器で SNMP v2c または v3 が有効であること</td></tr><tr><td><strong>SNMPモジュール</strong></td><td><code>Install-Module SNMP -Scope CurrentUser -Force</code> でインストール推奨</td></tr></tbody></table></div>
 <h2 id="sec-4">4. 起動・停止手順</h2>
 <h3>起動</h3>
-<p><code>Start-Monitor.bat</code> をダブルクリックします。内部では <code>system/Watchdog.ps1</code> が <code>system/Server.ps1</code> を起動し、動作を見守ります。<br>サーバー初期化後、自動的にブラウザで <code>http://localhost:8081</code> が開きます。</p>
+<p><code>Start-Monitor.bat</code> をダブルクリックします。内部では <code>system/Watchdog.ps1 -RunPreflight -LaunchBrowser</code> が事前検査のあと <code>system/Server.ps1</code> を起動し、動作を見守ります。<br>サーバー初期化後、自動的にブラウザで <code>http://localhost:8081</code> が開きます。</p>
 <h3>停止</h3>
 <p>画面の <strong>「監視終了」</strong> ボタンを押すか、<code>Stop-All.bat</code> を実行します。<br>停止時に全監視機器の直近サマリー（到達率・パケロス率・ジッター・最大瞬断時間）が CSV に追記され、ポート・Runspace が安全に解放されます。</p>
 <h2 id="sec-5">5. 設定ファイル仕様（config.json / devices.json）</h2>
@@ -214,10 +216,9 @@ li { margin: 4px 0; }
 <h3>① パケットロス率 (%)</h3>
 <ul><li>直近 30 サンプリングの成否履歴（<code>RecentResults</code>）を保持。</li></ul>
 <pre><code>パケットロス率 (%) = 失敗した回数 ÷ 確認した回数 × 100</code></pre>
-<h3>② ジッター（RFC 3550 準拠）</h3>
-<ul><li>直近の連続したPing応答遅延の差分絶対値から、指数平滑移動平均を用いてジッター J を算出：</li></ul>
-<pre><code>D = |今回の遅延 - 前回の遅延|
-J = J + (D - J) ÷ 16</code></pre>
+<h3>② ジッター</h3>
+<ul><li>直近 30 回の応答遅延について、隣り合う値の差の絶対値を平均して算出します：</li></ul>
+<pre><code>ジッター = 隣り合う遅延の差の絶対値の合計 ÷ (遅延の数 - 1)</code></pre>
 <h3>③ 瞬断最大時間 &amp; 閾値カウント</h3>
 <ul><li>連続オフライン期間の経過時間を秒単位（0.1s精度）でトラッキング。</li><li>機器がオンラインに復帰した瞬間に、その停止時間が <code>outageThresh1Ms</code>（例: 600ms）または <code>outageThresh2Ms</code>（例: 5000ms）を超えていた場合に該当カウンターをインクリメント。</li></ul>
 <h2 id="sec-9">9. 外部通知 &amp; Web Audio 設計</h2>
@@ -226,10 +227,13 @@ J = J + (D - J) ÷ 16</code></pre>
 <pre><code>{
   "text": "🔴 **機器オフライン検知**\n・対象機器: コアスイッチ (192.168.10.1)\n・発生時刻: 2026-08-17 19:30:00\n・詳細: 連続タイムアウト発生",
   "content": "🔴 **機器オフライン検知**...",
+  "title": "🔴 【障害発生】機器オフライン検知",
+  "severity": "CRITICAL",
   "deviceName": "コアスイッチ",
   "ip": "192.168.10.1",
   "eventType": "offline",
-  "timestamp": "2026-08-17 19:30:00"
+  "timestamp": "2026-08-17 19:30:00",
+  "details": "連続タイムアウト発生"
 }</code></pre>
 <h3>② Web Audio API 音声合成エンジン（外部音声ファイル不要）</h3>
 <ul><li>ブラウザの <code>AudioContext</code> を使用し、オシレーター（発振器）と GainNode で警告音を直接生成：<ul><li><strong>障害時（Error）</strong>: 880Hz → 440Hz → 880Hz の鋸歯状波（Sawtooth）高低ビープ音。</li><li><strong>警告時（Warning）</strong>: 587.33Hz → 880Hz の正弦波（Sine）ソフトチャイム。</li></ul></li></ul>
@@ -239,12 +243,12 @@ J = J + (D - J) ÷ 16</code></pre>
 <h3>② ログ自動パージ（<code>Purge-OldReports</code>）</h3>
 <ul><li>サーバー起動時および定期サイクルにおいて、<code>Reports/</code> 直下のセッションフォルダー名（<code>yyyyMMdd_HHmmss</code>）を検証。</li><li><code>logRetentionDays</code>（デフォルト: 30日）を超過したフォルダーを再帰的に自動安全削除。</li></ul>
 <h2 id="sec-11">11. REST API エンドポイント一覧</h2>
-<div class="table-wrap"><table><thead><tr><th>メソッド</th><th>パス</th><th>説明</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/api/status</code></td><td>全デバイスの最新ステータス（Ping、遅延、パケロス率、ジッター、Tx/Rx、瞬断時間）</td></tr><tr><td><code>GET</code></td><td><code>/api/devices</code></td><td>登録デバイス一覧の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/devices</code></td><td>デバイスの追加・更新・削除</td></tr><tr><td><code>POST</code></td><td><code>/api/device/toggle</code></td><td>指定IPの監視一時停止/再開切り替え</td></tr><tr><td><code>GET</code></td><td><code>/api/config</code></td><td>システム設定（監視間隔、Pingサイズ、閾値、通知設定等）の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/config</code></td><td>システム設定の更新・保存</td></tr><tr><td><code>GET</code></td><td><code>/api/config/export</code></td><td>機器・システム設定の完全バックアップ JSON ダウンロード</td></tr><tr><td><code>POST</code></td><td><code>/api/config/import</code></td><td>バックアップ JSON のアップロード・復元適用</td></tr><tr><td><code>POST</code></td><td><code>/api/webhook/test</code></td><td>Webhook URL のテスト通知送信</td></tr><tr><td><code>GET</code></td><td><code>/api/topology</code></td><td>トポロジー接続・座標情報の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/topology</code></td><td>トポロジー接続・座標情報の保存</td></tr><tr><td><code>GET</code></td><td><code>/api/iperf</code></td><td>Iperf3 計測の開始 (<code>action=start</code>) および状態取得 (<code>action=status</code>)</td></tr><tr><td><code>GET</code></td><td><code>/api/mtr</code></td><td>MTR 経路診断の開始・結果取得</td></tr><tr><td><code>GET</code></td><td><code>/api/obr/history</code></td><td>OBR の無線履歴（グラフの点と出来事の一覧）</td></tr></tbody></table></div>
-<p>全エンドポイントの詳細は <code>system/SPECIFICATION.md</code> を参照してください。</p>
+<div class="table-wrap"><table><thead><tr><th>メソッド</th><th>パス</th><th>説明</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/api/status</code></td><td>全デバイスの最新ステータス（Ping、遅延、パケロス率、ジッター、Tx/Rx、瞬断時間）</td></tr><tr><td><code>GET</code></td><td><code>/api/health</code></td><td>サーバーの稼働確認（Watchdog が使用）</td></tr><tr><td><code>GET</code></td><td><code>/api/devices</code></td><td>登録デバイス一覧の取得（トポロジーの接続・座標情報を含む）</td></tr><tr><td><code>POST</code></td><td><code>/api/device</code></td><td>デバイスの追加</td></tr><tr><td><code>POST</code></td><td><code>/api/device/edit</code></td><td>デバイスの編集（IP アドレスの変更を含む）</td></tr><tr><td><code>POST</code></td><td><code>/api/devices/delete</code></td><td>デバイスの削除</td></tr><tr><td><code>POST</code></td><td><code>/api/devices/positions</code></td><td>トポロジーの座標の保存</td></tr><tr><td><code>POST</code></td><td><code>/api/device/toggle</code></td><td>指定IPの監視一時停止/再開切り替え</td></tr><tr><td><code>GET</code></td><td><code>/api/config</code></td><td>システム設定（監視間隔、Pingサイズ、閾値、通知設定等）の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/config</code></td><td>システム設定の更新・保存</td></tr><tr><td><code>GET</code></td><td><code>/api/config/export</code></td><td>機器・システム設定の完全バックアップ JSON ダウンロード</td></tr><tr><td><code>POST</code></td><td><code>/api/config/import</code></td><td>バックアップ JSON のアップロード・復元適用</td></tr><tr><td><code>POST</code></td><td><code>/api/webhook/test</code></td><td>Webhook URL のテスト通知送信</td></tr><tr><td><code>POST</code></td><td><code>/api/email/test</code></td><td>メール設定のテスト送信</td></tr><tr><td><code>GET</code></td><td><code>/api/iperf</code></td><td>Iperf3 計測の開始（<code>ip</code> を指定）、状態取得（<code>action=status</code>）、停止（<code>action=stop</code>）</td></tr><tr><td><code>GET</code></td><td><code>/api/mtr</code></td><td>MTR 経路診断の開始・結果取得</td></tr><tr><td><code>GET</code></td><td><code>/api/traceroute</code></td><td>このPCから機器までの経路トレース</td></tr><tr><td><code>POST</code></td><td><code>/api/device/remote-exec</code></td><td>登録機器へのリモートコマンド実行・再起動</td></tr><tr><td><code>POST</code></td><td><code>/api/device/fetch-log</code></td><td>機器ログの遠隔取得</td></tr><tr><td><code>GET</code></td><td><code>/api/syslog</code></td><td>受信した Syslog / SNMP Trap の一覧</td></tr><tr><td><code>GET</code></td><td><code>/api/obr/history</code></td><td>OBR の無線履歴（グラフの点と出来事の一覧）</td></tr><tr><td><code>GET</code></td><td><code>/api/reports/export</code></td><td>点検報告書（HTML）の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/shutdown</code></td><td>監視の終了（POST のみ）</td></tr></tbody></table></div>
+<p>主なものだけを載せています。全エンドポイントの詳細は <code>system/SPECIFICATION.md</code> を参照してください。</p>
 <h2 id="sec-12">12. セキュリティ &amp; 入力サニタイズ仕様</h2>
-<ul><li><strong>接続元の制限</strong>: このPC以外からの接続は、画面も API もすべて <code>403</code> で拒否します。同じPC内の他のプログラムや他のユーザーは区別できません（認証は未実装）。</li><li><strong>外部サイトからの呼び出し拒否</strong>: <code>Origin</code> / <code>Sec-Fetch-Site</code> を確認し、監視画面以外からの API 呼び出しを <code>403</code> で拒否します。別サイトの画面への埋め込みも禁止しています。</li><li><strong>IPアドレス検証</strong>: IPv4 正規表現 <code>^\d{1,3}(\.\d{1,3}){3}$</code> による厳格なオクテット範囲検証。</li><li><strong>Iperf3 オプションサニタイズ</strong>: 英数字・ハイフン・スペース以外の特殊記号（<code>;</code>, <code>&amp;</code>, <code>|</code>, `<code> </code> `<code> 等）を完全除去し、コマンドインジェクションを遮断。PC 内のファイルを読み書きするオプション（</code>-F<code> / </code>--logfile` など）も取り除きます。</li><li><strong>アトミックファイル書き込み</strong>: 設定ファイルの保存時は一時ファイル（<code>.tmp</code>）に書き込み完了後、<code>Move-Item -Force</code> でアトミックに差し替え（書き込み途中の破損防止）。</li></ul>
+<ul><li><strong>接続元の制限</strong>: このPC以外からの接続は、画面も API もすべて <code>403</code> で拒否します。同じPC内の他のプログラムや他のユーザーは区別できません（認証は未実装）。</li><li><strong>外部サイトからの呼び出し拒否</strong>: <code>Origin</code> / <code>Sec-Fetch-Site</code> を確認し、監視画面以外からの API 呼び出しを <code>403</code> で拒否します。別サイトの画面への埋め込みも禁止しています。</li><li><strong>IPアドレス検証</strong>: 機器の登録と編集では、各数字が 0〜255 の範囲であることを正規表現で確かめます。</li><li><strong>Iperf3 オプションサニタイズ</strong>: 英数字・ハイフン・スペース以外の特殊記号（<code>;</code>, <code>&amp;</code>, <code>|</code>, `<code> </code> `<code> 等）を完全除去し、コマンドインジェクションを遮断。PC 内のファイルを読み書きするオプション（</code>-F<code> / </code>--logfile` など）も取り除きます。</li><li><strong>アトミックファイル書き込み</strong>: 設定ファイルの保存時は一時ファイル（<code>.tmp</code>）に書き込み完了後、<code>Move-Item -Force</code> でアトミックに差し替え（書き込み途中の破損防止）。</li></ul>
 <h2 id="sec-13">13. トラブルシューティング</h2>
-<div class="table-wrap"><table><thead><tr><th>現象</th><th>想定原因</th><th>対処方法</th></tr></thead><tbody><tr><td><strong>起動時にポート重複エラー</strong></td><td>ポート 8081 が他プロセスで使用中</td><td><code>Server.ps1</code> 先頭の <code>$port = 8081</code> を別のポートに変更</td></tr><tr><td><strong>Ping が通らない</strong></td><td>対象機器の ICMP 応答が無効</td><td>対象機器のファイアウォールで ICMP Echo を許可</td></tr><tr><td><strong>Webhook が届かない</strong></td><td>URL 誤りまたはネットワーク制限</td><td>設定の「🔔 テスト送信」でエラーメッセージを確認</td></tr><tr><td><strong>バックアップ復元に失敗</strong></td><td>JSON フォーマット不正</td><td>エクスポート機能で生成された正規の JSON ファイルか確認</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>現象</th><th>想定原因</th><th>対処方法</th></tr></thead><tbody><tr><td><strong>起動時にポート重複エラー</strong></td><td>ポート 8081 が他プロセスで使用中</td><td>ポートを使っているソフトを止める。別のポートで動かすときは <code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File system\Server.ps1 -Port 8082</code> で直接起動する（<code>Watchdog.ps1</code> による見守りはなくなる）</td></tr><tr><td><strong>Ping が通らない</strong></td><td>対象機器の ICMP 応答が無効</td><td>対象機器のファイアウォールで ICMP Echo を許可</td></tr><tr><td><strong>Webhook が届かない</strong></td><td>URL 誤りまたはネットワーク制限</td><td>設定の「🔔 テスト送信」でエラーメッセージを確認</td></tr><tr><td><strong>バックアップ復元に失敗</strong></td><td>JSON フォーマット不正</td><td>エクスポート機能で生成された正規の JSON ファイルか確認</td></tr></tbody></table></div>
 <h2 id="sec-14">14. 既知の制限事項 &amp; 大規模監視設計</h2>
 <ol><li><strong>最大50台規模のスケーラビリティ対応</strong>: 非同期並列 Ping（<code>SendPingAsync</code>）および 10秒バッファリング一括書込により、最大50台規模の監視時でも低CPU負荷・低ディスクIOで安定稼働します。</li><li><strong>超高頻度モード（0.1s）の対象台数</strong>: PC負荷および通信帯域の最適化のため、0.1s 監視対象は最大 2 台までとなります（他機器は 5.0s 間隔でバックグラウンド継続）。</li><li><strong>セッション終了時の瞬断扱い</strong>: セッション終了時点で継続中の瞬断は「瞬断中時間」として記録され、復帰回数カウントには含まれません。</li></ol>
 </main>
