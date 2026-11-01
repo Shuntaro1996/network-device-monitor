@@ -424,7 +424,7 @@ ContentsStart("Connecting Wireless LAN Access Point Information");
                 @{ ip = '10.0.0.1'; name = 'A'; state = 'Unreachable'; checkedAt = '2026-10-30 10:02:50' }
             )
             Write-ObrHistoryRows -SessionDir $dir -Rows $rows | Should Be $true
-            $view = Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.1'
+            $view = Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.1' -Now ([datetime]'2026-10-30 10:02:50')
             $view.rowCount | Should Be 7
             $view.thinned | Should Be $false
             $view.firstAt | Should Be '2026-10-30 10:00:00'
@@ -466,8 +466,71 @@ ContentsStart("Connecting Wireless LAN Access Point Information");
             $view.thinned | Should Be $true
             (@($view.points).Count -le 100) | Should Be $true
             (@($view.points | Where-Object { $_.signal -eq -90 }).Count) | Should Be 1
+            # 電波の低下は、区間の始めではなく実際に下がった時刻で残る
+            @($view.points | Where-Object { $_.signal -eq -90 })[0].t | Should Be $start.AddSeconds(15000).ToString('yyyy-MM-dd HH:mm:ss')
+            # 短い切断もグラフが途切れるよう、値なしの点として実際の時刻で残る
+            $gaps = @($view.points | Where-Object { $null -eq $_.signal })
+            $gaps.Count | Should Be 1
+            $gaps[0].t | Should Be $start.AddSeconds(20010).ToString('yyyy-MM-dd HH:mm:ss')
             (@($view.events | ForEach-Object { $_.type }) -join ',') | Should Be 'disconnected,recovered'
             $view.lastAt | Should Be $start.AddSeconds(29990).ToString('yyyy-MM-dd HH:mm:ss')
+        } finally {
+            Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "記録が止まった出来事は継続中とせず、続いている出来事は今までの長さを返すこと" {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_ObrView_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $rows = @(@{ ip = '10.0.0.5'; name = 'E'; state = 'LoginFailed'; checkedAt = '2026-10-30 10:00:00' })
+            Write-ObrHistoryRows -SessionDir $dir -Rows $rows | Should Be $true
+            $recent = Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.5' -Now ([datetime]'2026-10-30 10:04:00')
+            $recent.events[0].ongoing | Should Be $true
+            $recent.events[0].durationSec | Should Be 240
+            $stale = Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.5' -Now ([datetime]'2026-10-30 12:00:00')
+            $stale.events[0].ongoing | Should Be $false
+            $stale.events[0].durationSec | Should Be 0
+        } finally {
+            Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "IP アドレスを変えても履歴を引き継ぎ、変更先のファイルは上書きしないこと" {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_ObrView_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $row = @{ ip = '10.0.0.6'; name = 'F'; state = 'Disconnected'; checkedAt = '2026-10-30 10:00:00' }
+            Write-ObrHistoryRows -SessionDir $dir -Rows @($row) | Should Be $true
+            Rename-ObrHistoryFiles -SessionDir $dir -OldIp '10.0.0.6' -NewIp '10.0.0.7'
+            (Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.7').rowCount | Should Be 1
+            (Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.6').rowCount | Should Be 0
+
+            Write-ObrHistoryRows -SessionDir $dir -Rows @($row) | Should Be $true
+            Rename-ObrHistoryFiles -SessionDir $dir -OldIp '10.0.0.6' -NewIp '10.0.0.7'
+            (Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.7').rowCount | Should Be 1
+            (Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.6').rowCount | Should Be 1
+        } finally {
+            Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "2 回目の切り替えで古い記録が消えたら olderDiscarded で知らせること" {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "NDM_ObrView_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $paths = Get-ObrHistoryPaths -SessionDir $dir -Ip '10.0.0.8'
+            $row = @{ ip = '10.0.0.8'; name = 'G'; state = 'Disconnected'; checkedAt = '2026-10-30 10:00:00' }
+            $fillTo10Mb = { $s = [System.IO.File]::OpenWrite($paths.Current); try { $s.SetLength(10MB + 1) } finally { $s.Dispose() } }
+            Write-ObrHistoryRows -SessionDir $dir -Rows @($row) | Should Be $true
+            (Get-ObrHistoryView -SessionDir $dir -Ip '10.0.0.8').olderDiscarded | Should Be $false
+            & $fillTo10Mb
+            Write-ObrHistoryRows -SessionDir $dir -Rows @($row) | Should Be $true
+            (Test-Path -LiteralPath $paths.Rotated) | Should Be $true
+            (Test-Path -LiteralPath $paths.Discarded) | Should Be $false
+            & $fillTo10Mb
+            Write-ObrHistoryRows -SessionDir $dir -Rows @($row) | Should Be $true
+            (Test-Path -LiteralPath $paths.Discarded) | Should Be $true
         } finally {
             Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -527,11 +590,10 @@ Describe "9. システム前提環境・モジュール診断 (Common.psm1 / Tes
 }
 
 Describe "10. トポロジー描画強化・UIアセット整合性検証" {
-    It "devices.json が有効な JSON 配列であり、必須属性が含まれていること" {
-        $devicesPath = Join-Path $projectRoot "system\devices.json"
+    It "devices.example.json が有効な JSON 配列であり、必須属性が含まれていること" {
+        $devicesPath = Join-Path $projectRoot "system\devices.example.json"
         (Test-Path $devicesPath) | Should Be $true
-        $json = Get-Content $devicesPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        $json | Should Not BeNullOrEmpty
+        $json = @(Get-Content $devicesPath -Raw -Encoding UTF8 | ConvertFrom-Json)
         $json.Count | Should BeGreaterThan 0
         $first = $json[0]
         $first.ip | Should Not BeNullOrEmpty
@@ -753,6 +815,12 @@ Describe "14. このPC以外からの接続拒否と画面の埋め込み防止 
 
     It "アドレスが分からないときは拒否されること" {
         Test-ClientAddressAllowed -Address $null | Should Be $false
+    }
+
+    It "許可していないモジュールはインストールしないこと" {
+        $result = Install-PrerequisiteModule -moduleName "Some-Other-Module"
+        $result.success | Should Be $false
+        $result.error | Should Match "not allowed"
     }
 
     It "Server.ps1 が CSRF 判定より前に接続元を確認し、保護ヘッダーを付けること" {

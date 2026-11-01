@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Third-Party Software Notices</title>
+<style>
+:root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --text: #1c2430;
+    --muted: #5a6675;
+    --line: #dfe3e9;
+    --accent: #1d5fbf;
+    --code-bg: #eef1f5;
+    --quote-bg: #eef4fc;
+    --zebra: #f8f9fb;
+    color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #12161c;
+        --surface: #1a2028;
+        --text: #e4e8ee;
+        --muted: #a0abb9;
+        --line: #333c48;
+        --accent: #7fb2f5;
+        --code-bg: #252c36;
+        --quote-bg: #1c2a3c;
+        --zebra: #1f262f;
+        color-scheme: dark;
+    }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Yu Gothic UI", "Meiryo", "Hiragino Sans", sans-serif;
+    font-size: 16px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+}
+.cover {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 28px 32px;
+}
+.cover h1 { margin: 0; font-size: 1.7rem; line-height: 1.4; }
+.audience { margin: 8px 0 0; color: var(--muted); }
+.layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 32px;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 24px 32px 64px;
+}
+.toc { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow-y: auto; font-size: 0.875rem; line-height: 1.5; }
+.toc summary { cursor: pointer; font-weight: 700; padding: 4px 0 8px; }
+.toc ol { margin: 0; padding-left: 1.6em; }
+.toc li { margin: 6px 0; }
+.toc a { color: var(--text); text-decoration: none; }
+.toc a:hover, .toc a.current { color: var(--accent); text-decoration: underline; }
+.toc a.current { font-weight: 700; }
+main { min-width: 0; max-width: 960px; }
+main > hr { display: none; }
+h2 { margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--line); font-size: 1.4rem; line-height: 1.45; }
+main > h2:first-child { margin-top: 0; }
+h3 { margin: 32px 0 12px; font-size: 1.15rem; line-height: 1.5; }
+h4 { margin: 24px 0 8px; font-size: 1rem; line-height: 1.5; }
+a { color: var(--accent); }
+code { background: var(--code-bg); border-radius: 4px; padding: 0.1em 0.35em; font-family: "Cascadia Mono", Consolas, "MS Gothic", monospace; font-size: 0.88em; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; overflow-wrap: normal; white-space: pre; }
+blockquote { margin: 16px 0; padding: 10px 16px; background: var(--quote-bg); border-left: 4px solid var(--accent); border-radius: 0 6px 6px 0; }
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+.table-wrap { overflow-x: auto; margin: 16px 0; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: 0.92rem; line-height: 1.65; }
+th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); white-space: nowrap; }
+tbody tr:nth-child(even) { background: var(--zebra); }
+li { margin: 4px 0; }
+.to-top { position: fixed; right: 20px; bottom: 20px; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--text); font-size: 1.1rem; cursor: pointer; display: none; }
+.to-top.show { display: block; }
+@media (max-width: 900px) {
+    .cover { padding: 20px 16px; }
+    .cover h1 { font-size: 1.35rem; }
+    .layout { display: block; padding: 16px 16px 72px; }
+    .toc { position: static; max-height: none; margin-bottom: 24px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+    th { white-space: normal; }
+}
+@media print {
+    :root { --bg: #fff; --surface: #fff; --text: #000; --muted: #333; --line: #999; --accent: #000; --code-bg: #f2f2f2; --quote-bg: #f2f2f2; --zebra: #fff; color-scheme: light; }
+    .layout { display: block; padding: 0; max-width: none; }
+    .toc { position: static; max-height: none; overflow: visible; page-break-after: always; font-size: 0.95rem; }
+    .to-top { display: none !important; }
+    .cover { padding: 0 0 12px; }
+    main { max-width: none; }
+    h2 { page-break-before: always; margin-top: 0; }
+    h2, h3, h4 { page-break-after: avoid; }
+    pre, blockquote, tr { page-break-inside: avoid; }
+    pre { white-space: pre-wrap; }
+    pre code { white-space: pre-wrap; }
+}
+</style>
+</head>
+<body>
+<header class="cover">
+<h1>Third-Party Software Notices</h1>
+
+</header>
+<div class="layout">
+<nav class="toc" aria-label="Contents"><details open>
+<summary>Contents</summary>
+<ol><li><a href="#sec-1">iperf3 (<code>iperf3.exe</code>)</a></li><li><a href="#sec-2">Cygwin Runtime (<code>cygwin1.dll</code>)</a></li><li><a href="#sec-3">OpenSSL (<code>cygcrypto-3.dll</code>)</a></li><li><a href="#sec-4">zlib (<code>cygz.dll</code>)</a></li></ol>
+</details></nav>
+<main>
+<p>The <code>system/iperf3.18_64</code> directory contains pre-built binary files for Windows (64-bit) of <strong>iperf3 v3.18</strong><br>and its runtime dependencies. These binaries are redistributed under the terms of<br>their respective open-source licenses as described below.</p>
+<blockquote><p><strong>Note:</strong> ESnet (the official iperf3 maintainer) does not distribute pre-built binaries. This is a community/third-party build. Users may also build iperf3 from source: <a href="https://github.com/esnet/iperf" target="_blank" rel="noopener noreferrer">https://github.com/esnet/iperf</a></p></blockquote>
+<h2 id="sec-1">1. iperf3 (<code>iperf3.exe</code>)</h2>
+<p><strong>License:</strong> BSD 3-Clause (with additional clause for Enhancements)<br><strong>Source:</strong> <a href="https://github.com/esnet/iperf" target="_blank" rel="noopener noreferrer">https://github.com/esnet/iperf</a></p>
+<pre><code>iperf, Copyright (c) 2014-2026, The Regents of the University of California,
+through Lawrence Berkeley National Laboratory (subject to receipt of any
+required approvals from the U.S. Dept. of Energy).  All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+(1) Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+
+(2) Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation
+and/or other materials provided with the distribution.
+
+(3) Neither the name of the University of California, Lawrence Berkeley
+National Laboratory, U.S. Dept. of Energy nor the names of its contributors
+may be used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+You are under no obligation whatsoever to provide any bug fixes, patches, or
+upgrades to the features, functionality or performance of the source code
+("Enhancements") to anyone; however, if you choose to make your Enhancements
+available either publicly, or directly to Lawrence Berkeley National
+Laboratory, without imposing a separate written license agreement for such
+Enhancements, then you hereby grant the following license: a non-exclusive,
+royalty-free perpetual license to install, use, modify, prepare derivative
+works, incorporate into other computer software, distribute, and sublicense
+such enhancements or derivative works thereof, in binary and source code form.</code></pre>
+<h3>cJSON component (embedded in iperf3)</h3>
+<pre><code>Copyright (c) 2009-2017 Dave Gamble and cJSON contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</code></pre>
+<h2 id="sec-2">2. Cygwin Runtime (<code>cygwin1.dll</code>)</h2>
+<p><strong>License:</strong> GNU Lesser General Public License v3.0 or later (LGPL-3.0+)<br><strong>Copyright:</strong> Red Hat, Inc. and Cygwin Contributors<br><strong>Source:</strong> <a href="https://cygwin.com/git.html" target="_blank" rel="noopener noreferrer">https://cygwin.com/git.html</a><br><strong>Full license text:</strong> <a href="https://www.gnu.org/licenses/lgpl-3.0.html" target="_blank" rel="noopener noreferrer">https://www.gnu.org/licenses/lgpl-3.0.html</a></p>
+<p><code>cygwin1.dll</code> is distributed as a <strong>shared library (DLL)</strong>. In accordance with<br>the LGPL, users may replace this library with a compatible version of their<br>choosing. The Cygwin source code is available at the URL above.</p>
+<h2 id="sec-3">3. OpenSSL (<code>cygcrypto-3.dll</code>)</h2>
+<p><strong>License:</strong> Apache License 2.0<br><strong>Copyright:</strong> 1998-2024 The OpenSSL Project Authors<br><strong>Source:</strong> <a href="https://github.com/openssl/openssl" target="_blank" rel="noopener noreferrer">https://github.com/openssl/openssl</a><br><strong>Full license text:</strong> <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener noreferrer">https://www.apache.org/licenses/LICENSE-2.0</a></p>
+<pre><code>Copyright (c) 1998-2024 The OpenSSL Project Authors
+Copyright (c) 1995-1998 Eric A. Young, Tim J. Hudson
+All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.</code></pre>
+<h2 id="sec-4">4. zlib (<code>cygz.dll</code>)</h2>
+<p><strong>License:</strong> zlib License<br><strong>Copyright:</strong> 1995-2024 Jean-loup Gailly and Mark Adler<br><strong>Source:</strong> <a href="https://github.com/madler/zlib" target="_blank" rel="noopener noreferrer">https://github.com/madler/zlib</a></p>
+<pre><code>Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not
+   be misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.</code></pre>
+</main>
+</div>
+<script>
+// 読んでいる章を目次で強調し、ページ先頭へ戻るボタンを出す (印刷やスクリプト無効でも本文は読める)
+(function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+    var targets = links.map(function (a) {
+        return { link: a, el: document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))) };
+    }).filter(function (t) { return t.el; });
+    var topBtn = document.createElement('button');
+    topBtn.className = 'to-top';
+    topBtn.type = 'button';
+    topBtn.textContent = '↑';
+    topBtn.title = 'ページの先頭へ';
+    topBtn.setAttribute('aria-label', 'ページの先頭へ');
+    topBtn.addEventListener('click', function () { window.scrollTo(0, 0); });
+    document.body.appendChild(topBtn);
+
+    function update() {
+        var current = null;
+        targets.forEach(function (t) { if (t.el.getBoundingClientRect().top <= 80) current = t; });
+        links.forEach(function (a) { a.classList.remove('current'); });
+        if (current) current.link.classList.add('current');
+        topBtn.classList.toggle('show', window.scrollY > 600);
+    }
+    window.addEventListener('scroll', update, { passive: true });
+    update();
+
+    // スマートフォンの幅では目次を閉じ、広い幅では開いておく (画面の幅が変わったときも合わせる)
+    var narrow = window.matchMedia('(max-width: 900px)');
+    function syncToc() { document.querySelector('.toc details').open = !narrow.matches; }
+    narrow.addEventListener('change', syncToc);
+    syncToc();
+})();
+</script>
+</body>
+</html>

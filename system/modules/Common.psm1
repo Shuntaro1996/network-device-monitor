@@ -783,6 +783,10 @@ function Install-PrerequisiteModule {
         指定された PowerShell モジュールをインストールします。
     #>
     param([string]$moduleName = "SNMP")
+    # インストールすると中のプログラムが動かせるようになるので、このアプリで必要なものだけを許可する
+    if ($moduleName -notin @("SNMP")) {
+        return @{ success = $false; error = "Module '$moduleName' is not allowed." }
+    }
     try {
         # NuGet パッケージプロバイダーの確認・導入
         $nuGet = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue

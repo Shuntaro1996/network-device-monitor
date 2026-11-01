@@ -115,9 +115,10 @@ NetworkDeviceMonitor/
 │   ├── Watchdog.ps1                   # 監視サーバー外形死活監視＆自己治癒（自動再起動）
 │   ├── Check-Prerequisites.ps1        # 前提モジュール自動検査・インストール
 │   ├── Ensure-Utf8Bom.ps1             # PowerShell 5.1 文字化け防止（UTF-8 BOM）検証ツール
-│   ├── config.json                    # システム全体設定ファイル
-│   ├── devices.json                   # 監視対象デバイス設定ファイル
-│   ├── README.md                      # 管理者・開発者向け詳細設計書
+│   ├── config.json                    # システム全体設定ファイル（Git の管理対象外）
+│   ├── devices.json                   # 監視対象デバイス設定ファイル（社内の機器情報が入るので Git の管理対象外）
+│   ├── devices.example.json           # devices.json の形式の見本
+│   ├── 管理者向け設計書.html            # 管理者・開発者向け詳細設計書
 │   ├── SPECIFICATION.md               # システム機能仕様書
 │   ├── modules/                       # バックエンド機能モジュール群
 │   │   ├── Common.psm1                # 共通処理・Runspace生成・設定JSON暗号化保存（DPAPI）
@@ -128,9 +129,10 @@ NetworkDeviceMonitor/
 │   │   ├── AlertManager.psm1          # Webhook通知・音声アラート・消音タイマー管理
 │   │   └── IperfRunner.psm1           # 帯域計測（iperf3）実行管理
 │   ├── backups/                       # 機器構成・設定の自動スナップショット退避先（最新20世代）
-│   ├── iperf3.18_64/                  # iperf3 実行バイナリ & NOTICE.md
+│   ├── iperf3.18_64/                  # iperf3 実行バイナリ
 │   └── public/                        # フロントエンド静的アセット (SPA)
 │       ├── index.html                 # メインSPA画面（リモート操作・二重確認モーダル搭載）
+│       ├── third-party-notices.html   # 同梱ソフトウェアのライセンス表記
 │       ├── style.css                  # カスタムスタイルシート（レスポンシブ・警告スタイル・ターミナルコンソール）
 │       ├── app.js                     # UI制御・Chart.jsグラフ描画・リモート操作制御・切断復旧ハンドラー
 │       ├── chart.js                   # チャート描画ライブラリ
@@ -212,7 +214,8 @@ NetworkDeviceMonitor/
 
 * **運用者・一般ユーザー向け操作マニュアル**: [利用手順書.html](利用手順書.html)
   - 初心者・運用者向けに **専門用語（Runspace、Pester、ジッター、E2E、AST構文解析など）の平易なやさしい解説** を掲載しています。
-* **管理者・開発者向け詳細設計書**: [system/README.md](system/README.md)
+* **管理者・開発者向け詳細設計書**: [system/管理者向け設計書.html](system/管理者向け設計書.html)
+* **同梱ソフトウェアのライセンス表記**: [system/public/third-party-notices.html](system/public/third-party-notices.html)
 * **機能詳細仕様書**: [system/SPECIFICATION.md](system/SPECIFICATION.md)
 
 ---

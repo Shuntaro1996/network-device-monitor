@@ -133,6 +133,15 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/'/g, '&#039;');
     }
 
+    // グラフの文字と目盛り線の色を、今の画面テーマ (昼・夜) に合わせて返す
+    function getChartThemeColors() {
+        const isDay = document.documentElement.getAttribute('data-theme') === 'day';
+        return {
+            textColor: isDay ? '#0f172a' : '#f8fafc',
+            gridColor: isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)'
+        };
+    }
+
     // リンク先として使ってよいURLだけを返す (javascript: など、クリックで任意の処理が動くURLは無効にする)
     // 「\\サーバー\共有」や「C:\フォルダ」のようなパスは file: のURLに直す
     function safeLinkUrl(url) {
@@ -7715,9 +7724,7 @@ return toCsvCell(d[c.key]);
                 if (historyLatencyChart) historyLatencyChart.destroy();
                 if (historyTrafficChart) historyTrafficChart.destroy();
 
-                const isDay = document.documentElement.getAttribute('data-theme') === 'day';
-                const textColor = isDay ? '#0f172a' : '#f8fafc';
-                const gridColor = isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+                const { textColor, gridColor } = getChartThemeColors();
 
                 historyLatencyChart = new Chart(latencyCtx, {
                     type: 'line',
@@ -8057,6 +8064,7 @@ return toCsvCell(d[c.key]);
     const obrHistoryRefreshBtn = document.getElementById('obr-history-refresh-btn');
     let obrHistoryIp = null;
     let obrHistoryLoadId = 0;   // 古い読み込みの結果で、新しい表示を上書きしないための番号
+    let obrHistoryCloseTimer = null;   // 閉じる動きの途中で開き直したときに、閉じる処理を取り消すために覚えておく
     let obrSignalChart = null;
     let obrRateChart = null;
 
@@ -8094,9 +8102,7 @@ return toCsvCell(d[c.key]);
 
     // 2 つのグラフで共通の設定。横軸は実際の時刻にして、記録のない時間が詰まって見えないようにする
     function createObrHistoryChart(canvasId, datasets, firstMs, lastMs, spanMs, yOptions) {
-        const isDay = document.documentElement.getAttribute('data-theme') === 'day';
-        const textColor = isDay ? '#0f172a' : '#f8fafc';
-        const gridColor = isDay ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+        const { textColor, gridColor } = getChartThemeColors();
         const pad = (n) => String(n).padStart(2, '0');
         const formatTick = (ms) => {
             const dt = new Date(ms);
@@ -8177,6 +8183,7 @@ return toCsvCell(d[c.key]);
 
         const summary = [`${view.firstAt} 〜 ${view.lastAt}（${view.rowCount.toLocaleString()} 件の記録）`];
         if (view.thinned) summary.push('グラフは区間内の最小値に間引いて表示しています');
+        if (view.olderDiscarded) summary.push('古い記録は容量の上限を超えたため削除されています');
         obrHistorySummary.textContent = summary.join(' / ');
 
         const events = view.events.slice().reverse();
@@ -8220,6 +8227,7 @@ return toCsvCell(d[c.key]);
 
     function openObrHistoryModal(ip, name) {
         if (!obrHistoryModal) return;
+        clearTimeout(obrHistoryCloseTimer);
         obrHistoryIp = ip;
         obrHistoryTitle.textContent = `無線履歴: ${name} (${ip})`;
         destroyObrHistoryCharts();
@@ -8236,7 +8244,8 @@ return toCsvCell(d[c.key]);
         if (!obrHistoryModal) return;
         obrHistoryLoadId++;
         obrHistoryModal.classList.remove('active');
-        setTimeout(() => {
+        clearTimeout(obrHistoryCloseTimer);
+        obrHistoryCloseTimer = setTimeout(() => {
             obrHistoryModal.style.display = 'none';
             destroyObrHistoryCharts();
         }, 250);

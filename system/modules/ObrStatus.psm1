@@ -134,11 +134,43 @@ function ConvertTo-ObrCsvCell {
     return '"' + $text.Replace('"', '""') + '"'
 }
 
+function Get-ObrHistoryPaths {
+    # 機器ごとの履歴ファイルの場所を返す。書き込み・読み込み・名前の変更で同じ名前を使うため、ここにまとめる
+    param([string]$SessionDir, [string]$Ip)
+    $safeIp = $Ip -replace '[\\/:*?"<>|]', '_'
+    return @{
+        Current   = Join-Path $SessionDir "obr_wireless_${safeIp}.csv"
+        Rotated   = Join-Path $SessionDir "obr_wireless_${safeIp}_1.csv"
+        Discarded = Join-Path $SessionDir "obr_wireless_${safeIp}.discarded"   # 古い記録を消したことを示す目印
+    }
+}
+
+function Rename-ObrHistoryFiles {
+    <#
+    .SYNOPSIS
+        機器の IP アドレスを変えたとき、履歴を引き継げるようファイルの名前を変えます。
+        変更先に同じ名前のファイルがあるときは、上書きで記録を失わないようそのままにします。
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$SessionDir,
+        [Parameter(Mandatory = $true)][string]$OldIp,
+        [Parameter(Mandatory = $true)][string]$NewIp
+    )
+    $oldPaths = Get-ObrHistoryPaths -SessionDir $SessionDir -Ip $OldIp
+    $newPaths = Get-ObrHistoryPaths -SessionDir $SessionDir -Ip $NewIp
+    foreach ($key in @($oldPaths.Keys)) {
+        if ((Test-Path -LiteralPath $oldPaths[$key]) -and -not (Test-Path -LiteralPath $newPaths[$key])) {
+            Move-Item -LiteralPath $oldPaths[$key] -Destination $newPaths[$key]
+        }
+    }
+}
+
 function Write-ObrHistoryRows {
     <#
     .SYNOPSIS
         無線状態の履歴を機器ごとの CSV (obr_wireless_IPアドレス.csv) に追記します。
         Excel で開いても文字化けしないよう UTF-8 (BOM 付き) で保存し、10MB を超えたら _1 に切り替えます。
+        すでに _1 があるときは古い記録が消えるので、画面で知らせるための目印のファイルを作ります。
     .OUTPUTS
         すべて書き込めたら $true、失敗したら $false (呼び出し側で次回書き直します)。
     #>
@@ -151,10 +183,11 @@ function Write-ObrHistoryRows {
     $noBom = New-Object System.Text.UTF8Encoding($false)
     try {
         foreach ($group in ($Rows | Group-Object { $_.ip })) {
-            $safeIp = $group.Name -replace '[\\/:*?"<>|]', '_'
-            $csvPath = Join-Path $SessionDir "obr_wireless_${safeIp}.csv"
+            $paths = Get-ObrHistoryPaths -SessionDir $SessionDir -Ip $group.Name
+            $csvPath = $paths.Current
             if ((Test-Path -LiteralPath $csvPath) -and (Get-Item -LiteralPath $csvPath).Length -gt 10MB) {
-                Move-Item -LiteralPath $csvPath -Destination (Join-Path $SessionDir "obr_wireless_${safeIp}_1.csv") -Force
+                if (Test-Path -LiteralPath $paths.Rotated) { [System.IO.File]::WriteAllText($paths.Discarded, "") }
+                Move-Item -LiteralPath $csvPath -Destination $paths.Rotated -Force
             }
             if (-not (Test-Path -LiteralPath $csvPath)) {
                 [System.IO.File]::WriteAllText($csvPath, $header, $withBom)
@@ -211,28 +244,37 @@ function Get-ObrSmallerValue {
     return [math]::Min($First, $Second)
 }
 
+function Merge-ObrHistoryPoints {
+    # 隣り合う 2 点を 1 点にまとめる。切断の点 (値なし) はグラフの途切れとして残し、それ以外は低いほうの電波の時刻を使う
+    param([hashtable]$First, [hashtable]$Second)
+    if ($null -eq $First.signal -and $null -eq $First.rate) { return $First }
+    if ($null -eq $Second.signal -and $null -eq $Second.rate) { return $Second }
+    $time = if ($null -ne $Second.signal -and ($null -eq $First.signal -or $Second.signal -lt $First.signal)) { $Second.t } else { $First.t }
+    return @{ t = $time; signal = (Get-ObrSmallerValue $First.signal $Second.signal); rate = (Get-ObrSmallerValue $First.rate $Second.rate) }
+}
+
 function Get-ObrHistoryView {
     <#
     .SYNOPSIS
         無線状態の履歴 CSV を読み、画面に出すグラフの点と出来事の一覧を作ります。
     .DESCRIPTION
         10 秒ごとの記録は 1 日で 8,640 行になるため、全行をメモリに持たず 1 行ずつ処理します。
-        グラフの点は MaxPoints 以下に間引きます。短い電波の低下が隠れないよう、間引いた区間の最小値を残します。
+        グラフの点は MaxPoints 以下に間引きます。短い電波の低下が隠れないよう、間引いた区間の最小値をその時刻で残します。
+        区間内に切断があるときは、短い切断もグラフが途切れて分かるよう値なしの点にします。
         出来事は間引く前の全行で判定するので、短い切断も一覧から漏れません。
     #>
     param(
         [Parameter(Mandatory = $true)][string]$SessionDir,
         [Parameter(Mandatory = $true)][string]$Ip,
         [int]$MaxPoints = 2000,
-        [int]$MaxEvents = 500
+        [int]$MaxEvents = 500,
+        [datetime]$Now = (Get-Date),
+        [int]$StaleAfterSec = 600   # 再確認に 5 分かかるログイン失敗も含め、これより記録が古ければ確認が止まったとみなす
     )
     Add-Type -AssemblyName Microsoft.VisualBasic
-    $safeIp = $Ip -replace '[\\/:*?"<>|]', '_'
+    $historyPaths = Get-ObrHistoryPaths -SessionDir $SessionDir -Ip $Ip
     # 10MB を超えて切り替わった古いファイルから順に読む
-    $paths = @(
-        (Join-Path $SessionDir "obr_wireless_${safeIp}_1.csv"),
-        (Join-Path $SessionDir "obr_wireless_${safeIp}.csv")
-    ) | Where-Object { Test-Path -LiteralPath $_ }
+    $paths = @($historyPaths.Rotated, $historyPaths.Current) | Where-Object { Test-Path -LiteralPath $_ }
 
     $points = [System.Collections.Generic.List[hashtable]]::new()
     $events = [System.Collections.Generic.List[hashtable]]::new()
@@ -248,13 +290,18 @@ function Get-ObrHistoryView {
     $bucketTime = ""
     $bucketSignal = $null
     $bucketRate = $null
-    $lastRateText = $null   # 通信速度は同じ値が続くことが多いので、前の行と同じなら読み直さない
+    $bucketHasOutage = $false
+    $lastRateText = $null  # 通信速度は同じ値が続くことが多いので、前の行と同じなら読み直さない
     $lastRateValue = $null
     $stateEventTypes = @{ Disconnected = 'disconnected'; Unreachable = 'unreachable'; LoginFailed = 'loginFailed' }
 
     foreach ($path in $paths) {
         # 記録専用スレッドが追記・切り替えをしていても読めるよう、書き込みと移動を許可して開く
-        $stream = [System.IO.FileStream]::new($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+        # 確認の直後に切り替えでファイルがなくなることがあるので、そのときは読み飛ばす
+        try {
+            $stream = [System.IO.FileStream]::new($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+        }
+        catch [System.IO.FileNotFoundException] { continue }
         $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8)
         $parser = New-Object Microsoft.VisualBasic.FileIO.TextFieldParser($reader)
         try {
@@ -286,9 +333,15 @@ function Get-ObrHistoryView {
                     }
                     $rate = $lastRateValue
                 }
-                if ($bucketCount -eq 0) { $bucketTime = $time; $bucketSignal = $null; $bucketRate = $null }
-                if ($null -ne $signal -and ($null -eq $bucketSignal -or $signal -lt $bucketSignal)) { $bucketSignal = $signal }
-                if ($null -ne $rate -and ($null -eq $bucketRate -or $rate -lt $bucketRate)) { $bucketRate = $rate }
+                if ($bucketCount -eq 0) { $bucketTime = $time; $bucketSignal = $null; $bucketRate = $null; $bucketHasOutage = $false }
+                if ($state -ne 'Connected') {
+                    # 区間内の最初の切断の時刻で、値なしの点にする
+                    if (-not $bucketHasOutage) { $bucketTime = $time; $bucketSignal = $null; $bucketRate = $null; $bucketHasOutage = $true }
+                }
+                elseif (-not $bucketHasOutage) {
+                    if ($null -ne $signal -and ($null -eq $bucketSignal -or $signal -lt $bucketSignal)) { $bucketSignal = $signal; $bucketTime = $time }
+                    if ($null -ne $rate -and ($null -eq $bucketRate -or $rate -lt $bucketRate)) { $bucketRate = $rate }
+                }
                 $bucketCount++
                 if ($bucketCount -ge $bucketSize) {
                     $points.Add(@{ t = $bucketTime; signal = $bucketSignal; rate = $bucketRate })
@@ -298,10 +351,7 @@ function Get-ObrHistoryView {
                         $merged = [System.Collections.Generic.List[hashtable]]::new()
                         for ($i = 0; $i -lt $points.Count; $i += 2) {
                             $point = $points[$i]
-                            if (($i + 1) -lt $points.Count) {
-                                $next = $points[$i + 1]
-                                $point = @{ t = $point.t; signal = (Get-ObrSmallerValue $point.signal $next.signal); rate = (Get-ObrSmallerValue $point.rate $next.rate) }
-                            }
+                            if (($i + 1) -lt $points.Count) { $point = Merge-ObrHistoryPoints $point $points[$i + 1] }
                             $merged.Add($point)
                         }
                         $points = $merged
@@ -349,19 +399,31 @@ function Get-ObrHistoryView {
     }
 
     if ($bucketCount -gt 0) { $points.Add(@{ t = $bucketTime; signal = $bucketSignal; rate = $bucketRate }) }
-    # 今も続いている出来事は、最後の記録までの長さを表示する
-    if ($null -ne $openEvent) { $openEvent.durationSec = Get-ObrSecondsBetween $openEvent.time $lastAt }
+    # 最後の記録が新しければ今も続いているので、今までの長さを表示する
+    # 記録が止まっている (監視の停止や機器の設定変更など) ときは今の状態が分からないので、最後の記録までの長さにする
+    if ($null -ne $openEvent) {
+        $nowText = $Now.ToString('yyyy-MM-dd HH:mm:ss')
+        $sinceLast = Get-ObrSecondsBetween $lastAt $nowText
+        if ($null -ne $sinceLast -and $sinceLast -le $StaleAfterSec) {
+            $openEvent.durationSec = Get-ObrSecondsBetween $openEvent.time $nowText
+        }
+        else {
+            $openEvent.durationSec = Get-ObrSecondsBetween $openEvent.time $lastAt
+            $openEvent.ongoing = $false
+        }
+    }
     if ($events.Count -gt $MaxEvents) { $events.RemoveRange(0, $events.Count - $MaxEvents) }
 
     return @{
-        rowCount    = $rowCount
-        firstAt     = $firstAt
-        lastAt      = $lastAt
-        thinned     = ($bucketSize -gt 1)
-        points      = $points.ToArray()
-        events      = $events.ToArray()
-        eventsTotal = $eventsTotal
+        rowCount       = $rowCount
+        firstAt        = $firstAt
+        lastAt         = $lastAt
+        thinned        = ($bucketSize -gt 1)
+        olderDiscarded = (Test-Path -LiteralPath $historyPaths.Discarded)
+        points         = $points.ToArray()
+        events         = $events.ToArray()
+        eventsTotal    = $eventsTotal
     }
 }
 
-Export-ModuleMember -Function ConvertFrom-ObrStatusHtml, Get-ObrWirelessStatus, Write-ObrHistoryRows, Get-ObrHistoryView
+Export-ModuleMember -Function ConvertFrom-ObrStatusHtml, Get-ObrWirelessStatus, Get-ObrHistoryPaths, Rename-ObrHistoryFiles, Write-ObrHistoryRows, Get-ObrHistoryView

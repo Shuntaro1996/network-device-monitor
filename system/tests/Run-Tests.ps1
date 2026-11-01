@@ -61,6 +61,17 @@ function Reset-TestEnvironmentHygiene {
 
 Reset-TestEnvironmentHygiene
 
+# ── 1b. 機器の一覧がないとき (取得した直後など) は見本を一時的に使う ──────────────
+# devices.json は Git の管理対象外なので、取得した直後はありません。監視対象がないと一部のテストが動かないため、
+# テストの間だけ見本 (実在しない説明用のアドレス) を置き、終わったら消します。
+$devicesJsonPath = Join-Path $here "..\devices.json"
+$createdSampleDevices = $false
+if (-not (Test-Path -LiteralPath $devicesJsonPath)) {
+    Copy-Item -LiteralPath (Join-Path $here "..\devices.example.json") -Destination $devicesJsonPath
+    $createdSampleDevices = $true
+    Write-Host "[INFO] devices.json was not found. Using devices.example.json during the tests." -ForegroundColor Gray
+}
+
 # ── 2. テストスクリプトの動的検出 ─────────────────────────────────────────────
 $searchPattern = $Filter
 if ($searchPattern -notlike "*.*" -and $searchPattern -notlike "*\**") {
@@ -391,6 +402,8 @@ if ($IncludeUI -or $All) {
 }
 
 Reset-TestEnvironmentHygiene
+
+if ($createdSampleDevices) { Remove-Item -LiteralPath $devicesJsonPath -Force -ErrorAction SilentlyContinue }
 
 if (-not $NoExit -and $suiteExitCode -ne 0) {
     exit $suiteExitCode

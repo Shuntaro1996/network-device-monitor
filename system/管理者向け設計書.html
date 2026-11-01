@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Device Monitor &amp; Diagnostic Tool — 管理者・開発者向け詳細設計書</title>
+<style>
+:root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --text: #1c2430;
+    --muted: #5a6675;
+    --line: #dfe3e9;
+    --accent: #1d5fbf;
+    --code-bg: #eef1f5;
+    --quote-bg: #eef4fc;
+    --zebra: #f8f9fb;
+    color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #12161c;
+        --surface: #1a2028;
+        --text: #e4e8ee;
+        --muted: #a0abb9;
+        --line: #333c48;
+        --accent: #7fb2f5;
+        --code-bg: #252c36;
+        --quote-bg: #1c2a3c;
+        --zebra: #1f262f;
+        color-scheme: dark;
+    }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Yu Gothic UI", "Meiryo", "Hiragino Sans", sans-serif;
+    font-size: 16px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+}
+.cover {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 28px 32px;
+}
+.cover h1 { margin: 0; font-size: 1.7rem; line-height: 1.4; }
+.audience { margin: 8px 0 0; color: var(--muted); }
+.layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 32px;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 24px 32px 64px;
+}
+.toc { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow-y: auto; font-size: 0.875rem; line-height: 1.5; }
+.toc summary { cursor: pointer; font-weight: 700; padding: 4px 0 8px; }
+.toc ol { margin: 0; padding-left: 1.6em; }
+.toc li { margin: 6px 0; }
+.toc a { color: var(--text); text-decoration: none; }
+.toc a:hover, .toc a.current { color: var(--accent); text-decoration: underline; }
+.toc a.current { font-weight: 700; }
+main { min-width: 0; max-width: 960px; }
+main > hr { display: none; }
+h2 { margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--line); font-size: 1.4rem; line-height: 1.45; }
+main > h2:first-child { margin-top: 0; }
+h3 { margin: 32px 0 12px; font-size: 1.15rem; line-height: 1.5; }
+h4 { margin: 24px 0 8px; font-size: 1rem; line-height: 1.5; }
+a { color: var(--accent); }
+code { background: var(--code-bg); border-radius: 4px; padding: 0.1em 0.35em; font-family: "Cascadia Mono", Consolas, "MS Gothic", monospace; font-size: 0.88em; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; overflow-wrap: normal; white-space: pre; }
+blockquote { margin: 16px 0; padding: 10px 16px; background: var(--quote-bg); border-left: 4px solid var(--accent); border-radius: 0 6px 6px 0; }
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+.table-wrap { overflow-x: auto; margin: 16px 0; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: 0.92rem; line-height: 1.65; }
+th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); white-space: nowrap; }
+tbody tr:nth-child(even) { background: var(--zebra); }
+li { margin: 4px 0; }
+.to-top { position: fixed; right: 20px; bottom: 20px; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--text); font-size: 1.1rem; cursor: pointer; display: none; }
+.to-top.show { display: block; }
+@media (max-width: 900px) {
+    .cover { padding: 20px 16px; }
+    .cover h1 { font-size: 1.35rem; }
+    .layout { display: block; padding: 16px 16px 72px; }
+    .toc { position: static; max-height: none; margin-bottom: 24px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+    th { white-space: normal; }
+}
+@media print {
+    :root { --bg: #fff; --surface: #fff; --text: #000; --muted: #333; --line: #999; --accent: #000; --code-bg: #f2f2f2; --quote-bg: #f2f2f2; --zebra: #fff; color-scheme: light; }
+    .layout { display: block; padding: 0; max-width: none; }
+    .toc { position: static; max-height: none; overflow: visible; page-break-after: always; font-size: 0.95rem; }
+    .to-top { display: none !important; }
+    .cover { padding: 0 0 12px; }
+    main { max-width: none; }
+    h2 { page-break-before: always; margin-top: 0; }
+    h2, h3, h4 { page-break-after: avoid; }
+    pre, blockquote, tr { page-break-inside: avoid; }
+    pre { white-space: pre-wrap; }
+    pre code { white-space: pre-wrap; }
+}
+</style>
+</head>
+<body>
+<header class="cover">
+<h1>🌐 Network Device Monitor &amp; Diagnostic Tool — 管理者・開発者向け詳細設計書</h1>
+<p class="audience"><strong>対象読者</strong>: システムの導入・構成管理・API連携・カスタマイズ・トラブルシューティングを担当するインフラエンジニア・管理者</p>
+</header>
+<div class="layout">
+<nav class="toc" aria-label="Contents"><details open>
+<summary>📋 目次</summary>
+<ol><li><a href="#sec-1">システム概要</a></li><li><a href="#sec-2">ファイル・ディレクトリ構成</a></li><li><a href="#sec-3">動作要件と前提条件</a></li><li><a href="#sec-4">起動・停止手順</a></li><li><a href="#sec-5">設定ファイル仕様（config.json / devices.json）</a></li><li><a href="#sec-6">アーキテクチャとスレッドモデル</a></li><li><a href="#sec-7">監視エンジンの詳細仕様</a></li><li><a href="#sec-8">通信品質アルゴリズム（パケロス・ジッター・瞬断）</a></li><li><a href="#sec-9">外部通知 &amp; Web Audio 設計</a></li><li><a href="#sec-10">バックアップ・リストア &amp; ログ保守仕様</a></li><li><a href="#sec-11">REST API エンドポイント一覧</a></li><li><a href="#sec-12">セキュリティ &amp; 入力サニタイズ仕様</a></li><li><a href="#sec-13">トラブルシューティング</a></li><li><a href="#sec-14">既知の制限事項 &amp; 大規模監視設計</a></li></ol>
+</details></nav>
+<main>
+<h2 id="sec-1">1. システム概要</h2>
+<p>本システムは <strong>PowerShell 5.1 / 7+ 製のマルチスレッド非同期 HTTP バックエンド</strong> と、ブラウザ上で動作する <strong>Vanilla JS + Vis-Network + Chart.js 製の軽量SPAフロントエンド</strong> で構成された、エージェントレス型のネットワーク監視・診断基盤です。</p>
+<h3>核心機能</h3>
+<ul><li><strong>デュアルレート死活監視 (Ping)</strong>: 最重要機器（最大2台）を 0.1秒、他機器を 5.0秒で並行高精度監視。</li><li><strong>通信品質解析</strong>: パケットロス率 (%)、RFC 3550 準拠ジッター (ms)、最大瞬断時間 (ms)、閾値別瞬断回数のリアルタイム算出。</li><li><strong>稼働ヒートマップ</strong>: 直近サンプリングの到達品質をカラーバーで時系列表示。</li><li><strong>外部 Webhook &amp; Web Audio 通知</strong>: Slack/Teams/Discord 等への非同期 POST およびブラウザ上での音波合成アラート。</li><li><strong>動的トポロジー可視化</strong>: 機器間リンクの障害・遅延ステータスに応じた動的カラーチェンジ。</li><li><strong>設定バックアップ &amp; リストア</strong>: 監視設定・機器情報を1つの JSON でエクスポート/インポート。</li><li><strong>自動ログローテーション &amp; パージ</strong>: 保持日数を超過した過去ログの自動削除。</li></ul>
+<h2 id="sec-2">2. ファイル・ディレクトリ構成</h2>
+<pre><code>NetworkDeviceMonitor/
+├── Start-Monitor.bat              # 起動スクリプト（管理者不要）
+├── 利用手順書.html                  # 現場運用者向けマニュアル
+├── Stop-All.bat                   # 一括停止
+├── README.md                      # プロジェクト概要
+├── LICENSE                        # MIT License
+├── Reports/                       # 実行時ログ・CSVレポート出力先（自動生成）
+│   └── .gitkeep
+└── system/
+    ├── 管理者向け設計書.html        # ★本ドキュメント
+    ├── SPECIFICATION.md           # 開発者向け機能仕様書
+    ├── Watchdog.ps1               # サーバーの死活監視と自動再起動
+    ├── Server.ps1                 # ★メインバックエンドサーバー（Runspace並列処理）
+    ├── Launcher.ps1               # 個別デバイス監視ランチャー
+    ├── Monitor-SingleDevice.ps1   # 単体デバイス監視スクリプト
+    ├── Start-BandwidthServer.ps1  # 帯域監視補助サーバー
+    ├── devices.json               # 監視対象デバイス設定（自動保存・Git の管理対象外）
+    ├── devices.example.json       # devices.json の形式の見本
+    ├── config.json                # システム全体設定（自動保存・Git の管理対象外）
+    ├── iperf3.18_64/              # Iperf3バイナリ（同梱）
+    └── public/                    # フロントエンド静的アセット
+        ├── index.html             # メインUI（日本語化・グラスモーフィズム）
+        ├── third-party-notices.html # 同梱ソフトウェアのライセンス表記
+        ├── app.js                 # UIロジック・Web Audio・Chart制御・API通信
+        ├── style.css              # レスポンシブスタイルシート（デイ/ナイト対応）
+        ├── chart.js               # Chart.js
+        └── vis-network.min.js     # Vis-Network</code></pre>
+<h2 id="sec-3">3. 動作要件と前提条件</h2>
+<div class="table-wrap"><table><thead><tr><th>項目</th><th>要件</th></tr></thead><tbody><tr><td><strong>OS</strong></td><td>Windows 10 / 11 / Windows Server 2016 以降</td></tr><tr><td><strong>PowerShell</strong></td><td>Windows PowerShell 5.1 または PowerShell 7+</td></tr><tr><td><strong>ブラウザ</strong></td><td>Google Chrome / Microsoft Edge / Mozilla Firefox（最新版）</td></tr><tr><td><strong>通信ポート</strong></td><td>TCP <code>8081</code>（HTTP API・Web画面用）</td></tr><tr><td><strong>ネットワーク</strong></td><td>監視対象機器への ICMP Echo（Ping）疎通</td></tr><tr><td><strong>SNMP (任意)</strong></td><td>対象機器で SNMP v2c または v3 が有効であること</td></tr><tr><td><strong>SNMPモジュール</strong></td><td><code>Install-Module SNMP -Scope CurrentUser -Force</code> でインストール推奨</td></tr></tbody></table></div>
+<h2 id="sec-4">4. 起動・停止手順</h2>
+<h3>起動</h3>
+<p><code>Start-Monitor.bat</code> をダブルクリックします。内部では <code>system/Watchdog.ps1</code> が <code>system/Server.ps1</code> を起動し、動作を見守ります。<br>サーバー初期化後、自動的にブラウザで <code>http://localhost:8081</code> が開きます。</p>
+<h3>停止</h3>
+<p>画面の <strong>「監視終了」</strong> ボタンを押すか、<code>Stop-All.bat</code> を実行します。<br>停止時に全監視機器の直近サマリー（到達率・パケロス率・ジッター・最大瞬断時間）が CSV に追記され、ポート・Runspace が安全に解放されます。</p>
+<h2 id="sec-5">5. 設定ファイル仕様（config.json / devices.json）</h2>
+<h3><code>system/config.json</code></h3>
+<p>システム全体の監視・通知・保守パラメータ。UI設定からの変更が即座に同期・保存されます。</p>
+<pre><code>{
+  "pollInterval": 1000,
+  "pingDataSize": 1,
+  "loggingEnabled": true,
+  "highFreqTargetIps": "192.168.10.1,192.168.10.2",
+  "outageThresh1Ms": 600,
+  "outageThresh2Ms": 5000,
+  "latencyThreshMs": 100,
+  "logRetentionDays": 30,
+  "webhookUrl": "https://hooks.slack.com/services/...",
+  "webhookEnabled": true,
+  "webhookOfflineOnly": true,
+  "soundEnabled": true,
+  "soundVolume": 0.5
+}</code></pre>
+<div class="table-wrap"><table><thead><tr><th>キー</th><th>型</th><th>初期値</th><th>説明</th></tr></thead><tbody><tr><td><code>pollInterval</code></td><td>int</td><td><code>1000</code></td><td>通常監視のポーリング間隔 (ms)。<code>100</code> でデュアルレートモード発動</td></tr><tr><td><code>pingDataSize</code></td><td>int</td><td><code>1</code></td><td>ICMP Echo ペイロードサイズ (bytes)</td></tr><tr><td><code>loggingEnabled</code></td><td>bool</td><td><code>true</code></td><td>CSV ログ記録の有効/無効</td></tr><tr><td><code>highFreqTargetIps</code></td><td>string</td><td><code>&quot;&quot;</code></td><td>0.1s 超高頻度監視の対象IP（カンマ区切り、最大2台）</td></tr><tr><td><code>outageThresh1Ms</code></td><td>int</td><td><code>600</code></td><td>瞬断判定閾値① (ms)。これ以上の瞬断回数をカウント</td></tr><tr><td><code>outageThresh2Ms</code></td><td>int</td><td><code>5000</code></td><td>瞬断判定閾値② (ms)。これ以上の瞬断回数をカウント</td></tr><tr><td><code>latencyThreshMs</code></td><td>int</td><td><code>100</code></td><td>遅延アラート警告閾値 (ms)</td></tr><tr><td><code>logRetentionDays</code></td><td>int</td><td><code>30</code></td><td>ログ保持日数。この日数を超えた古いセッションを自動パージ</td></tr><tr><td><code>webhookUrl</code></td><td>string</td><td><code>&quot;&quot;</code></td><td>外部通知先 Webhook URL</td></tr><tr><td><code>webhookEnabled</code></td><td>bool</td><td><code>false</code></td><td>Webhook 自動送信の有効/無効</td></tr><tr><td><code>webhookOfflineOnly</code></td><td>bool</td><td><code>true</code></td><td>オフライン/復旧時のみ通知（高遅延時は除外）</td></tr><tr><td><code>soundEnabled</code></td><td>bool</td><td><code>true</code></td><td>ブラウザ音声アラートの有効/無効</td></tr><tr><td><code>soundVolume</code></td><td>float</td><td><code>0.5</code></td><td>音声アラート音量 (0.0 〜 1.0)</td></tr></tbody></table></div>
+<h2 id="sec-6">6. アーキテクチャとスレッドモデル</h2>
+<pre><code>┌────────────────────────────────────────────────────────────────────────┐
+│ Server.ps1 (メインプロセス)                                            │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │ $syncHash (スレッドセーフな Synchronized Hashtable)               │  │
+│  │ ・Devices, Status, Stats, Traffic, Config, ...                   │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│                                                                        │
+│  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
+│  │ Ping Engine (Runspace)  │  │ SNMP &amp; Topology Engine (Runspace)   │  │
+│  │ ・デュアルレート制御    │  │ ・IF-MIB トラフィック取得           │  │
+│  │ ・パケロス/ジッター算出 │  │ ・CDP/LLDP 自動リンク検出           │  │
+│  │ ・Webhook 非同期POST    │  │ ・エラーパケット・システム情報取得   │  │
+│  └─────────────────────────┘  └─────────────────────────────────────┘  │
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │ HTTP Server (HttpListener :8081)                                 │  │
+│  │ ・REST API ルーティング &amp; 静的アセット配信                       │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────┘
+                                ▲ HTTP JSON / WebSocket 代替ポーリング
+                                │
+                      ┌──────────────────┐
+                      │ Browser (SPA)    │
+                      │ app.js           │
+                      │ ・Web Audio 合成 │
+                      │ ・Vis-Network    │
+                      │ ・Chart.js       │
+                      └──────────────────┘</code></pre>
+<h2 id="sec-7">7. 監視エンジンの詳細仕様</h2>
+<h3>① デュアルレート監視アーキテクチャ</h3>
+<ul><li><code>pollInterval &lt;= 100</code>（0.1秒超高頻度モード）設定時：<ul><li><code>highFreqTargetIps</code> に指定された<strong>最大2台の機器は 0.1秒（100ms）間隔</strong>で超高精度Pingを実行。</li><li><strong>その他の監視機器は 5.0秒間隔</strong> でバックグラウンド監視を継続（PC負荷を最小限に抑制）。</li></ul></li><li><strong>ディスクIO最適化（10秒バッファリング）</strong>:<ul><li>超高頻度監視時でもディスク書き込みは内部キューにバッファリングし、10秒周期またはセッション終了時に一括フラッシュすることでストレージ負荷を低減。</li></ul></li></ul>
+<h3>② SNMP エンジン</h3>
+<ul><li><code>SharpSnmpLib</code> を用いて、非同期に各機器の MIB-II（RFC 1213）および IF-MIB をポーリング。</li><li>送信レート（Tx Mbps）、受信レート（Rx Mbps）、エラーパケット数（InErrors / OutErrors）、破棄パケット数を取得。</li></ul>
+<h2 id="sec-8">8. 通信品質アルゴリズム（パケロス・ジッター・瞬断）</h2>
+<h3>① パケットロス率 (%)</h3>
+<ul><li>直近 30 サンプリングの成否履歴（<code>RecentResults</code>）を保持。</li></ul>
+<pre><code>パケットロス率 (%) = 失敗した回数 ÷ 確認した回数 × 100</code></pre>
+<h3>② ジッター（RFC 3550 準拠）</h3>
+<ul><li>直近の連続したPing応答遅延の差分絶対値から、指数平滑移動平均を用いてジッター J を算出：</li></ul>
+<pre><code>D = |今回の遅延 - 前回の遅延|
+J = J + (D - J) ÷ 16</code></pre>
+<h3>③ 瞬断最大時間 &amp; 閾値カウント</h3>
+<ul><li>連続オフライン期間の経過時間を秒単位（0.1s精度）でトラッキング。</li><li>機器がオンラインに復帰した瞬間に、その停止時間が <code>outageThresh1Ms</code>（例: 600ms）または <code>outageThresh2Ms</code>（例: 5000ms）を超えていた場合に該当カウンターをインクリメント。</li></ul>
+<h2 id="sec-9">9. 外部通知 &amp; Web Audio 設計</h2>
+<h3>① Webhook 送信（<code>Send-WebhookNotification</code>）</h3>
+<ul><li>機器のオフライン検知、復旧検知、およびテスト送信時に非同期で JSON POST を実行：</li></ul>
+<pre><code>{
+  "text": "🔴 **機器オフライン検知**\n・対象機器: コアスイッチ (192.168.10.1)\n・発生時刻: 2026-08-17 19:30:00\n・詳細: 連続タイムアウト発生",
+  "content": "🔴 **機器オフライン検知**...",
+  "deviceName": "コアスイッチ",
+  "ip": "192.168.10.1",
+  "eventType": "offline",
+  "timestamp": "2026-08-17 19:30:00"
+}</code></pre>
+<h3>② Web Audio API 音声合成エンジン（外部音声ファイル不要）</h3>
+<ul><li>ブラウザの <code>AudioContext</code> を使用し、オシレーター（発振器）と GainNode で警告音を直接生成：<ul><li><strong>障害時（Error）</strong>: 880Hz → 440Hz → 880Hz の鋸歯状波（Sawtooth）高低ビープ音。</li><li><strong>警告時（Warning）</strong>: 587.33Hz → 880Hz の正弦波（Sine）ソフトチャイム。</li></ul></li></ul>
+<h2 id="sec-10">10. バックアップ・リストア &amp; ログ保守仕様</h2>
+<h3>① 完全バックアップ &amp; リストア</h3>
+<ul><li>**エクスポート (<code>GET /api/config/export</code>)**:<ul><li><code>devices.json</code> の全内容（IP、名前、グループ、座標、SNMP情報）と <code>config.json</code> の全パラメータを統合した JSON を生成・ダウンロード。</li></ul></li><li>**インポート (<code>POST /api/config/import</code>)**:<ul><li>アップロードされた JSON を検証後、<code>devices.json</code> および <code>config.json</code> にアトミック反映し、監視状態を即時リロード。</li></ul></li></ul>
+<h3>② ログ自動パージ（<code>Purge-OldReports</code>）</h3>
+<ul><li>サーバー起動時および定期サイクルにおいて、<code>Reports/</code> 直下のセッションフォルダー名（<code>yyyyMMdd_HHmmss</code>）を検証。</li><li><code>logRetentionDays</code>（デフォルト: 30日）を超過したフォルダーを再帰的に自動安全削除。</li></ul>
+<h2 id="sec-11">11. REST API エンドポイント一覧</h2>
+<div class="table-wrap"><table><thead><tr><th>メソッド</th><th>パス</th><th>説明</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/api/status</code></td><td>全デバイスの最新ステータス（Ping、遅延、パケロス率、ジッター、Tx/Rx、瞬断時間）</td></tr><tr><td><code>GET</code></td><td><code>/api/devices</code></td><td>登録デバイス一覧の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/devices</code></td><td>デバイスの追加・更新・削除</td></tr><tr><td><code>POST</code></td><td><code>/api/device/toggle</code></td><td>指定IPの監視一時停止/再開切り替え</td></tr><tr><td><code>GET</code></td><td><code>/api/config</code></td><td>システム設定（監視間隔、Pingサイズ、閾値、通知設定等）の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/config</code></td><td>システム設定の更新・保存</td></tr><tr><td><code>GET</code></td><td><code>/api/config/export</code></td><td>機器・システム設定の完全バックアップ JSON ダウンロード</td></tr><tr><td><code>POST</code></td><td><code>/api/config/import</code></td><td>バックアップ JSON のアップロード・復元適用</td></tr><tr><td><code>POST</code></td><td><code>/api/webhook/test</code></td><td>Webhook URL のテスト通知送信</td></tr><tr><td><code>GET</code></td><td><code>/api/topology</code></td><td>トポロジー接続・座標情報の取得</td></tr><tr><td><code>POST</code></td><td><code>/api/topology</code></td><td>トポロジー接続・座標情報の保存</td></tr><tr><td><code>GET</code></td><td><code>/api/iperf</code></td><td>Iperf3 計測の開始 (<code>action=start</code>) および状態取得 (<code>action=status</code>)</td></tr><tr><td><code>GET</code></td><td><code>/api/mtr</code></td><td>MTR 経路診断の開始・結果取得</td></tr><tr><td><code>GET</code></td><td><code>/api/obr/history</code></td><td>OBR の無線履歴（グラフの点と出来事の一覧）</td></tr></tbody></table></div>
+<p>全エンドポイントの詳細は <code>system/SPECIFICATION.md</code> を参照してください。</p>
+<h2 id="sec-12">12. セキュリティ &amp; 入力サニタイズ仕様</h2>
+<ul><li><strong>接続元の制限</strong>: このPC以外からの接続は、画面も API もすべて <code>403</code> で拒否します。同じPC内の他のプログラムや他のユーザーは区別できません（認証は未実装）。</li><li><strong>外部サイトからの呼び出し拒否</strong>: <code>Origin</code> / <code>Sec-Fetch-Site</code> を確認し、監視画面以外からの API 呼び出しを <code>403</code> で拒否します。別サイトの画面への埋め込みも禁止しています。</li><li><strong>IPアドレス検証</strong>: IPv4 正規表現 <code>^\d{1,3}(\.\d{1,3}){3}$</code> による厳格なオクテット範囲検証。</li><li><strong>Iperf3 オプションサニタイズ</strong>: 英数字・ハイフン・スペース以外の特殊記号（<code>;</code>, <code>&amp;</code>, <code>|</code>, `<code> </code> `<code> 等）を完全除去し、コマンドインジェクションを遮断。PC 内のファイルを読み書きするオプション（</code>-F<code> / </code>--logfile` など）も取り除きます。</li><li><strong>アトミックファイル書き込み</strong>: 設定ファイルの保存時は一時ファイル（<code>.tmp</code>）に書き込み完了後、<code>Move-Item -Force</code> でアトミックに差し替え（書き込み途中の破損防止）。</li></ul>
+<h2 id="sec-13">13. トラブルシューティング</h2>
+<div class="table-wrap"><table><thead><tr><th>現象</th><th>想定原因</th><th>対処方法</th></tr></thead><tbody><tr><td><strong>起動時にポート重複エラー</strong></td><td>ポート 8081 が他プロセスで使用中</td><td><code>Server.ps1</code> 先頭の <code>$port = 8081</code> を別のポートに変更</td></tr><tr><td><strong>Ping が通らない</strong></td><td>対象機器の ICMP 応答が無効</td><td>対象機器のファイアウォールで ICMP Echo を許可</td></tr><tr><td><strong>Webhook が届かない</strong></td><td>URL 誤りまたはネットワーク制限</td><td>設定の「🔔 テスト送信」でエラーメッセージを確認</td></tr><tr><td><strong>バックアップ復元に失敗</strong></td><td>JSON フォーマット不正</td><td>エクスポート機能で生成された正規の JSON ファイルか確認</td></tr></tbody></table></div>
+<h2 id="sec-14">14. 既知の制限事項 &amp; 大規模監視設計</h2>
+<ol><li><strong>最大50台規模のスケーラビリティ対応</strong>: 非同期並列 Ping（<code>SendPingAsync</code>）および 10秒バッファリング一括書込により、最大50台規模の監視時でも低CPU負荷・低ディスクIOで安定稼働します。</li><li><strong>超高頻度モード（0.1s）の対象台数</strong>: PC負荷および通信帯域の最適化のため、0.1s 監視対象は最大 2 台までとなります（他機器は 5.0s 間隔でバックグラウンド継続）。</li><li><strong>セッション終了時の瞬断扱い</strong>: セッション終了時点で継続中の瞬断は「瞬断中時間」として記録され、復帰回数カウントには含まれません。</li></ol>
+</main>
+</div>
+<script>
+// 読んでいる章を目次で強調し、ページ先頭へ戻るボタンを出す (印刷やスクリプト無効でも本文は読める)
+(function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+    var targets = links.map(function (a) {
+        return { link: a, el: document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))) };
+    }).filter(function (t) { return t.el; });
+    var topBtn = document.createElement('button');
+    topBtn.className = 'to-top';
+    topBtn.type = 'button';
+    topBtn.textContent = '↑';
+    topBtn.title = 'ページの先頭へ';
+    topBtn.setAttribute('aria-label', 'ページの先頭へ');
+    topBtn.addEventListener('click', function () { window.scrollTo(0, 0); });
+    document.body.appendChild(topBtn);
+
+    function update() {
+        var current = null;
+        targets.forEach(function (t) { if (t.el.getBoundingClientRect().top <= 80) current = t; });
+        links.forEach(function (a) { a.classList.remove('current'); });
+        if (current) current.link.classList.add('current');
+        topBtn.classList.toggle('show', window.scrollY > 600);
+    }
+    window.addEventListener('scroll', update, { passive: true });
+    update();
+
+    // スマートフォンの幅では目次を閉じ、広い幅では開いておく (画面の幅が変わったときも合わせる)
+    var narrow = window.matchMedia('(max-width: 900px)');
+    function syncToc() { document.querySelector('.toc details').open = !narrow.matches; }
+    narrow.addEventListener('change', syncToc);
+    syncToc();
+})();
+</script>
+</body>
+</html>

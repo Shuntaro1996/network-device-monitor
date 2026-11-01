@@ -11,6 +11,10 @@ Thumbs.db
 .tmp.drivedownload/
 .tmp.driveupload/
 
+# 機器の一覧と設定 (社内のアドレスや機器名が入るので公開しない。形式は system/devices.example.json を参照)
+system/devices.json
+system/config.json
+
 # Runtime Generated Reports & Logs
 Reports/*
 !Reports/.gitkeep

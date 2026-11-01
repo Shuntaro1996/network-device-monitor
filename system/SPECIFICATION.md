@@ -562,8 +562,8 @@ sequenceDiagram
 機器ごとの設定 `obrEnabled` / `obrPassword`（DPAPI で暗号化して `devices.json` に保存）が有効な機器について、無線の接続状況を確認します。
 * **結果**: `/api/status` の各機器の `obr` に `state`（`Connected` / `Disconnected` / `LoginFailed` / `Unreachable` / `NoPassword` / `DecryptFailed`）、`ssid`、`bssid`、`channel`、`signalDbm`、`txBitrate`、`checkedAt` を返す。
 * **表示**: 機器カードと構成図のノード。構成図のノードでは通信量の表示位置に無線状況を出し、通信量はツールチップに残す。`Disconnected` は画面のアラートと音で通知する（Webhook・メールは送らない）。
-* **履歴**: 確認結果を記録専用スレッドがセッションフォルダの `obr_wireless_<IP>.csv`（UTF-8 BOM 付き、10MB で `_1` へ切り替え）に追記する。`loggingEnabled` が false のときは記録しない。パスワード未設定・復号不可の状態は確認していないので記録しない。
-* **履歴画面**: 機器カードの無線の表示を押すと、今回の起動分の履歴をモーダルで表示する。`GET /api/obr/history?ip=<IP>` が `obr_wireless_<IP>_1.csv` と `obr_wireless_<IP>.csv` を古い順に別スレッドで読み、`points`（`t`、`signal`、`rate`）と `events`（`disconnected` / `recovered` / `roamed` / `unreachable` / `loginFailed`）を返す。`points` は最大 2,000 点に間引き、区間の最小値を残す。`events` は間引く前の全行で判定し、最新 500 件を返す。自動更新はせず、「更新」ボタンで読み直す。
+* **履歴**: 確認結果を記録専用スレッドがセッションフォルダの `obr_wireless_<IP>.csv`（UTF-8 BOM 付き、10MB で `_1` へ切り替え）に追記する。2 回目以降の切り替えでは `_1` の古い記録が消えるので、目印の `obr_wireless_<IP>.discarded` を作る。機器の IP アドレスを変更すると、これらのファイル名も変更して履歴を引き継ぐ（変更先に同名のファイルがあるときは上書きしない）。確認は機器ごとに最大 8 台まで同時に行うので、応答の遅い機器があっても他の機器の 10 秒間隔は保たれる（同じ機器の確認が 10 秒で終わらないときは、終わってから次を始める）。`loggingEnabled` が false のときは記録しない。パスワード未設定・復号不可の状態は確認していないので記録しない。
+* **履歴画面**: 機器カードの無線の表示を押すと、今回の起動分の履歴をモーダルで表示する。`GET /api/obr/history?ip=<IP>` が `obr_wireless_<IP>_1.csv` と `obr_wireless_<IP>.csv` を古い順に別スレッドで読み、`points`（`t`、`signal`、`rate`）と `events`（`disconnected` / `recovered` / `roamed` / `unreachable` / `loginFailed`）を返す。`points` は最大 2,000 点に間引き、区間の最小値をその時刻で残す。区間内に切断などがあるときは、グラフが途切れるよう値なしの点にする。`events` は間引く前の全行で判定し、最新 500 件を返す。最後の出来事は、最後の記録が 10 分以内なら `ongoing: true` で現在までの長さを返し、それより古ければ確認が止まったとみなして `ongoing: false` で最後の記録までの長さを返す。古い記録が消えているときは `olderDiscarded: true` を返し、画面に表示する。自動更新はせず、「更新」ボタンで読み直す。
 * **注意**: OBR との通信は平文の HTTP。ログイン回数を減らすため、状態ページを読めるあいだは再ログインしない。
 
 ### 3.6.1 SNMP Trap 受信エンジン
@@ -971,6 +971,7 @@ while ($syncHash.Running) {
 * **IPアドレス形式の厳格検証**: すべてのAPI入力において、正規表現 `^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$` によるIPv4形式検証を実施。
 * **SNMPv3 暗号化通信**: SHA / AES による USM 認証暗号化を完全サポートし、平文コミュニティ名漏洩リスクを排除。
 * **接続元の制限（このPC以外の拒否）**: `http://localhost:<port>/` で待ち受けていても、HTTP.sys は `Host: localhost` と書かれた要求をネットワーク側からも受け取るため、全リクエスト（画面と `/api/*`）をルーティング前に `Test-ClientAddressAllowed`（`Common.psm1`）で検査する。接続元アドレスがループバック（`127.0.0.0/8`, `::1`, `::ffff:127.0.0.1` など）以外の場合は `403`（`status: FORBIDDEN_CLIENT`）で遮断する。同じPCの LAN 側アドレス宛ての接続も遮断対象。同じPC上の他のプログラムや他のユーザーからの接続は、この検査では区別できない（認証は未実装）。
+* **操作の制限**: `POST /api/system/install-module` は `SNMP` のみインストールする（それ以外は失敗を返す）。`/api/shutdown` は `POST` のみ受け付ける。
 * **応答の保護ヘッダー**: 全応答に `X-Frame-Options: DENY` / `Content-Security-Policy: frame-ancestors 'none'`（別サイトへの埋め込み禁止）と `X-Content-Type-Options: nosniff`（ファイル種類の推測禁止）を付ける。
 * **CSRF（外部サイトからの API 呼び出し）防御**: `/api/*` へのリクエストは、ルーティング前に `Test-ApiRequestAllowed`（`Common.psm1`）で検査。`Origin` ヘッダーが `http://localhost:<port>` / `http://127.0.0.1:<port>` / `http://[::1]:<port>` 以外、または `Sec-Fetch-Site` が `same-origin` / `none` 以外（`cross-site`, `same-site`）の場合は `403`（`status: FORBIDDEN_ORIGIN`）で遮断。`Access-Control-Allow-Origin: *` は返さない（UI は同一オリジンのため不要）。ヘッダーを付けないブラウザ以外のクライアント（PowerShell, テスト, Watchdog の `/api/health`）は従来どおり利用可能。
 * **リモート実行のコマンド注入防御**（`RemoteExec.psm1`）:

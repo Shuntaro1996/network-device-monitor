@@ -130,6 +130,18 @@ Describe "F14: 自動 E2E サーバーライフサイクル統合テスト (Full
             $page.Headers["X-Content-Type-Options"] | Should Be "nosniff"
         }
 
+        It "GET の /api/shutdown ではサーバーが止まらないこと" {
+            $code = 0
+            try {
+                $code = [int](Invoke-WebRequest -Uri "http://localhost:$($global:e2eTestPort)/api/shutdown" -UseBasicParsing -TimeoutSec 5).StatusCode
+            } catch [System.Net.WebException] {
+                $code = [int]$_.Exception.Response.StatusCode
+            }
+            $code | Should Be 404
+            Start-Sleep -Seconds 1
+            (Invoke-RestMethod -Uri "http://localhost:$($global:e2eTestPort)/api/health" -TimeoutSec 5).status | Should Be "ok"
+        }
+
         It "宛先名を localhost と偽っても、このPC以外のアドレス経由の接続は 403 で拒否されること" {
             # ネットワーク側のアドレスへ送ると、接続元もそのアドレスになるので他のPCからの接続を再現できる
             $lanAddress = Get-NetIPAddress -AddressFamily IPv4 -AddressState Preferred -ErrorAction SilentlyContinue |

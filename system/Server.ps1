@@ -2881,6 +2881,11 @@ $obrScriptBlock = {
 
     $nextCheck = @{}      # 機器ごとの次の確認時刻
     $lastPassword = @{}   # パスワードが変わったらすぐ確認し直すために覚えておく
+    $runningChecks = @{}  # 確認中の機器 (応答の遅い機器が他の機器の確認を待たせないよう、同時に進める)
+    $checkPoolState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $checkPoolState.ImportPSModule(@((Join-Path $syncHash.PSScriptRoot "modules\ObrStatus.psm1")))
+    $checkPool = [runspacefactory]::CreateRunspacePool(1, 8, $checkPoolState, $Host)
+    $checkPool.Open()
     # 確認結果を履歴の待ち行列に入れる (ファイルへの書き込みは記録専用スレッドが行うので、ドライブが止まっても確認は止まらない)
     $addObrHistory = {
         param($deviceIp, $entry)
@@ -2905,6 +2910,37 @@ $obrScriptBlock = {
     }
 
     while ($syncHash.Running) {
+        # 終わった確認の結果を受け取る
+        foreach ($ip in @($runningChecks.Keys)) {
+            $check = $runningChecks[$ip]
+            if (-not $check.Handle.IsCompleted) { continue }
+            $runningChecks.Remove($ip)
+            $obr = $null
+            try { $obr = @($check.Shell.EndInvoke($check.Handle)) | Select-Object -Last 1 } catch {}
+            $check.Shell.Dispose()
+            # 確認中にパスワードの変更や監視の停止があったときは、古い結果を使わない
+            $stillEnabled = $syncHash.ObrEnabled.ContainsKey($ip) -and $syncHash.ObrEnabled[$ip] -and
+                            -not ($syncHash.IsMonitored.ContainsKey($ip) -and -not $syncHash.IsMonitored[$ip])
+            if (-not $stillEnabled -or $lastPassword[$ip] -ne $check.Cipher) { continue }
+            if ($null -eq $obr) {
+                $syncHash.ObrStatus[$ip] = @{ state = "Unreachable"; checkedAt = $check.CheckedAt }
+            }
+            else {
+                $syncHash.ObrStatus[$ip] = @{
+                    state     = $obr.State
+                    ssid      = $obr.Ssid
+                    bssid     = $obr.Bssid
+                    channel   = $obr.Channel
+                    signalDbm = $obr.SignalDbm
+                    txBitrate = $obr.TxBitrate
+                    checkedAt = $check.CheckedAt
+                }
+                # パスワードが違うときは 5 分おきにする (短い間隔で失敗を繰り返すと機器側で拒否される恐れがあるため)
+                if ($obr.State -eq "LoginFailed") { $nextCheck[$ip] = $check.StartedUtc.AddMinutes(5) }
+            }
+            & $addObrHistory $ip $syncHash.ObrStatus[$ip]
+        }
+
         $now = [DateTime]::UtcNow
         foreach ($ip in @($syncHash.Devices)) {
             if (-not $syncHash.Running) { break }
@@ -2921,6 +2957,7 @@ $obrScriptBlock = {
                 $lastPassword[$ip] = $cipher
                 $nextCheck.Remove($ip)
             }
+            if ($runningChecks.ContainsKey($ip)) { continue }
             if ($nextCheck.ContainsKey($ip) -and $now -lt $nextCheck[$ip]) { continue }
             $nextCheck[$ip] = $now.AddSeconds(10)
 
@@ -2939,30 +2976,19 @@ $obrScriptBlock = {
             if ($null -ne $pingEntry -and $pingEntry.status -in @("Failed", "Error")) {
                 $syncHash.ObrStatus[$ip] = @{ state = "Unreachable"; checkedAt = $checkedAt }
                 & $addObrHistory $ip $syncHash.ObrStatus[$ip]
-continue
+                continue
             }
-            try {
-                $obr = Get-ObrWirelessStatus -HostName $ip -Password $password
-                $syncHash.ObrStatus[$ip] = @{
-                    state     = $obr.State
-                    ssid      = $obr.Ssid
-                    bssid     = $obr.Bssid
-                    channel   = $obr.Channel
-                    signalDbm = $obr.SignalDbm
-                    txBitrate = $obr.TxBitrate
-                    checkedAt = $checkedAt
-                }
-                & $addObrHistory $ip $syncHash.ObrStatus[$ip]
-                # パスワードが違うときは 5 分おきにする (短い間隔で失敗を繰り返すと機器側で拒否される恐れがあるため)
-if ($obr.State -eq "LoginFailed") { $nextCheck[$ip] = $now.AddMinutes(5) }
-            }
-            catch {
-                $syncHash.ObrStatus[$ip] = @{ state = "Unreachable"; checkedAt = $checkedAt }
-                & $addObrHistory $ip $syncHash.ObrStatus[$ip]
-}
+            $shell = [powershell]::Create()
+            $shell.RunspacePool = $checkPool
+            $null = $shell.AddScript({ param($target, $secret) Get-ObrWirelessStatus -HostName $target -Password $secret }).AddArgument($ip).AddArgument($password)
+            $runningChecks[$ip] = @{ Shell = $shell; Handle = $shell.BeginInvoke(); Cipher = $cipher; CheckedAt = $checkedAt; StartedUtc = $now }
         }
         Start-Sleep -Seconds 1
     }
+
+    # 終了時は確認の完了を待たない (機器が応答しないと終了が遅れるため)
+    foreach ($check in $runningChecks.Values) { try { $null = $check.Shell.BeginStop($null, $null) } catch {} }
+    try { $null = $checkPool.BeginClose($null, $null) } catch {}
 }
 
 $obrPipeline = $obrRunspace.CreatePipeline()
@@ -4664,6 +4690,9 @@ $isNew = $true
                                         $renamed = $_.Name -replace "^$([regex]::Escape($oldSafeIp))_", "${newSafeIp}_"
                                         Rename-Item -Path $_.FullName -NewName $renamed -Force
                                     }
+                                    # OBR の無線履歴も新しい IP アドレスへ引き継ぐ (失敗しても機器の変更は止めない)
+                                    try { Rename-ObrHistoryFiles -SessionDir $syncHash.SessionDir -OldIp $oldIp -NewIp $newIp }
+                                    catch { Write-Host "OBR history rename failed: $($_.Exception.Message)" -ForegroundColor Yellow }
                                     
                                     if ($syncHash.History.ContainsKey($oldIp)) {
                                         $syncHash.History[$newIp] = $syncHash.History[$oldIp]
@@ -5714,6 +5743,8 @@ sslWarnDays              = $syncHash.SslWarnDays
                             $safeOpts = ""
                             if ($customOpts) {
                                 $safeOpts = $customOpts -replace '[^a-zA-Z0-9\s\-]', ''
+                                # PC 内のファイルを相手へ送ったり書き込んだりするオプションは使わせない
+                                $safeOpts = [regex]::Replace($safeOpts, '(?<![^\s])(--file|-F|--logfile|--pidfile|-I)(\s+[^\s\-]\S*)?', '')
                                 if ($safeOpts -notmatch "-i\s+\d+") {
                                     $cmdArgs += " $safeOpts"
                                 }
@@ -6832,7 +6863,7 @@ $(if ($snmpD.neighbors) { "Neighbors: " + ($snmpD.neighbors -join ", ") } else {
                     $syncHash.LastClientActivity = [DateTime]::UtcNow
                     Write-JsonResponse $response @{ status = "alive"; time = [DateTime]::UtcNow.ToString("o") }
                 }
-                elseif ($urlPath -eq "/api/shutdown") {
+                elseif ($urlPath -eq "/api/shutdown" -and $method -eq "POST") {
                     # reason=unload は「ブラウザを閉じた・再読み込みした」ときに自動で送られる合図
                     # (「監視終了」ボタンからの明示的な終了には付かない)
                     $isUnloadSignal = ($request.QueryString["reason"] -eq "unload")

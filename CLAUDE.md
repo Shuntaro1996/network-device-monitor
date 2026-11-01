@@ -18,7 +18,7 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
   - PingEngine、SnmpService、RemoteExec、IperfRunner、AlertManager、ReportGenerator、ObrStatus
   - Runspace 内では関数が見えないため、各スクリプトブロックで明示的に `Import-Module` するか、`$iss` に登録する。
 - `system/public/`：`index.html` / `app.js`（約 8,800 行）/ `style.css`。vis-network と Chart.js は同梱のファイルを使い、npm は使わない。
-- 設定ファイルは `system/config.json` と `system/devices.json`。パスワードは DPAPI で暗号化して保存する。実行時の生成物は `Reports/` に出力され、git の管理対象外。
+- 設定ファイルは `system/config.json` と `system/devices.json`。社内の機器情報が入るので git の管理対象外で、形式の見本は `system/devices.example.json`。パスワードは DPAPI で暗号化して保存する。実行時の生成物は `Reports/` に出力され、git の管理対象外。
 
 ## テスト
 
@@ -48,6 +48,7 @@ Windows 専用のネットワーク機器監視ツール。PowerShell 製の HTT
 ## 作業上の注意
 
 - 仕様・機能を変更したら、`README.md` / `system/SPECIFICATION.md` / `利用手順書.html` を同時に更新する（GEMINI.md の §2）。
-- `利用手順書.html` はビルド工程のない 1 枚の HTML なので、直接編集する（CSS と JS もファイル内に含まれ、外部ファイルは読み込まない）。
+- `利用手順書.html` はビルド工程のない 1 枚の HTML なので、直接編集する（CSS と JS もファイル内に含まれ、外部ファイルは読み込まない）。`system/管理者向け設計書.html` と `system/public/third-party-notices.html` も同じ作りで、直接編集する。
 - プロジェクト直下には、利用者が使うもの（`Start-Monitor.bat` / `Stop-All.bat` / `利用手順書.html` / `Reports/`）と、ツールや GitHub が直下を前提とするもの（`README.md` / `LICENSE` / `CLAUDE.md` / `GEMINI.md` / `.gitignore`）だけを置く。それ以外は `system/` に入れる。
 - コード内のコメントは日本語で、「初心者向けの簡単な解説」という既存のスタイルに合わせる。
+- コードを追加・修正するときは、あとから修正しやすいよう、事細かく説明を書く。関数や処理のまとまりごとに、目的・入力と結果・なぜその方法にしたのか・変更するときの注意点を書く。コードをそのまま言い換えるだけの説明にはしない。
