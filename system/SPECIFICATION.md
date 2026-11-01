@@ -541,6 +541,8 @@ sequenceDiagram
 ```
 
 * **リアルタイム性**: 非同期バッファリング遅延を回避するため、PowerShell側で同期 `ReadLine()` をループ実行し、出力行を即座に共有メモリへ反映。
+* **サーバー側のログ（UDP のみ）**: 追加オプションが UDP を指定しているとき（`Test-IperfUdpOptions`）は `--get-server-output` を自動で付ける。出力の `Server output:` から `iperf Done.` の手前までを、セッションフォルダの `remote_iperf_<IP>.log` に分けて保存する（`Get-IperfOutputRoute`）。画面の出力と計測ログ、統計サマリーには含めない。計測が正常に終わらなかったときは、サーバー側のログは届かないことがある。
+* **計測中にブラウザを閉じた場合**: サーバー側のログは計測の終わりに届くので、ブラウザを閉じたことによる終了（`reason=unload` とハートビート切れ）は、計測の完了まで待つ。待つのは計測時間 + 120 秒まで。「監視終了」ボタンと Enter キーによる終了は待たない。
 * **強制停止**: `GET /api/iperf?action=stop` 受信時、`taskkill /F /T /PID` を実行して `iperf3.exe` プロセスツリーをミリ秒単位で完全強制終了。
 
 ---
@@ -709,6 +711,7 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | `GET` | `/api/iperf` | `?action=stop` | 実行中 IPerf3 の強制終了 | `taskkill` 強制Kill |
 | `GET` | `/api/iperf` | `?action=status` | IPerf3 のリアルタイム出力・実行状態の取得 | 即時応答 (ポーリング用) |
 | `GET` | `/api/iperf/log` | `?ip=...` | 最新の IPerf3 計測ログのダウンロード | ファイル読込 |
+| `GET` | `/api/iperf/remote-log` | `?ip=...`（省略すると最新） | UDP 計測で受け取ったサーバー側のログのダウンロード | ファイル読込 |
 | `GET` | `/api/mtr` | `action`（start / status / stop） | MTR 経路診断の開始・結果取得・停止 | 非同期実行 |
 | `POST`| `/api/iperf/server/start`| `{ port: 5201 }` | IPerf3 サーバーモード起動 | プロセス管理 |
 | `POST`| `/api/iperf/server/stop`| - | IPerf3 サーバーモード停止 | プロセス管理 |

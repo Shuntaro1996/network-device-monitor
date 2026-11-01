@@ -82,6 +82,39 @@ Describe "ConvertTo-SafeIperfOptions (iperf3 の追加オプションの安全�
     }
 }
 
+Describe "IperfRunner Test-IperfUdpOptions (UDP の計測かの判定)" {
+    It "UDP の書き方をすべて認識すること (まとめ書きと省略形を含む)" {
+        foreach ($options in @("-u", "-u -b 10M", "-R -u", "-uR", "-Ru", "--udp", "--ud -b 1M")) {
+            Test-IperfUdpOptions -Options $options | Should Be $true
+        }
+    }
+
+    It "UDP 以外は認識しないこと (値に含まれる u や、大文字の -U も対象外)" {
+        foreach ($options in @("", "-R", "-P 4", "-b 10M", "--parallel 2", "--username u", "-U", "--u", "user")) {
+            Test-IperfUdpOptions -Options $options | Should Be $false
+        }
+    }
+}
+
+Describe "IperfRunner Get-IperfOutputRoute (サーバー側のログの振り分け)" {
+    It "iperf3 の出力の順番どおりに、クライアント側とサーバー側へ分けること" {
+        $inServer = $false
+        $routes = foreach ($line in @("[  5]  0.00-1.00 sec client", "Server output:", "Accepted connection", "[  5]  0.00-1.00 sec server", "iperf Done.")) {
+            $result = Get-IperfOutputRoute -Line $line -InServerOutput $inServer
+            $inServer = $result.InServerOutput
+            $result.Route
+        }
+        ($routes -join ",") | Should Be "client,marker,server,server,client"
+        $inServer | Should Be $false
+    }
+
+    It "サーバー側のログがなければ、すべてクライアント側にすること" {
+        $result = Get-IperfOutputRoute -Line "iperf Done." -InServerOutput $false
+        $result.Route | Should Be "client"
+        $result.InServerOutput | Should Be $false
+    }
+}
+
 Describe "IperfRunner Rollback-FailedIperfExecution (失敗した計測のログの巻き戻し)" {
     It "パスが空のときは何もしないこと" {
         Rollback-FailedIperfExecution -logFilePath "" | Should BeNullOrEmpty

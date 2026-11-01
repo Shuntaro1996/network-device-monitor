@@ -146,4 +146,9 @@ check('無線履歴の画面で使う部品が index.html と style.css にあ�
     assert(styleCss.includes('.obr-history-chart'));
 });
 
+check('iperf のサーバー側ログの保存ボタンが index.html にあること', () => {
+    assert(indexHtml.includes('id="iperf-remote-log-btn"'));
+    assert(indexHtml.includes('href="/api/iperf/remote-log"'));
+});
+
 fs.writeFileSync(resultFile, JSON.stringify(results), 'utf8');

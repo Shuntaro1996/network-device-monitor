@@ -44,6 +44,63 @@ function Get-IperfCommandLine {
     return $argsList
 }
 
+function Test-IperfUdpOptions {
+    <#
+    .SYNOPSIS
+        iperf3 の追加オプションが UDP の計測を指定しているかを判定します。
+    .DESCRIPTION
+        UDP の計測だけ --get-server-output を自動で付けるために使います。
+        iperf3 は -uR のように短いオプションをまとめて書けて、--ud のように長い名前を省略して書くこともできるので、
+        空白で区切った語ごとに判定します。
+    .PARAMETER Options
+        安全確認 (ConvertTo-SafeIperfOptions) を通したあとの文字列。
+    .OUTPUTS
+        UDP なら $true、それ以外は $false。
+    .NOTES
+        -cmatch で大文字と小文字を区別します (-u は UDP、-U は別のオプションです)。
+        長い名前は 2 文字以上の省略で判定します (--u だけでは他のオプションと区別できません)。
+    #>
+    param([string]$Options)
+    foreach ($word in @($Options -split '\s+' | Where-Object { $_ })) {
+        if ($word.StartsWith("--")) {
+            $longName = $word.Substring(2)
+            if ($longName.Length -ge 2 -and "udp".StartsWith($longName, [System.StringComparison]::Ordinal)) { return $true }
+        }
+        elseif ($word -cmatch '^-[a-zA-Z]*u') {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Get-IperfOutputRoute {
+    <#
+    .SYNOPSIS
+        iperf3 の出力の 1 行を、クライアント側とサーバー側のどちらのログに書くかを判定します。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        --get-server-output を付けると、計測の終わりに次の形で出力されます。
+            (クライアント側の結果)
+            Server output:
+            (サーバー側のログ)
+            iperf Done.
+        「Server output:」から「iperf Done.」の手前までがサーバー側のログです。
+        サーバー側の行をクライアント側のログに混ぜると、統計サマリーが同じ計測を二重に数えるので分けます。
+    .PARAMETER InServerOutput
+        前の行までにサーバー側のログに入っているか。前回の結果の InServerOutput を渡します。
+    .OUTPUTS
+        Route ("client" / "server" / "marker") と InServerOutput を持つハッシュテーブル。
+        "marker" は区切りの行で、どちらのログにも書きません。
+    .NOTES
+        iperf3 の出力の形が変わると判定を直す必要があります。テストは tests/Tools.Tests.ps1 と tests/IperfServerLog.Tests.ps1 です。
+    #>
+    param([string]$Line, [bool]$InServerOutput)
+    if ($Line -match '^\s*Server output:\s*$') { return @{ Route = "marker"; InServerOutput = $true } }
+    if ($InServerOutput -and $Line -match '^\s*iperf Done\.\s*$') { return @{ Route = "client"; InServerOutput = $false } }
+    if ($InServerOutput) { return @{ Route = "server"; InServerOutput = $true } }
+    return @{ Route = "client"; InServerOutput = $false }
+}
+
 function Rollback-FailedIperfExecution {
     <#
     .SYNOPSIS
@@ -78,4 +135,4 @@ function Rollback-FailedIperfExecution {
     }
 }
 
-Export-ModuleMember -Function Get-IperfCommandLine, Rollback-FailedIperfExecution
+Export-ModuleMember -Function Get-IperfCommandLine, Test-IperfUdpOptions, Get-IperfOutputRoute, Rollback-FailedIperfExecution

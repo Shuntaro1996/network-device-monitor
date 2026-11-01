@@ -3151,6 +3151,12 @@ $keyRunspace.SessionStateProxy.SetVariable("ListenerRef", $listener)
 
 $keyScript = {
     $initialStartupTime = [DateTime]::UtcNow
+    # iperf3 の計測中か。計測の終わりに届くサーバー側のログを失わないよう、ブラウザを閉じたことによる終了を計測の完了まで待つ
+    # DeadlineUtc を過ぎたら計測中とみなさない (iperf3 が応答しなくなっても、サーバーが止まれなくならないようにするため)
+    $isIperfMeasuring = {
+        $state = $syncHash.IperfState
+        return ($state -and $state.Running -and $state.DeadlineUtc -and [DateTime]::UtcNow -lt $state.DeadlineUtc)
+    }
     while ($true) {
         # 1. Console key detection (if console handle is available)
         try {
@@ -3165,7 +3171,9 @@ $keyScript = {
         catch { }
 
         # 2. Browser shutdown signal (/api/shutdown beacon)
-        if ($syncHash.PendingShutdown -and [DateTime]::UtcNow -gt $syncHash.PendingShutdownTime) {
+        # 「監視終了」ボタンによる終了 (PendingShutdownForced) は利用者の明示の操作なので、計測の完了を待たない
+        if ($syncHash.PendingShutdown -and [DateTime]::UtcNow -gt $syncHash.PendingShutdownTime -and
+            ($syncHash.PendingShutdownForced -or -not (& $isIperfMeasuring))) {
             Write-Host "Browser shutdown signal received. Shutting down server gracefully..." -ForegroundColor Yellow
             break
         }
@@ -3177,7 +3185,7 @@ $keyScript = {
             
             if ($syncHash.HasClientConnected) {
                 $timeSinceLastActivity = ([DateTime]::UtcNow - $syncHash.LastClientActivity).TotalSeconds
-                if ($timeSinceLastActivity -gt $timeoutSec) {
+                if ($timeSinceLastActivity -gt $timeoutSec -and -not (& $isIperfMeasuring)) {
                     Write-Host "Browser disconnected ($([int]$timeSinceLastActivity)s since last heartbeat). Automatically saving logs and shutting down..." -ForegroundColor Yellow
                     break
                 }
@@ -5760,12 +5768,15 @@ sslWarnDays              = $syncHash.SslWarnDays
                             $syncHash.IperfState.Target = $targetIp
                             $syncHash.IperfState.StopRequested = $false
                             $syncHash.IperfState.Process = $null
+                            # 計測時間に、接続とサーバー側のログの受け取りの余裕 (120 秒) を足した時刻まで、ブラウザを閉じても終了を待つ
+                            $syncHash.IperfState.DeadlineUtc = [DateTime]::UtcNow.AddSeconds([int]$duration + 120)
                             # Parse bandwidth threshold (default from config or 10 Mbps)
                             $bwThreshMbps = if ($null -ne $syncHash.BwThreshMbps -and $syncHash.BwThreshMbps -gt 0) { [double]$syncHash.BwThreshMbps } else { 10.0 }
                             if ($bwThreshParam -match '^\d+(\.\d+)?$') { $bwThreshMbps = [double]$bwThreshParam }
 
                             $iperfTaskScript = {
-                                param($exe, $tIp, $dur, $opts, $sync, $sessDir, $bwThresh, $reportsDir)
+                                param($exe, $tIp, $dur, $opts, $sync, $sessDir, $bwThresh, $reportsDir, $iperfModulePath)
+                                Import-Module $iperfModulePath -DisableNameChecking -ErrorAction Stop
                                 $safeIp = $tIp -replace '[\\/:*?"<>|]', '_'
                                 $tmpLiveLog = Join-Path ([System.IO.Path]::GetTempPath()) "ndm_iperf_tmp_$([guid]::NewGuid().ToString('N')).log"
                                 
@@ -5787,6 +5798,43 @@ sslWarnDays              = $syncHash.SslWarnDays
                                     }
                                 }
 
+                                # サーバー側のログの保存先 (UDP の計測で --get-server-output を付けたときだけ作る)
+                                # 名前を iperf_ で始めないこと。/api/iperf/log やレポートが iperf_*.log を計測結果として読むため
+                                $remoteLogFile = Join-Path $sessDir "remote_iperf_${safeIp}.log"
+                                $remoteHeaderWritten = $false
+                                $lineState = @{ Carry = ""; InServerOutput = $false }
+
+                                # ヘルパー: 読み取った出力を行に分け、クライアント側は画面とログへ、サーバー側は別のログだけへ書く
+                                # 読み取りの区切りが行の途中になることがあるので、改行で終わらない残りは次回へ持ち越す
+                                function Write-IperfChunk([string]$chunk) {
+                                    $parts = ($lineState.Carry + $chunk) -split "`n"
+                                    $lineState.Carry = $parts[$parts.Count - 1]
+                                    foreach ($ln in ($parts | Select-Object -First ($parts.Count - 1))) {
+                                        $trimmed = $ln.TrimEnd("`r")
+                                        if (-not $trimmed) { continue }
+                                        $route = Get-IperfOutputRoute -Line $trimmed -InServerOutput $lineState.InServerOutput
+                                        $lineState.InServerOutput = $route.InServerOutput
+                                        if ($route.Route -eq "client") {
+                                            $fl = "[$(Get-Date -Format 'HH:mm:ss')] $trimmed"
+                                            $sync.IperfState.Output += $fl + "`n"
+                                            Write-IperfLogs $fl
+                                        }
+                                        elseif ($route.Route -eq "server") {
+                                            try {
+                                                if (-not $script:remoteHeaderWritten) {
+                                                    $script:remoteHeaderWritten = $true
+                                                    "=== iperf3 Server Output at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File -FilePath $remoteLogFile -Append -Encoding UTF8
+                                                    "Target IP: $tIp" | Out-File -FilePath $remoteLogFile -Append -Encoding UTF8
+                                                    "Command: $($sync.IperfState.Command)" | Out-File -FilePath $remoteLogFile -Append -Encoding UTF8
+                                                    "-----------------------------------------------------------" | Out-File -FilePath $remoteLogFile -Append -Encoding UTF8
+                                                }
+                                                $trimmed | Out-File -FilePath $remoteLogFile -Append -Encoding UTF8
+                                            }
+                                            catch {}
+                                        }
+                                    }
+                                }
+
                                 try {
                                     $sync.IperfState.Output = "Starting iperf3...`n"
                                     
@@ -5799,6 +5847,10 @@ sslWarnDays              = $syncHash.SslWarnDays
                                         else {
                                             $iperfArgs = "-c $tIp -t $dur --forceflush $opts"
                                         }
+                                    }
+                                    # UDP の計測では、計測後にサーバー側のログも受け取る (相手の機器へ取りに行かなくて済むようにする)
+                                    if ((Test-IperfUdpOptions -Options $opts) -and $iperfArgs -notmatch '--get-server-output') {
+                                        $iperfArgs += " --get-server-output"
                                     }
 
                                     $sync.IperfState.Command = "iperf3 $iperfArgs"
@@ -5848,16 +5900,7 @@ sslWarnDays              = $syncHash.SslWarnDays
                                                 $buf = New-Object byte[] $readLen
                                                 $read = $fs.Read($buf, 0, $readLen)
                                                 $byteOffset += $read
-                                                $chunk = [System.Text.Encoding]::UTF8.GetString($buf, 0, $read)
-                                                foreach ($ln in ($chunk -split "`n")) {
-                                                    $trimmed = $ln.TrimEnd("`r")
-                                                    if ($trimmed) {
-                                                        $nowTs = Get-Date -Format "HH:mm:ss"
-                                                        $fl = "[$nowTs] $trimmed"
-                                                        $sync.IperfState.Output += $fl + "`n"
-                                                        Write-IperfLogs $fl
-                                                    }
-                                                }
+                                                Write-IperfChunk ([System.Text.Encoding]::UTF8.GetString($buf, 0, $read))
                                             }
                                             $fs.Close()
                                         }
@@ -5879,21 +5922,14 @@ sslWarnDays              = $syncHash.SslWarnDays
                                                 $readLen = [int]($fileLen - $byteOffset)
                                                 $buf = New-Object byte[] $readLen
                                                 $read = $fs.Read($buf, 0, $readLen)
-                                                $chunk = [System.Text.Encoding]::UTF8.GetString($buf, 0, $read)
-                                                foreach ($ln in ($chunk -split "`n")) {
-                                                    $trimmed = $ln.TrimEnd("`r")
-                                                    if ($trimmed) {
-                                                        $nowTs = Get-Date -Format "HH:mm:ss"
-                                                        $fl = "[$nowTs] $trimmed"
-                                                        $sync.IperfState.Output += $fl + "`n"
-                                                        Write-IperfLogs $fl
-                                                    }
-                                                }
+                                                Write-IperfChunk ([System.Text.Encoding]::UTF8.GetString($buf, 0, $read))
                                             }
                                             $fs.Close()
                                         }
                                         catch { try { $fs.Close() } catch {} }
                                     }
+                                    # 最後の行が改行で終わっていなくても書き出す
+                                    Write-IperfChunk "`n"
 
                                     if (-not $proc.HasExited) {
                                         try { & taskkill /F /T /PID $proc.Id 2>$null } catch {}
@@ -6170,7 +6206,7 @@ sslWarnDays              = $syncHash.SslWarnDays
                             # 新しいスレッドで実行
                             $reportsDir = Join-Path $syncHash.PSScriptRoot "..\Reports"
                             if (-not (Test-Path $reportsDir)) { New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null }
-                            $ps = [powershell]::Create().AddScript($iperfTaskScript).AddArgument($iperfExe).AddArgument($targetIp).AddArgument($duration).AddArgument($safeOpts).AddArgument($syncHash).AddArgument($syncHash.SessionDir).AddArgument($bwThreshMbps).AddArgument($reportsDir)
+                            $ps = [powershell]::Create().AddScript($iperfTaskScript).AddArgument($iperfExe).AddArgument($targetIp).AddArgument($duration).AddArgument($safeOpts).AddArgument($syncHash).AddArgument($syncHash.SessionDir).AddArgument($bwThreshMbps).AddArgument($reportsDir).AddArgument((Join-Path $modulesDir "IperfRunner.psm1"))
                             # 終わったら Start-BackgroundScript 側で片付けられるよう一覧に登録する (以前は作りっぱなしで実行のたびにメモリが残った)
                             $null = $script:AsyncHttpJobs.Add(@{ PS = $ps; Handle = $ps.BeginInvoke() })
                             
@@ -6217,6 +6253,28 @@ sslWarnDays              = $syncHash.SslWarnDays
                     }
                     else {
                         Write-JsonResponse $response @{ error = "No iperf log found" } 404
+                    }
+                }
+                elseif ($urlPath -eq "/api/iperf/remote-log" -and $method -eq "GET") {
+                    # UDP 計測で受け取ったサーバー側のログのダウンロード。ip がなければ最新のものを返す
+                    # 機器の IP はファイル名に使うので、パスの区切りなどの文字を置き換えてから使う
+                    $targetIp = $request.QueryString["ip"]
+                    $remoteLog = if ($targetIp) {
+                        Join-Path $syncHash.SessionDir ("remote_iperf_" + ($targetIp -replace '[\\/:*?"<>|]', '_') + ".log")
+                    }
+                    else {
+                        Get-ChildItem -Path $syncHash.SessionDir -Filter "remote_iperf_*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+                    }
+                    if ($remoteLog -and (Test-Path -LiteralPath $remoteLog)) {
+                        $logBytes = [System.IO.File]::ReadAllBytes($remoteLog)
+                        $response.ContentType = "text/plain; charset=utf-8"
+                        $response.AddHeader("Content-Disposition", "attachment; filename=`"$([System.IO.Path]::GetFileName($remoteLog))`"")
+                        $response.ContentLength64 = $logBytes.Length
+                        $response.OutputStream.Write($logBytes, 0, $logBytes.Length)
+                        $response.Close()
+                    }
+                    else {
+                        Write-JsonResponse $response @{ error = "No iperf server-side log found" } 404
                     }
                 }
                 elseif ($urlPath -eq "/api/iperf/server/status" -and $method -eq "GET") {
