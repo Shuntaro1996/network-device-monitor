@@ -557,6 +557,7 @@ sequenceDiagram
 
 ### 3.6 Syslog 受信・解析エンジン
 ネットワーク機器からの障害通知ログ（RFC 3164 / RFC 5424）をリアルタイムに受信・蓄積します。
+* **送信元の制限**: 登録済みの機器のアドレスから届いたものだけを受け付ける（`Test-LogSourceAllowed`。SNMP Trap も同じで、未登録の相手には Inform の返事も送らない）。無視した件数と最後の送信元は `/api/syslog` の `rejectedCount` / `rejectedLastIp` で返し、画面の「受信状態」に出す。UDP の送信元は偽装できるので、悪意のある相手を完全に防ぐものではない。
 * **ポート**: `syslogPort`（既定 UDP 514）を開き、開けない場合は UDP 1514 で代わりに受信する。実際の受信ポートと失敗理由は `/api/syslog` の `listenPort` / `listenError` で返し、画面の「受信状態」に表示する。`syslogPort` を変更すると再起動なしで開き直す。
 * **リングバッファ**: メモリ内に最新 500 件のログを保持（古いログから自動破棄）。
 * **ファシリティ / セベリティ解析**: PRIヘッダ（`<134>`等）から Facility（`local0`, `auth` 等）および Severity（`Emergency`, `Alert`, `Critical`, `Error`, `Warning`, `Notice`, `Info`, `Debug`）を自動抽出。

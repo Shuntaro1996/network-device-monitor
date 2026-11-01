@@ -184,6 +184,8 @@ $syncHash.SmtpTo = ""
 
 # Syslog settings
 $syncHash.SyslogEnabled = $true
+$syncHash.LogRejectedCount = 0     # 未登録の機器から届いて無視した Syslog / Trap の数 (画面の受信状態に表示する)
+$syncHash.LogRejectedLastIp = ""   # 最後に無視した送信元 (登録し忘れに気づけるように表示する)
 $syncHash.SyslogPort = 514
 $syncHash.TrapPort = 162   # SNMP Trap の受信ポート (使えないときは 1162 で代わりに受信)
 $syncHash.SslWarnDays = 30
@@ -2641,6 +2643,7 @@ $syslogRunspace.Open()
 $syslogRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
 
 $syslogScriptBlock = {
+    Import-Module (Join-Path $syncHash.PSScriptRoot "modules\Common.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
     # 受信ポートを開く。指定ポートが他のソフトに使われていれば 1514 で代わりに受信する
     # 実際に受信しているポートと失敗理由は画面に表示する (以前は 1514 に切り替わっても画面からは分からず、
     #  機器が 514 番へ送っても届かない原因がつかめなかった)
@@ -2692,6 +2695,12 @@ $syslogScriptBlock = {
             if ($null -ne $bytes -and $bytes.Length -gt 0) {
                 $rawMsg = [System.Text.Encoding]::UTF8.GetString($bytes)
                 $srcIp = $remoteEP.Address.ToString()
+                # 登録済みの機器からのログだけを受け付ける。無視した数と送信元は画面の受信状態に出す
+                if (-not (Test-LogSourceAllowed -SourceIp $srcIp -Devices $syncHash.Devices)) {
+                    $syncHash.LogRejectedCount = [int]$syncHash.LogRejectedCount + 1
+                    $syncHash.LogRejectedLastIp = $srcIp
+                    continue
+                }
                 $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
                 
                 $severity = "Informational"
@@ -2761,6 +2770,7 @@ $trapRunspace.SessionStateProxy.SetVariable("syncHash", $syncHash)
 
 $trapScriptBlock = {
     Import-Module (Join-Path $syncHash.PSScriptRoot "modules\SnmpService.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
+    Import-Module (Join-Path $syncHash.PSScriptRoot "modules\Common.psm1") -DisableNameChecking -ErrorAction SilentlyContinue
 
     $openTrapPort = {
         param($wantPort)
@@ -2834,6 +2844,12 @@ $trapScriptBlock = {
 
         try {
             $srcIp = $remoteEP.Address.ToString()
+            # 登録済みの機器からの Trap だけを受け付ける。未登録の相手には Inform の返事も送らない
+            if (-not (Test-LogSourceAllowed -SourceIp $srcIp -Devices $syncHash.Devices)) {
+                $syncHash.LogRejectedCount = [int]$syncHash.LogRejectedCount + 1
+                $syncHash.LogRejectedLastIp = $srcIp
+                continue
+            }
             $trap = ConvertFrom-SnmpTrapPacket -Packet $bytes
             if ($trap.Version -eq "v3") {
                 $lastNotice = $v3NoticeTimes[$srcIp]
@@ -6767,6 +6783,8 @@ sslWarnDays              = $syncHash.SslWarnDays
                         listenError = [string]$syncHash.SyslogListenError
                         trapListenPort  = [int]$syncHash.TrapListenPort
                         trapListenError = [string]$syncHash.TrapListenError
+                        rejectedCount   = [int]$syncHash.LogRejectedCount
+                        rejectedLastIp  = [string]$syncHash.LogRejectedLastIp
 }
                 }
                 elseif ($urlPath -eq "/api/syslog/clear" -and $method -eq "POST") {

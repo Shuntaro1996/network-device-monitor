@@ -272,6 +272,32 @@ function Test-ClientAddressAllowed {
     return [System.Net.IPAddress]::IsLoopback($Address)
 }
 
+function Test-LogSourceAllowed {
+    <#
+    .SYNOPSIS
+        Syslog / SNMP Trap の送信元が、登録済みの機器かどうかを判定します。
+    .DESCRIPTION
+        【初心者向けの簡単な解説】
+        Syslog と Trap は同じネットワークの誰からでも届きます。そのままでは、無関係な機器のログや
+        偽の警報が一覧に混ざるので、機器一覧に登録されたアドレスから届いたものだけを受け付けます。
+    .PARAMETER SourceIp
+        受信したデータの送信元アドレス。
+    .PARAMETER Devices
+        登録済みの機器のアドレスの一覧 ($syncHash.Devices)。
+    .OUTPUTS
+        登録済みなら $true、それ以外は $false。
+    .NOTES
+        UDP の送信元は偽装できるので、悪意のある相手を完全に防ぐものではありません。
+        機器の管理用とは別のアドレスから送る機器は、そのアドレスも登録しないと受け付けません。
+    #>
+    param([string]$SourceIp, [string[]]$Devices)
+
+    if ([string]::IsNullOrWhiteSpace($SourceIp) -or $null -eq $Devices) { return $false }
+    # ::ffff:192.168.1.1 は IPv6 の形で書いた 192.168.1.1 なので、IPv4 の形にそろえて比べる
+    $normalized = $SourceIp -replace '^::ffff:', ''
+    return ($Devices -contains $normalized)
+}
+
 function ConvertTo-SafeIperfOptions {
     <#
     .SYNOPSIS
@@ -1022,4 +1048,4 @@ function New-AppRunspace {
     return $rs
 }
 
-Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Test-ApiRequestAllowed, Test-ClientAddressAllowed, ConvertTo-SafeIperfOptions, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule, New-AppRunspace
+Export-ModuleMember -Function Protect-SecretString, Unprotect-SecretString, Log-Audit, Write-ServerLog, Write-JsonResponse, Test-ApiRequestAllowed, Test-ClientAddressAllowed, Test-LogSourceAllowed, ConvertTo-SafeIperfOptions, Get-MimeType, Save-DevicesJson, Backup-ConfigSnapshot, Get-ConfigSnapshots, Restore-ConfigSnapshot, Test-SystemPrerequisites, Install-PrerequisiteModule, New-AppRunspace

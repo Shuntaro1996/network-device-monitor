@@ -1057,6 +1057,11 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 <td align="left">このPC内で iperf3 を動かし、UDP のサーバー側ログの取得と、ブラウザを閉じたときの動作を検証（iperf3.exe がなければ省略）</td>
 </tr>
 <tr>
+<td align="left"><strong>📡 送信元の絞り込みのテスト</strong></td>
+<td align="left"><code>system/tests/LogSource.Tests.ps1</code></td>
+<td align="left">登録済みの機器からの Syslog / Trap だけを受け付けることを、サーバーを動かして検証</td>
+</tr>
+<tr>
 <td align="left"><strong>📶 OBR の通しテスト</strong></td>
 <td align="left"><code>system/tests/ObrScenario.Tests.ps1</code></td>
 <td align="left">模擬 OBR を相手にサーバーを実際に動かし、確認間隔、ログイン、履歴の画面用データを検証（80番ポートが使えなければ省略）</td>
@@ -1280,7 +1285,7 @@ No,瞬断開始日時,復旧完了日時,継続時間_ms,判定区分
 </tr>
 <tr>
 <td align="left"><strong>Syslog が届かない</strong></td>
-<td align="left">Syslog / Trap 画面の上部の「受信状態」で、実際に受信しているポートを確認してください。514番が他のソフトに使われていると、自動的に 1514 番で受信します（機器側の送信先ポートを 1514 に合わせるか、514 番を使っているソフトを止めてください）。</td>
+<td align="left">Syslog / Trap 画面の上部の「受信状態」で、実際に受信しているポートを確認してください。514番が他のソフトに使われていると、自動的に 1514 番で受信します（機器側の送信先ポートを 1514 に合わせるか、514 番を使っているソフトを止めてください）。Syslog と SNMP Trap は、機器一覧に登録したアドレスから届いたものだけを表示します。「受信状態」に「未登録の機器から ○ 件を無視」と出ているときは、表示された送信元のアドレスを機器一覧に登録してください（機器によっては、管理用とは別のアドレスから送ることがあります）。</td>
 </tr>
 <tr>
 <td align="left"><strong>機器一覧の JSON インポートで既存の機器が消えた</strong></td>

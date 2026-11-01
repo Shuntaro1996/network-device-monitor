@@ -8375,6 +8375,10 @@ return toCsvCell(d[c.key]);
                         listenStatusEl.textContent = `受信状態: Syslog は UDP ${data.listenPort} 番、SNMP Trap は UDP ${data.trapListenPort || '-'} 番で受信中`;
                         listenStatusEl.style.color = '#10b981';
                     }
+                    // 登録済みの機器からのものだけを受け付けるので、届かないときの原因が分かるよう無視した数を出す
+                    if (data.enabled !== false && data.rejectedCount > 0) {
+                        listenStatusEl.textContent += ` / 未登録の機器から ${data.rejectedCount} 件を無視（最後: ${data.rejectedLastIp}）`;
+                    }
                 }
             }
         } catch (err) {}
