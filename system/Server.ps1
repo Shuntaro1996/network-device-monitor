@@ -597,7 +597,7 @@ $syncHash.LastClientActivity = [DateTime]::UtcNow
 # どちらにも指定がないときだけ標準値 (ブラウザを閉じたら終了) にする
 # (以前は無条件に $true で上書きしており、「無人運用モード (false)」がまったく働いていなかった)
 if ($null -eq $syncHash.AutoShutdownOnDisconnect) { $syncHash.AutoShutdownOnDisconnect = $true }
-$syncHash.HeartbeatTimeoutSec = 600  # ブラウザのバックグラウンドスロットリングやタブ切替・リロードでの誤終了を防ぐため60秒に設定
+$syncHash.HeartbeatTimeoutSec = 600  # ブラウザのバックグラウンドスロットリングやタブ切替・リロードでの誤終了を防ぐため 600 秒にしている
 $syncHash.DevicesLock = [object]::new()  # Issue 5: デバイス設定保存専用ロックオブジェクト（$syncHash全体ロックを回避）
 $syncHash.Listener = $null   # will be set after listener creation
 $syncHash.PSScriptRoot = $PSScriptRoot
@@ -1635,7 +1635,7 @@ $pingScript = {
                             $stats.SumLat = $stats.SumLat + $latVal
                             $stats.LatCount = $stats.LatCount + 1
 
-                            # Track Recent Latencies for Jitter calculation (RFC 3550) - RemoveRange for O(1)
+                            # 直近 30 回の遅延を覚えておき、ジッター (隣り合う遅延の差の絶対値の平均) を計算する
                             $null = $stats.RecentLatencies.Add($latVal)
                             $excessLat = $stats.RecentLatencies.Count - 30
                             if ($excessLat -gt 0) { $stats.RecentLatencies.RemoveRange(0, $excessLat) }

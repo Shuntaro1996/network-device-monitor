@@ -95,7 +95,7 @@ flowchart TB
 
     subgraph Backend ["PowerShell バックエンド (Server.ps1)"]
         subgraph MainThread ["メインスレッド"]
-            HTTP_Listener["HttpListener (Port 8000/8080/...)"]
+            HTTP_Listener["HttpListener (Port 8081 / 起動時指定)"]
             Router["REST API ルーター & 静的ファイル配信"]
         end
 
@@ -170,7 +170,7 @@ flowchart TB
 | **Runspace 5: Syslog** | UDP 514 / 1514 ポートでの Syslog パケット受信、パース、キュー格納 | UDPパケット受信時（即時） | バックグラウンド Runspace |
 | **OBR Status** | OBR の無線接続状況の取得（`ObrStatus.psm1`）。状態ページを読めないときだけ `POST /index.htm`（`LOGIN_PASSWORD`）でログインし、`GET /public/stat/wlstast_main.htm?lang=en` の `stainfo` を読む。プロキシは使わない。パスワード誤り時は 5 分間隔に落とす | 機器ごとに 10 秒 | バックグラウンド Runspace |
 | **Runspace 1b: Disk Writer** | メモリ上のキューから CSV ログへの追記（10MB で世代交代）、統計チェックポイント `_checkpoint.json` の保存。ドライブの書き込みが止まっても Ping 監視を止めないよう分離 | CSV: 10秒 / チェックポイント: 60秒 | バックグラウンド Runspace |
-| **Runspace 6: Watchdog** | コンソールキー入力検知（Enterキー停止）、ブラウザハートビート監視（60秒無通信で自動保存＆終了） | 200ms 周期 | バックグラウンド Runspace |
+| **Runspace 6: Watchdog** | コンソールキー入力検知（Enterキー停止）、ブラウザハートビート監視（600秒無通信で自動保存＆終了） | 200ms 周期 | バックグラウンド Runspace |
 | **ThreadPool Workers** | IPレンジスキャン、Traceroute、SNMP詳細クエリ、Webhook送信、メール送信 | APIリクエスト時に動的生成 | .NET ThreadPool |
 
 ---
@@ -478,8 +478,8 @@ flowchart TD
 1. **瞬断カウンタ（600ms / 5s 判定）**:
    * **600ms瞬断**: Wi-FiローミングやSTP再計算、Spanning Treeトポロジー変更に伴うサブ秒単位の切断を捕捉。
    * **5秒瞬断**: 機器リブートや回線切断、ルーティング収束遅延などの重大障害を捕捉。
-2. **RFC 3550 準拠ジッター計算**:
-   連続する2回の成功パケットの遅延差分絶対値（`$jitter = [math]::Abs($currentLatency - $prevLatency)`）を算出し、平均ジッターを保持。
+2. **ジッター計算**:
+   直近 30 回の成功パケットの遅延について、隣り合う値の差の絶対値を平均して算出する（`RecentLatencies` から毎回計算）。RFC 3550 の平滑化の式は使っていない。
 
 ---
 
@@ -520,7 +520,7 @@ sequenceDiagram
     participant Server as バックエンド (Server.ps1)
     participant Process as iperf3.exe (CLI)
 
-    Browser->>Server: POST /api/iperf { target: "192.168.1.10", time: 10, ... }
+    Browser->>Server: GET /api/iperf?ip=192.168.1.10&t=10
     Server->>Server: 既存 iperf3 プロセス強制クリーンアップ
     Server->>Process: 起動 (iperf3.exe -c target -t 10 -i 1 -f m)
     Server-->>Browser: { status: "started" }
@@ -529,19 +529,19 @@ sequenceDiagram
         Process-->>Server: stdout 出力 (" [ 4] 0.00-1.00 sec 112 MBytes 941 Mbits/sec ...")
         Server->>Server: 同期 ReadLine() でストリーム取得 & 正規表現パース
         Server->>Server: $syncHash.IperfState.Output にリアルタイム追記
-        Browser->>Server: GET /api/iperf/status (200ms ポーリング)
+        Browser->>Server: GET /api/iperf?action=status (200ms ポーリング)
         Server-->>Browser: { running: true, output: "...", currentMbits: 941.2 }
         Browser->>Browser: Chart.js グラフに即時プロット (リアルタイム描画)
     end
 
     Process-->>Server: プロセス正常終了
-    Browser->>Server: GET /api/iperf/status
+    Browser->>Server: GET /api/iperf?action=status
     Server-->>Browser: { running: false, output: "... [SUM] ... Done." }
     Browser->>Browser: 計測完了表示
 ```
 
 * **リアルタイム性**: 非同期バッファリング遅延を回避するため、PowerShell側で同期 `ReadLine()` をループ実行し、出力行を即座に共有メモリへ反映。
-* **強制停止**: `/api/iperf/stop` 受信時、`taskkill /F /T /PID` を実行して `iperf3.exe` プロセスツリーをミリ秒単位で完全強制終了。
+* **強制停止**: `GET /api/iperf?action=stop` 受信時、`taskkill /F /T /PID` を実行して `iperf3.exe` プロセスツリーをミリ秒単位で完全強制終了。
 
 ---
 
@@ -600,7 +600,7 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 ## 4. 全 REST API 完全仕様書
 
 ### 4.1 API共通仕様
-* **ベースURL**: `http://localhost:8000` (または起動時指定ポート)
+* **ベースURL**: `http://localhost:8081` (または起動時指定ポート)
 * **データフォーマット**: `Content-Type: application/json; charset=utf-8`
 * **エラーレスポンス形式**:
   ```json
@@ -664,7 +664,6 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | `POST`| `/api/devices/reorder` | 機器の並び順（表示順序）の保存 | `DevicesLock` 排他制御 |
 | `POST`| `/api/devices/positions`| トポロジー図上の座標（x, y）の一括保存 | `DevicesLock` 排他制御 |
 | `POST`| `/api/devices/bulk-action`| 選択機器の一括操作（一時停止/再開/削除/グループ変更） | `DevicesLock` 排他制御 |
-| `GET` | `/api/devices/export` | 機器設定のエクスポート（フロントエンドBlob動的保存） | クライアント側処理 |
 | `POST`| `/api/devices/import` | 機器設定のインポート（JSONによる一括復元） | `DevicesLock` 排他制御 |
 
 #### `POST /api/device/edit` リクエスト例
@@ -691,12 +690,14 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | メソッド | URL | 説明 | 処理モデル |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/config` | 現在のシステム設定取得 | 即時応答 |
-| `POST`| `/api/config/update` | システム設定の更新（周期、閾値、通知先等） | 即時反映 & JSON保存 |
+| `POST`| `/api/config` | システム設定の更新（周期、閾値、通知先等） | 即時反映 & JSON保存 |
 | `GET` | `/api/config/export` | 設定＋機器情報のフルバックアップJSON生成・ダウンロード | 即時ダウンロード |
 | `POST`| `/api/config/import` | バックアップJSONからの完全リストア | `DevicesLock` 排他制御 |
 | `GET` | `/api/snapshots/list` | 自動/手動作成された機器構成スナップショット一覧 | 即時応答 |
 | `POST`| `/api/snapshots/restore` | 指定スナップショットからの機器構成ロールバック | `DevicesLock` 排他制御 |
 | `POST`| `/api/config-backup/run` | 機器コンフィグSSH/TFTP自動取得（将来拡張用） | 非同期実行 |
+| `GET` | `/api/config-backup/list` | 取得済みの機器コンフィグの一覧 | 即時応答 |
+| `GET` | `/api/config-backup/diff` | `?f1=...&f2=...` で指定した 2 つの機器コンフィグの差分 | 即時応答 |
 
 ---
 
@@ -704,11 +705,15 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 
 | メソッド | URL | パラメータ / ボディ | 説明 | 処理モデル |
 | :--- | :--- | :--- | :--- | :--- |
-| `POST`| `/api/iperf` | `{ target, port, time, reverse, parallel, udp, bandwidth }` | IPerf3 クライアント計測開始 | プロセス起動 & ストリーム |
-| `POST`| `/api/iperf/stop`| - | 実行中 IPerf3 の強制終了 | `taskkill` 強制Kill |
-| `GET` | `/api/iperf/status`| - | IPerf3 のリアルタイム出力・帯域取得 | 即時応答 (ポーリング用) |
-| `GET` | `/api/iperf/log` | `?file={filename}` | 過去の IPerf3 計測ログ取得・閲覧 | ファイル読込 |
-| `POST`| `/api/iperf/server`| `{ action: "start"\|"stop", port: 5201 }` | IPerf3 サーバーモード起動/停止 | プロセス管理 |
+| `GET` | `/api/iperf` | `?ip=...&t=秒&opts=...&bw=...` | IPerf3 クライアント計測開始 | プロセス起動 & ストリーム |
+| `GET` | `/api/iperf` | `?action=stop` | 実行中 IPerf3 の強制終了 | `taskkill` 強制Kill |
+| `GET` | `/api/iperf` | `?action=status` | IPerf3 のリアルタイム出力・実行状態の取得 | 即時応答 (ポーリング用) |
+| `GET` | `/api/iperf/log` | `?ip=...` | 最新の IPerf3 計測ログのダウンロード | ファイル読込 |
+| `GET` | `/api/mtr` | `action`（start / status / stop） | MTR 経路診断の開始・結果取得・停止 | 非同期実行 |
+| `POST`| `/api/iperf/server/start`| `{ port: 5201 }` | IPerf3 サーバーモード起動 | プロセス管理 |
+| `POST`| `/api/iperf/server/stop`| - | IPerf3 サーバーモード停止 | プロセス管理 |
+| `GET` | `/api/iperf/server/log`| - | IPerf3 サーバーログのダウンロード | ファイル読込 |
+| `POST`| `/api/iperf/server/clear-log`| - | IPerf3 サーバーの画面出力のクリア | 即時応答 |
 | `GET` | `/api/iperf/server/status` | - | IPerf3 サーバー稼働状態取得 | 即時応答 |
 | `GET` | `/api/scan` | `?start=192.168.1.1&end=192.168.1.254` | IPレンジ並列Pingスキャン (最大20並列) | **`ThreadPool` 非同期実行** |
 | `GET` | `/api/traceroute` | `?target=192.168.1.1` | 経路トレース（最大 20 区間）。`hops`（`ip` は応答なしなら null、`latency`）と `reached` を返す。構成図の右クリックメニューから使用 | 完了時に応答（最大 30 秒ほど） |
@@ -722,16 +727,18 @@ Ping監視Runspace（`$pingScript`）内で、約10秒周期でOSの近隣キャ
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | サーバー死活・メモリ使用量・スレッド健全性取得 |
 | `GET` | `/api/system/prerequisites` | サーバー実行環境の前提モジュール・ツール診断結果返却 |
-| `POST`| `/api/system/install-module` | 不足モジュール（#SNMP / Pester等）の自動インストール実行 |
+| `POST`| `/api/system/install-module` | 不足モジュール（`SNMP` のみ）の自動インストール実行 |
 | `POST`| `/api/system/cleanup-reports` | 指定日数を超えた古いレポート・ログの一括パージ |
 | `GET` | `/api/syslog` | 受信済み Syslog イベント一覧取得（リングバッファ最大500件） |
+| `POST`| `/api/syslog/clear` | 受信済み Syslog の一覧のクリア |
 | `GET` | `/api/ip-conflicts` | 検出中のIPアドレス競合（MACアドレス不一致・急変）情報一覧取得 |
-| `GET` | `/api/audit` | 操作監査ログ（`audit.log`）の取得 |
+| `GET` | `/api/audit-logs` | 操作監査ログ（`audit.log`）の取得 |
 | `GET` | `/api/history` | 指定機器の過去ログ取得（日本語・英語ヘッダー自動正規化返却） |
 | `GET` | `/api/obr/history` | 指定した OBR の無線履歴（グラフの点と出来事の一覧）を取得 |
-| `POST`| `/api/history/clear`| 全機器の履歴データ・メモリキャッシュのクリア |
-| `GET` | `/api/history/download` | セッション全ログのZIP/CSV一括ダウンロード |
-| `POST`| `/api/reports/export` | 指定期間の稼働統計レポート一括CSVエクスポート |
+| `GET` | `/api/device/logs` | 取得済みの機器ログの一覧 |
+| `GET` | `/api/device/log-download` | `?file=...` で指定した機器ログのダウンロード |
+| `GET` | `/api/device/log-presets` | 機器ログ取得のコマンドの候補 |
+| `GET` | `/api/reports/export` | 点検報告書（HTML）の取得（`?period=today` など） |
 | `POST`| `/api/email/test` | SMTP テストメール送信 (**`ThreadPool` 非同期実行**) |
 | `POST`| `/api/webhook/test`| Webhook テスト通知送信 (**`ThreadPool` 非同期実行**) |
 | `GET` | `/api/heartbeat` | クライアント生存通知（タイムアウトタイマー延長） |
@@ -992,7 +999,6 @@ while ($syncHash.Running) {
 
 ```text
 NetworkDeviceMonitor/
-├── SPECIFICATION.md          # システム完全技術仕様書 (本書)
 ├── README.md                 # 簡易概要・クイックスタート
 ├── 利用手順書.html             # エンドユーザー向け操作マニュアル
 ├── Start-Monitor.bat         # ワンクリック起動バッチ
@@ -1000,12 +1006,18 @@ NetworkDeviceMonitor/
 ├── Reports/                  # 永続ログ・レポート保存先
 │   ├── audit.log             # 操作監査ログ
 │   ├── Configs/              # 機器コンフィグバックアップ保存先
-│   └── sessions/             # 各セッションのPing履歴CSV
+│   └── (起動日時)/           # 各セッションのPing履歴CSV・点検報告書
 └── system/                   # システムコアディレクトリ
     ├── Server.ps1            # バックエンドサーバー & 監視コアエンジン
-    ├── Launcher.ps1          # 起動前ポート・権限チェッカー
-    ├── config.json           # システム設定ファイル
-    ├── devices.json          # 監視対象機器リスト
+    ├── Watchdog.ps1          # サーバーの死活監視と自動再起動
+    ├── Launcher.ps1          # 機器ごとの監視ウィンドウを開くランチャー
+    ├── SPECIFICATION.md      # システム完全技術仕様書 (本書)
+    ├── 管理者向け設計書.html   # 管理者向け資料
+    ├── config.json           # システム設定ファイル (Git の管理対象外)
+    ├── devices.json          # 監視対象機器リスト (Git の管理対象外)
+    ├── devices.example.json  # devices.json の形式の見本
+    ├── modules/              # 機能ごとのモジュール
+    ├── tests/                # 自動テスト
     ├── iperf3.18_64/         # iperf3 実行バイナリ (64bit)
     │   ├── iperf3.exe
     │   └── cygwin1.dll
@@ -1014,8 +1026,8 @@ NetworkDeviceMonitor/
         ├── app.js            # フロントエンド制御ロジック
         ├── style.css         # UIスタイルシート
         ├── vis-network.min.js# トポロジー描画ライブラリ
-        ├── chart.umd.min.js  # グラフ描画ライブラリ
-        ├── sounds/           # アラート効果音ファイル
+        ├── chart.js          # グラフ描画ライブラリ
+        ├── third-party-notices.html # 同梱ソフトウェアのライセンス表記
         └── uploads/          # ユーザーアップロード機器画像
 ```
 
@@ -1027,17 +1039,20 @@ NetworkDeviceMonitor/
 sequenceDiagram
     participant User as ユーザー / 管理者
     participant Bat as Start-Monitor.bat
+    participant Watchdog as Watchdog.ps1
     participant Server as Server.ps1
     participant Browser as デフォルトブラウザ
 
     User->>Bat: ダブルクリック実行
-    Bat->>Server: powershell.exe -ExecutionPolicy Bypass -File Server.ps1
+    Bat->>Watchdog: Watchdog.ps1 -RunPreflight -LaunchBrowser
+    Watchdog->>Server: 事前検査のあと Server.ps1 を起動
     Server->>Server: 1. 残存 iperf3.exe プロセスのクリーンアップ
     Server->>Server: 2. config.json & devices.json 読み込み
     Server->>Server: 3. 共有メモリ ($syncHash) の初期化
     Server->>Server: 4. 各バックグラウンド Runspace 起動 (Ping/SNMP/Syslog/Watchdog)
-    Server->>Server: 5. HttpListener バインド (例: http://localhost:8000/)
-    Server->>Browser: Start-Process "http://localhost:8000"
+    Server->>Server: 5. HttpListener バインド (例: http://localhost:8081/)
+    Watchdog->>Server: GET /api/health で起動完了を確認
+    Watchdog->>Browser: Start-Process "http://localhost:8081"
     Browser->>Server: GET / (index.html, app.js, style.css)
     Server-->>Browser: 静的ファイル配信
     Browser->>Server: GET /api/status (ポーリング開始)
@@ -1055,4 +1070,4 @@ sequenceDiagram
    * `$keyScript` がキー入力を検知し、`$syncHash.Shutdown = $true` を設定。
    * 全スレッドを安全に停止し、CSVバッファをフラッシュして終了。
 3. **ブラウザ切断（クラッシュ・電源断）**:
-   * ハートビートが 60 秒間途絶えた場合、Watchdog Runspace が自動切断を検知し、安全にログを保存してサーバーを自動停止。
+   * ハートビートが 600 秒間途絶えた場合、Watchdog Runspace が自動切断を検知し、安全にログを保存してサーバーを自動停止。
