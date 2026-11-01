@@ -150,6 +150,7 @@ NetworkDeviceMonitor/
 │   ├── RemoteExec.Tests.ps1           # 🔧 リモート制御テスト（SSH/WinRM/カスタム実行・タイムアウト・DPAPI暗号化・監査ログ）
 │   ├── Tools.Tests.ps1                # 🧰 帯域計測の部品・文字コード検査ツールのテスト
 │   ├── Runspace.Tests.ps1             # 🔄 Runspace統合テスト（並行スレッド動作・API契約検証）
+│   ├── ObrScenario.Tests.ps1          # 📶 模擬 OBR を相手にした無線確認の通しテスト（80番ポートが使えなければ省略）
 │   ├── E2E-Lifecycle.Tests.ps1        # 🚀 E2Eライフサイクル検証（起動→監視→終了→CSV生成の通し確認）
 │   └── ui_verification.py             # 🌐 ブラウザUI自動テスト（Playwright画面検証・切断バナー動作）
 │
